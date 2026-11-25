@@ -1,10 +1,7 @@
-import { CodeStream, type CodeLine, type TokenClass } from './codegen';
+import { CodeStream, type CodeLine } from './codegen';
 import { esc } from './dom';
 import { LOG_TAGS, type LogKind } from './messages';
 
-const MINIMAP_COLOURS: Record<TokenClass, string> = {
-  k: '#ff9a84', f: '#ffd27a', s: '#a9e5a0', n: '#c9b8ff', t: '#7fd3e6', c: '#4f6b61', i: '#efe7d3', p: '#9db3a9',
-};
 const MAX_LINES = 70;
 const MINIMAP_ROWS = 60;
 
@@ -27,7 +24,7 @@ export interface LineCounter {
 export class Editor {
   private readonly stream = new CodeStream();
   private live!: LiveLine;
-  private readonly minimap: { width: number; indent: number; colour: string }[] = [];
+  private readonly minimap: { width: number; indent: number; cls: string }[] = [];
 
   constructor(
     private readonly els: { lines: HTMLElement; live: HTMLElement; minimap: HTMLElement },
@@ -102,10 +99,10 @@ export class Editor {
     const first = this.live.tokens[0];
     const indent = first && first[0] === 'p' && first[1].trim() === '' ? first[1].length / 2 : 0;
     const main = this.live.tokens.find((t) => t[0] !== 'p');
-    this.minimap.push({ width: Math.min(100, this.live.length * 1.7), indent: indent * 14, colour: main ? MINIMAP_COLOURS[main[0]] : 'transparent' });
+    this.minimap.push({ width: Math.min(100, this.live.length * 1.7), indent: indent * 14, cls: main ? `mm${main[0]}` : 'mmx' });
     if (this.minimap.length > MINIMAP_ROWS) this.minimap.shift();
     this.els.minimap.innerHTML = this.minimap
-      .map((m) => `<b style="width:${m.width}%;margin-left:${m.indent}%;background:${m.colour}"></b>`)
+      .map((m) => `<b class="${m.cls}" style="width:${m.width}%;margin-left:${m.indent}%"></b>`)
       .join('');
 
     this.nextLine();

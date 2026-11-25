@@ -39,6 +39,7 @@ export function renderUpgrades(game: Game): string {
 /** Updates prices and affordability in place, without re-rendering (so taps on buttons are never lost). */
 export function refreshUpgrades(game: Game, root: HTMLElement): void {
   const s = game.state;
+  let hinted = false;
   root.querySelectorAll<HTMLButtonElement>('[data-buy]').forEach((btn) => {
     const u = UPGRADES.find((x) => x.id === btn.dataset.buy);
     if (!u) return;
@@ -47,6 +48,10 @@ export function refreshUpgrades(game: Game, root: HTMLElement): void {
     const affordable = s.lines.gte(cost);
     btn.disabled = !affordable;
     btn.classList.toggle('ok', affordable);
+    // Onboarding: until the first purchase, pulse the first thing the player can afford.
+    const hint = affordable && !hinted && s.stats.purchases === 0;
+    btn.classList.toggle('hint', hint);
+    hinted ||= hint;
     const progress = affordable ? 100 : Math.min(100, s.lines.div(cost).toNumber() * 100);
     btn.style.setProperty('--p', `${progress.toFixed(1)}%`);
     setText(btn.firstElementChild, `x${count}`);

@@ -12,4 +12,6 @@ export function setText(el: Element | null, text: string): void {
 export const esc = (s: string): string =>
   s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;').replace(/'/g, '&#39;');
 
-export const prefersReducedMotion = (): boolean => matchMedia('(prefers-reduced-motion: reduce)').matches;
+/** True when the device asks for reduced motion or the player turned it on in settings (html.rm). */
+export const prefersReducedMotion = (): boolean =>
+  document.documentElement.classList.contains('rm') || matchMedia('(prefers-reduced-motion: reduce)').matches;

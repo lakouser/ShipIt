@@ -222,7 +222,7 @@ export const STREAK = {
 
 /** When the other tabs appear, so new players aren't shown everything at once. */
 export const UNLOCKS = {
-  sprintsAtLifetime: 150,
-  todoAtLifetime: 400,
+  sprintsAtLifetime: 750,
+  todoAtLifetime: 2_000,
   shipAtRelease: 200_000,
 };

@@ -16,8 +16,18 @@ async function boot(): Promise<void> {
   const now = Date.now();
   const saved = await platform.storage.get(SAVE_KEY);
   const restored = saved ? deserialize(saved, now) : null;
-  const game = new Game(restored ?? newGame(now));
+  const state = restored ?? newGame(now);
+  // ?dev or #dev in the address turns on developer mode.
+  if (/[?#&]dev\b/.test(location.search + location.hash)) state.settings.dev = true;
+  const game = new Game(state);
   new App(game, platform).start(restored !== null);
+  registerServiceWorker();
+}
+
+/** Offline support and "add to home screen" on real hosting. Silently skipped where unavailable. */
+function registerServiceWorker(): void {
+  if (!('serviceWorker' in navigator) || location.protocol !== 'https:') return;
+  navigator.serviceWorker.register('./sw.js').catch(() => {});
 }
 
 void boot();

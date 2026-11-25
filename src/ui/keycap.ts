@@ -17,6 +17,8 @@ export class Keycap {
     onPress: () => void,
     /** False while a dialog (like the merge splash) is open. */
     enabled: () => boolean = () => true,
+    /** Each printable key typed on a physical keyboard (for secrets). */
+    onType: (key: string) => void = () => {},
   ) {
     // pointerdown rather than click: registers instantly and allows multi-finger mashing.
     key.addEventListener('pointerdown', (e) => {
@@ -34,6 +36,7 @@ export class Keycap {
       // Let Enter/Space activate whatever button has focus instead of double-counting.
       if (target?.closest('button') && (e.key === 'Enter' || e.key === ' ')) return;
       if (e.key === ' ') e.preventDefault();
+      onType(e.key);
       this.flashDown();
       onPress();
     });
@@ -45,12 +48,12 @@ export class Keycap {
     window.setTimeout(() => this.key.classList.remove('down'), 70);
   }
 
-  floater(lines: Decimal): void {
+  floater(lines: Decimal, crit = false): void {
     if (prefersReducedMotion() || this.floaters >= MAX_FLOATERS) return;
     this.floaters++;
     const el = document.createElement('span');
-    el.className = 'fl';
-    el.textContent = `+${fmt(lines)}`;
+    el.className = crit ? 'fl crit' : 'fl';
+    el.textContent = crit ? `CRIT +${fmt(lines)}` : `+${fmt(lines)}`;
     el.style.left = `${12 + Math.random() * 66}%`;
     this.wrap.appendChild(el);
     el.addEventListener('animationend', () => {

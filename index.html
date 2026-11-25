@@ -1,11 +1,16 @@
 <!DOCTYPE html>
-<html lang="en">
+<html lang="en" data-skin="pine">
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
   <meta name="theme-color" content="#070f0c">
   <meta name="description" content="Ship It: an idle game about writing code. Tap the key, install a rubber duck, ship the release.">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+  <meta name="apple-mobile-web-app-title" content="Ship It">
   <link rel="icon" href="./favicon.svg" type="image/svg+xml">
+  <link rel="apple-touch-icon" href="./icon-192.png">
+  <link rel="manifest" href="./manifest.webmanifest">
   <title>Ship It</title>
 </head>
 <body>
@@ -19,7 +24,7 @@
         <span><b id="rTap"></b> /tap</span>
         <span><b id="rAuto"></b> /s</span>
         <span class="spark" id="spark" aria-hidden="true"></span>
-        <span class="boost" id="rBoost" hidden></span>
+        <span class="fx" id="fx" hidden></span>
       </div>
     </header>
 
@@ -32,6 +37,7 @@
       </div>
       <div class="status">
         <span class="mode" id="mode">NORMAL</span>
+        <span class="flow" id="flow" title="Flow state: keep typing to fill it"></span>
         <span class="br">main</span>
         <span id="stLn"></span>
         <span id="stProb">0 problems</span>
@@ -51,11 +57,12 @@
 
     <nav class="bar" role="tablist" aria-label="Panels">
       <span class="sess">ship-it</span>
-      <button role="tab" data-tab="upgrades">0:upgrades</button>
-      <button role="tab" data-tab="sprints">1:sprints</button>
-      <button role="tab" data-tab="ship">2:ship</button>
+      <button role="tab" data-tab="upgrades">0:pkgs</button>
+      <button role="tab" data-tab="sprints" hidden>1:sprints</button>
+      <button role="tab" data-tab="todo" hidden>2:todo</button>
+      <button role="tab" data-tab="ship" hidden>3:ship</button>
       <span class="fill"></span>
-      <button class="snd" id="snd" aria-pressed="false" aria-label="Key sounds">snd:off</button>
+      <button role="tab" data-tab="settings" class="cfg" aria-label="Settings">cfg</button>
       <span class="clock" id="clock"></span>
     </nav>
   </div>
