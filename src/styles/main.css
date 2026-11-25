@@ -72,6 +72,14 @@ html[data-skin="paper"] {
 * { box-sizing: border-box; min-width: 0; border-radius: 0; }
 [hidden] { display: none !important; }
 html, body { height: 100%; margin: 0; }
+/*
+ * The phone's safe areas (status bar, notch, home indicator; in the Claude app also its toolbar) are
+ * kept clear here, on :root, and nowhere else. The Claude viewer injects this same padding into the
+ * page; adding the insets again lower down doubled them (a band of dead space above the readout).
+ */
+:root { padding-top: env(safe-area-inset-top, 0px); padding-bottom: env(safe-area-inset-bottom, 0px); }
+/* The strip under the home indicator in the tmux bar's colour, so the bar still reaches the screen edge. */
+body::after { content: ""; position: fixed; inset: auto 0 0; height: env(safe-area-inset-bottom, 0px); background: var(--pane2); pointer-events: none; }
 body {
   background: var(--bg);
   color: var(--ink);
@@ -110,7 +118,7 @@ b { font-weight: 700; }
   grid-template-rows: auto minmax(170px, 1fr) auto minmax(220px, 1.15fr) auto;
   grid-template-areas: "top" "ide" "key" "panel" "bar";
   gap: 10px;
-  padding: max(10px, env(safe-area-inset-top)) max(12px, env(safe-area-inset-right)) 0 max(12px, env(safe-area-inset-left));
+  padding: 10px max(12px, env(safe-area-inset-right)) 0 max(12px, env(safe-area-inset-left));
 }
 
 /* ---------- readout ---------- */
@@ -293,7 +301,7 @@ b { font-weight: 700; }
 .bar {
   grid-area: bar; display: flex; align-items: stretch; gap: 0; margin: 0 calc(-1 * max(12px, env(safe-area-inset-right))) 0 calc(-1 * max(12px, env(safe-area-inset-left)));
   background: var(--pane2); border-top: 1px solid var(--line); font-size: 13px; white-space: nowrap; overflow-x: auto;
-  padding-bottom: env(safe-area-inset-bottom); scrollbar-width: none;
+  scrollbar-width: none;
 }
 .bar::-webkit-scrollbar { display: none; }
 .sess { display: flex; align-items: center; padding: 0 12px; background: var(--green); color: var(--on-accent); font-weight: 800; }
