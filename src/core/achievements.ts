@@ -1,5 +1,5 @@
-import { UPGRADES } from './content';
-import { owned } from './economy';
+import { BOSS_KINDS, DEBT, FUNDING, PROJECTS, UPGRADES } from './content';
+import { isUpgradeAvailable, owned, teamSlots } from './economy';
 import { perSecond, perTap } from './economy';
 import { PERKS } from './content';
 import type { GameState } from './state';
@@ -52,7 +52,7 @@ export const ACHIEVEMENTS: readonly AchievementDef[] = [
   { id: 'install', name: 'npm install everything', description: 'Install 100 packages', unlocked: (s) => s.stats.purchases >= 100 },
   { id: 'double', name: 'Doubling down', description: 'Have 25 of one package', unlocked: (s) => s.stats.maxOfOne >= 25 },
   { id: 'lockin', name: 'Vendor lock-in', description: 'Have 100 of one package', unlocked: (s) => s.stats.maxOfOne >= 100 },
-  { id: 'fullstack', name: 'Full stack', description: 'Have at least one of every package', unlocked: (s) => UPGRADES.every((u) => owned(s, u.id) > 0) },
+  { id: 'fullstack', name: 'Full stack', description: 'Have at least one of every package', unlocked: (s) => UPGRADES.filter((u) => isUpgradeAvailable(s, u)).every((u) => owned(s, u.id) > 0) },
   // bugs and incidents
   { id: 'feature', name: "It's a feature", description: 'Squash your first bug', unlocked: (s) => s.stats.bugs >= 1 },
   { id: 'ext', name: 'Exterminator', description: 'Squash 5 bugs', unlocked: (s) => s.stats.bugs >= 5 },
@@ -83,11 +83,28 @@ export const ACHIEVEMENTS: readonly AchievementDef[] = [
   { id: 'perfect', name: 'Dotfile perfectionist', description: 'Max out a dotfiles perk', unlocked: (s) => PERKS.some((p) => (s.perks[p.id] ?? 0) >= p.maxLevel) },
   { id: 'standup', name: 'Daily standup', description: 'Play 3 days in a row', unlocked: (s) => s.streak.count >= 3 },
   { id: 'green', name: 'Green squares', description: 'Play 7 days in a row', unlocked: (s) => s.streak.count >= 7 },
+  // tech debt, forks, the team, bosses, projects, funding, mail
+  { id: 'refactor', name: 'Leave it better', description: 'Refactor away your tech debt', unlocked: (s) => s.stats.refactors >= 1 },
+  { id: 'bankrupt', name: 'Technical bankruptcy', description: 'Let tech debt reach 100%', unlocked: (s) => !!s.flags.bankrupt || s.debt >= DEBT.max },
+  { id: 'fork', name: 'Breaking change', description: 'Pick a package upgrade', unlocked: (s) => s.stats.forksChosen >= 1 },
+  { id: 'forks25', name: 'Dependency hell', description: 'Pick 25 package upgrades', unlocked: (s) => s.stats.forksChosen >= 25 },
+  { id: 'hire', name: "We're hiring", description: 'Hire a developer', unlocked: (s) => s.stats.hires >= 1 },
+  { id: 'fullteam', name: 'Two-pizza team', description: 'Fill every team slot', unlocked: (s) => s.team.length >= teamSlots(s) },
+  { id: 'boss', name: 'Incident commander', description: 'Beat a boss incident', unlocked: (s) => s.stats.bossesBeaten >= 1 },
+  { id: 'boss10', name: 'War room veteran', description: 'Beat 10 boss incidents', unlocked: (s) => s.stats.bossesBeaten >= 10 },
+  { id: 'bossall', name: 'Seen it all', description: 'Beat every kind of boss incident', unlocked: (s) => BOSS_KINDS.every((k) => s.bossKinds.includes(k)) },
+  { id: 'pivot', name: 'Pivot', description: 'Ship something other than a web app', unlocked: (s) => s.projectsShipped.some((p) => p !== 'webapp') },
+  { id: 'portfolio', name: 'Portfolio', description: 'Ship every kind of project', unlocked: (s) => PROJECTS.every((p) => s.projectsShipped.includes(p.id)) },
+  { id: 'raise', name: 'Term sheet', description: 'Raise a funding round', unlocked: (s) => s.round >= 1 },
+  { id: 'ipo', name: 'Ring the bell', description: 'Take the company public', unlocked: (s) => s.round >= FUNDING.maxRounds },
+  { id: 'replyall', name: 'Reply all', description: 'Answer 10 emails', unlocked: (s) => s.stats.mailAnswered >= 10 },
+  { id: 'rtfm', name: 'RTFM', description: 'Read 5 man pages', unlocked: (s) => s.manRead.length >= 5 },
   // secrets
   { id: 'sudo', name: 'sudo make me a sandwich', description: 'Type sudo on a keyboard', secret: true, unlocked: (s) => !!s.flags.sudo },
   { id: 'rmrf', name: 'Living dangerously', description: 'Type rm -rf on a keyboard', secret: true, unlocked: (s) => !!s.flags.rmrf },
   { id: 'owl', name: 'Night owl', description: 'Play between 2 and 5 a.m.', secret: true, unlocked: (s, c) => !!s.flags.nightOwl || (c.hour >= 2 && c.hour < 5 && s.stats.taps > 0) },
   { id: 'backup', name: 'Backup strategy', description: 'Export your save', secret: true, unlocked: (s) => !!s.flags.exported },
+  { id: 'quack', name: 'Rubber duck debugging', description: 'Talk to the duck 10 times', secret: true, unlocked: (s) => s.stats.duckPokes >= 10 },
   { id: 'grass', name: 'Touch grass', description: 'Come back after 2 hours away', secret: true, unlocked: (s) => !!s.flags.touchGrass },
 ];
 

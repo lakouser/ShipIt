@@ -1,4 +1,5 @@
 import { SCRIPT_IDS, type IncidentKind } from './content';
+import { addDebt } from './debt';
 import { addLines } from './economy';
 import { grantScript } from './effects';
 import { updateIncident } from './incidents';
@@ -6,7 +7,7 @@ import { Decimal } from './num';
 import type { Rng } from './rng';
 import type { GameState, Incident } from './state';
 
-export type DevAction = 'lines' | 'stars' | 'bug' | 'incident' | 'sprint' | 'scripts' | 'quests' | 'unlock' | 'warp';
+export type DevAction = 'lines' | 'stars' | 'bug' | 'incident' | 'sprint' | 'scripts' | 'quests' | 'unlock' | 'debt' | 'applicant' | 'boss' | 'mail' | 'warp';
 
 /** Developer shortcuts for testing. Returns a spawned incident, if any, so the game can announce it. */
 export function applyDev(s: GameState, action: DevAction, now: number, rng: Rng, incident?: IncidentKind): Incident | null {
@@ -38,8 +39,19 @@ export function applyDev(s: GameState, action: DevAction, now: number, rng: Rng,
       s.nextQuestAt = 0;
       return null;
     case 'unlock':
-      s.unlocked = { sprints: true, todo: true, ship: true };
+      s.unlocked = { sprints: true, todo: true, ship: true, team: true, mail: true };
       return null;
+    case 'debt':
+      addDebt(s, 30);
+      return null;
+    case 'applicant':
+      s.unlocked.team = true;
+      s.applicant = null;
+      s.nextApplicantAt = now;
+      return null;
+    // Handled by the game, which announces them.
+    case 'boss':
+    case 'mail':
     case 'warp':
       return null;
   }
