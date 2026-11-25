@@ -22,6 +22,15 @@ export class Header {
 
   constructor(private readonly game: Game) {}
 
+  /** Bounces the star count in the readout (after a ship). */
+  bounceStars(): void {
+    const st = this.el.sub.querySelector('.st');
+    if (!st) return;
+    st.classList.remove('pop');
+    void (st as HTMLElement).offsetWidth; // restart the animation
+    st.classList.add('pop');
+  }
+
   update(bugOnScreen: boolean, typing: boolean): void {
     const s = this.game.state;
     const now = this.game.now();

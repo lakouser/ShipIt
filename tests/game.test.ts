@@ -109,6 +109,10 @@ describe('ship', () => {
     t.state.lines = D(5_000);
     const result = t.game.ship()!;
     expect(result.stars).toBe(2);
+    expect(result.starsBefore).toBe(0);
+    expect(result.linesBefore.toNumber()).toBe(5_000);
+    expect(result.releaseLines.toNumber()).toBe(100_000);
+    expect(result.release).toBe(2);
     expect(t.state.release).toBe(2);
     expect(t.state.lines.toNumber()).toBe(0);
     expect(t.state.owned).toEqual({});

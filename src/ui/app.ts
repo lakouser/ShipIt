@@ -8,6 +8,7 @@ import { $ } from './dom';
 import { Editor } from './editor';
 import { Header } from './header';
 import { Keycap } from './keycap';
+import { playMergeSplash } from './merge';
 import { describe, type LogKind } from './messages';
 import { Panels } from './panels';
 import { createClicker } from './sound';
@@ -43,6 +44,8 @@ export class App {
   private charBudget = 0;
   private lastFrame = 0;
   private lastTapAt = 0;
+  /** True while the merge splash is showing: pauses typing and bugs. */
+  private dialogOpen = false;
   private readonly spark: Decimal[] = [];
   private sparkPrev: Decimal;
   private readonly tabButtons = {
@@ -62,7 +65,7 @@ export class App {
     );
     this.header = new Header(game);
     this.panels = new Panels(game, $('#panel'), $('.bar'), () => this.feedback());
-    this.keycap = new Keycap($<HTMLButtonElement>('#key'), $('.keywrap'), () => this.tap());
+    this.keycap = new Keycap($<HTMLButtonElement>('#key'), $('.keywrap'), () => this.tap(), () => !this.dialogOpen);
     this.bug = new BugView($('#code'), () => game.squashBug());
 
     const sound = $<HTMLButtonElement>('#snd');
@@ -118,8 +121,15 @@ export class App {
     for (const line of describe(e)) this.editor.log(line.text, line.kind);
     switch (e.type) {
       case 'sprintStarted':
+        this.panels.render();
+        break;
       case 'shipped':
         this.panels.render();
+        this.dialogOpen = true;
+        void playMergeSplash(e.result, { onStars: () => this.feedback(true) }).then(() => {
+          this.dialogOpen = false;
+          this.header.bounceStars();
+        });
         break;
       case 'sprintEnded':
         this.panels.render();
@@ -141,7 +151,7 @@ export class App {
   }
 
   private tick(): void {
-    this.game.tick({ canSpawnBug: this.platform.isVisible() });
+    this.game.tick({ canSpawnBug: this.platform.isVisible() && !this.dialogOpen });
     this.panels.refresh();
     // tmux-style window flags: # activity (sprint running), ! bell (ready to ship)
     this.tabButtons.sprints.classList.toggle('act', !!this.game.state.sprint);

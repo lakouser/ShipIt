@@ -15,18 +15,20 @@ export class Keycap {
     private readonly key: HTMLButtonElement,
     private readonly wrap: HTMLElement,
     onPress: () => void,
+    /** False while a dialog (like the merge splash) is open. */
+    enabled: () => boolean = () => true,
   ) {
     // pointerdown rather than click: registers instantly and allows multi-finger mashing.
     key.addEventListener('pointerdown', (e) => {
       e.preventDefault();
-      onPress();
+      if (enabled()) onPress();
     });
     // Keyboard activation of the focused button (Enter/Space) arrives as a click with detail 0.
     key.addEventListener('click', (e) => {
-      if (e.detail === 0) onPress();
+      if (e.detail === 0 && enabled()) onPress();
     });
     window.addEventListener('keydown', (e) => {
-      if (e.repeat || e.metaKey || e.ctrlKey || e.altKey) return;
+      if (!enabled() || e.repeat || e.metaKey || e.ctrlKey || e.altKey) return;
       if (IGNORED_KEYS.has(e.key) || e.key.startsWith('Arrow')) return;
       const target = e.target as Element | null;
       // Let Enter/Space activate whatever button has focus instead of double-counting.
