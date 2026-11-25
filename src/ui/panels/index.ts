@@ -19,6 +19,8 @@ export interface PanelActions {
   exportSave(): string;
   importSave(text: string): boolean;
   resetSave(): void;
+  restoreBackup(): void;
+  saveInfo(): { status: string; ok: boolean; backup: string | null };
   copy(text: string): void;
   hapticsSupported: boolean;
   version: string;
@@ -84,6 +86,7 @@ export class Panels {
       resetArmed: this.resetArmed,
       hapticsSupported: this.actions.hapticsSupported,
       version: this.actions.version,
+      save: this.actions.saveInfo(),
     };
     this.root.innerHTML =
       tab === 'upgrades' ? renderUpgrades(this.game)
@@ -103,6 +106,14 @@ export class Panels {
     } else if (tab === 'sprints') refreshSprints(this.game, this.root);
     else if (tab === 'todo') refreshTodo(this.game, this.root);
     else if (tab === 'ship') refreshShip(this.game, this.root, this.armed);
+    else if (tab === 'settings') {
+      const el = this.root.querySelector('[data-save-status]');
+      const info = this.actions.saveInfo();
+      if (el && el.textContent !== info.status) {
+        el.textContent = info.status;
+        el.classList.toggle('bad', !info.ok);
+      }
+    }
   }
 
   private handleClick(e: MouseEvent): void {
@@ -166,6 +177,8 @@ export class Panels {
     } else if (act === 'load') {
       const box = this.root.querySelector<HTMLTextAreaElement>('#importBox');
       this.importError = !box || !this.actions.importSave(box.value);
+    } else if (act === 'restore') {
+      this.actions.restoreBackup();
     } else if (act === 'reset') {
       if (this.resetArmed) {
         this.actions.resetSave();

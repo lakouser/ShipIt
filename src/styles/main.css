@@ -398,6 +398,9 @@ b { font-weight: 700; }
 .chip2 small { color: var(--dim); }
 .act { min-height: 40px; padding: 0 12px; border: 1px solid var(--line2); color: var(--ink); }
 .act.danger { border-color: var(--red); color: var(--red); }
+.savest { color: var(--c-loc); font-size: 13px; padding: 2px 0 6px; }
+.savest::before { content: '● '; }
+.savest.bad { color: var(--c-bug); }
 .savebox { width: 100%; background: var(--bg); color: var(--ink); border: 1px solid var(--line2); font: 13px/1.4 var(--mono); padding: 8px; resize: vertical; -webkit-user-select: text; user-select: text; }
 
 /* ---------- incidents ---------- */

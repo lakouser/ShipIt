@@ -9,6 +9,7 @@ export interface SettingsView {
   resetArmed: boolean;
   hapticsSupported: boolean;
   version: string;
+  save: { status: string; ok: boolean; backup: string | null };
 }
 
 export const SKINS: { id: Skin; label: string; unlocked: (g: Game) => boolean; hint: string }[] = [
@@ -34,6 +35,18 @@ export function renderSettings(game: Game, view: SettingsView): string {
   const st = game.state.settings;
   let html = '<div class="cmd"><span><span class="ps">$</span> vim ~/.shiprc</span></div>';
 
+  html += '<div class="grp"># save</div><div class="opts">';
+  html += `<div class="savest ${view.save.ok ? '' : 'bad'}" data-save-status>${esc(view.save.status)}</div>`;
+  if (view.save.backup) html += `<div class="row2"><button class="act" data-act="restore">restore backup</button><small class="dim">${esc(view.save.backup)}</small></div>`;
+  html += '<div class="row2"><button class="act" data-act="export">export save</button><button class="act" data-act="import">import save</button><button class="act danger" data-act="reset">' + (view.resetArmed ? 'really reset? tap again' : 'reset progress') + '</button></div>';
+  if (view.exportText !== null) {
+    html += `<textarea class="savebox" readonly rows="3" aria-label="Exported save">${esc(view.exportText)}</textarea><div class="row2"><button class="act" data-act="copy">copy</button><small class="dim">keep it somewhere safe; paste it into import on any device</small></div>`;
+  }
+  if (view.importOpen) {
+    html += `<textarea class="savebox" id="importBox" rows="3" placeholder="paste a SHIPIT: save here" aria-label="Save to import"></textarea><div class="row2"><button class="act" data-act="load">load save</button>${view.importError ? '<small class="bad">that save could not be read</small>' : '<small class="dim">replaces your current progress</small>'}</div>`;
+  }
+  html += '</div>';
+
   html += '<div class="grp"># sound</div><div class="opts">';
   html += toggle('sound', st.sound, 'key sounds');
   html += `<div class="row2"><span class="lbl">switch</span>${KEY_SOUNDS.map((k) => choice('keySound', k, st.keySound === k, k)).join('')}</div>`;
@@ -48,16 +61,6 @@ export function renderSettings(game: Game, view: SettingsView): string {
   html += `<div class="row2"><span class="lbl">numbers</span>${NOTATIONS.map((n) => choice('notation', n.id, st.notation === n.id, n.label)).join('')}</div>`;
   html += toggle('reduceMotion', st.reduceMotion, 'reduce motion', 'no floating numbers, crawling or bouncing');
   html += toggle('welcome', st.welcome, 'welcome-back screen', 'otherwise just a log line');
-  html += '</div>';
-
-  html += '<div class="grp"># save</div><div class="opts">';
-  html += '<div class="row2"><button class="act" data-act="export">export save</button><button class="act" data-act="import">import save</button><button class="act danger" data-act="reset">' + (view.resetArmed ? 'really reset? tap again' : 'reset progress') + '</button></div>';
-  if (view.exportText !== null) {
-    html += `<textarea class="savebox" readonly rows="3" aria-label="Exported save">${esc(view.exportText)}</textarea><div class="row2"><button class="act" data-act="copy">copy</button><small class="dim">keep it somewhere safe; paste it into import on any device</small></div>`;
-  }
-  if (view.importOpen) {
-    html += `<textarea class="savebox" id="importBox" rows="3" placeholder="paste a SHIPIT: save here" aria-label="Save to import"></textarea><div class="row2"><button class="act" data-act="load">load save</button>${view.importError ? '<small class="bad">that save could not be read</small>' : '<small class="dim">replaces your current progress</small>'}</div>`;
-  }
   html += '</div>';
 
   html += `<div class="grp"># about</div><div class="opts"><button class="opt about" data-act="version">ship-it ${esc(view.version)} <small>${st.dev ? 'developer mode on' : 'an idle game about writing code'}</small></button></div>`;

@@ -1,3 +1,4 @@
+import { connectClaudeDb } from './claude';
 import type { KeyValueStore, Platform } from './types';
 
 /** localStorage can be missing or throw (private mode, sandboxed frames), so every call is guarded. */
@@ -23,6 +24,17 @@ const storage: KeyValueStore = {
       /* ignore */
     }
   },
+  async probe() {
+    try {
+      const key = 'shipit.probe';
+      localStorage.setItem(key, '1');
+      const ok = localStorage.getItem(key) === '1';
+      localStorage.removeItem(key);
+      return ok;
+    } catch {
+      return false;
+    }
+  },
 };
 
 const canVibrate = typeof navigator !== 'undefined' && typeof navigator.vibrate === 'function';
@@ -30,6 +42,7 @@ const canVibrate = typeof navigator !== 'undefined' && typeof navigator.vibrate 
 export const webPlatform: Platform = {
   id: 'web',
   storage,
+  cloud: () => connectClaudeDb('shipit'),
   haptics: {
     supported: canVibrate,
     tap: () => {

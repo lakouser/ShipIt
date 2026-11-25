@@ -1,8 +1,9 @@
 import type { Game, GameEvent } from '../core/game';
-import { D, setNotation, type Decimal } from '../core/num';
-import { exportSave, importSave, SAVE_KEY, serialize } from '../core/save';
+import { clock, D, fmt, setNotation, type Decimal } from '../core/num';
+import { deserialize, exportSave, importSave, serialize } from '../core/save';
 import { starsAvailable } from '../core/ship';
 import type { Platform } from '../platform';
+import type { SaveStore } from '../platform/saves';
 import { BugView } from './bug';
 import { $ } from './dom';
 import { Editor } from './editor';
@@ -37,6 +38,12 @@ const charsPerTap = (lines: Decimal): number => 6 + Math.min(12, Math.floor(line
 /** Automation types on its own, faster as output grows, capped so it stays readable. */
 const autoCharsPerSecond = (perSecond: Decimal): number => (perSecond.gt(0) ? Math.min(30, 3 + perSecond.add(1).log10() * 9) : 0);
 
+/** "5m", "3h", "2d": how long ago a backup was saved. */
+function ageText(ms: number): string {
+  const m = Math.max(1, Math.round(ms / 60_000));
+  return m < 60 ? `${m}m` : m < 48 * 60 ? `${Math.round(m / 60)}h` : `${Math.round(m / 1440)}d`;
+}
+
 /** Wires the game to the screen: input, rendering, timers, dialogs and saving. */
 export class App {
   private readonly editor: Editor;
@@ -61,6 +68,7 @@ export class App {
   constructor(
     private readonly game: Game,
     private readonly platform: Platform,
+    private readonly saves: SaveStore,
   ) {
     const s = game.state;
     this.sparkPrev = s.lifetime;
@@ -75,6 +83,8 @@ export class App {
       },
       importSave: (text) => this.replaceSave(text),
       resetSave: () => this.resetSave(),
+      restoreBackup: () => this.restoreBackup(),
+      saveInfo: () => this.saveInfo(),
       copy: (text) => void navigator.clipboard?.writeText(text).catch(() => {}),
       hapticsSupported: platform.haptics.supported,
       version: `v${__APP_VERSION__}`,
@@ -94,8 +104,9 @@ export class App {
     document.querySelector('meta[name="theme-color"]')?.setAttribute('content', SKIN_THEME_COLOR[st.skin] ?? '#070f0c');
   }
 
-  /** returning: the state came from a save, so credit the time away. */
-  start(returning: boolean): void {
+  /** from: where the save came from (null for a new game); a returning player is credited the time away. */
+  start(from: 'device' | 'cloud' | null): void {
+    const returning = from !== null;
     const g = this.game;
     const s = g.state;
     this.applySettings();
@@ -107,8 +118,9 @@ export class App {
     g.on((e) => this.onEvent(e));
 
     this.editor.prefill(16);
-    if (returning) this.editor.log(`session restored on v${s.release}.0`, 'ok');
+    if (returning) this.editor.log(from === 'cloud' ? `save loaded from your claude account, v${s.release}.0` : `session restored on v${s.release}.0`, 'ok');
     else for (const [kind, text] of BOOT_LOG) this.editor.log(text, kind);
+    this.watchSaves();
     if (returning) g.creditTimeAway((g.now() - s.savedAt) / 1000);
     g.checkIn();
 
@@ -127,7 +139,10 @@ export class App {
     window.setInterval(() => this.save(), SAVE_MS);
     window.setInterval(() => this.sampleSpark(), 1000);
     this.sampleSpark();
-    this.platform.onHide(() => this.save());
+    this.platform.onHide(() => {
+      this.save();
+      void this.saves.flush();
+    });
     requestAnimationFrame((t) => this.frame(t));
   }
 
@@ -195,6 +210,8 @@ export class App {
         if (e.outcome === 'caught' || e.outcome === 'fixed' || e.outcome === 'resolved') this.feedback(true);
         break;
       case 'shipped':
+        this.save();
+        void this.saves.flush();
         this.panels.render();
         this.dialogOpen = true;
         void playMergeSplash(e.result, { onStars: () => this.feedback(true) }).then(() => {
@@ -247,18 +264,63 @@ export class App {
   private replaceSave(text: string): boolean {
     const imported = importSave(text, this.game.now());
     if (!imported) return false;
-    this.frozen = true;
-    void this.platform.storage.set(SAVE_KEY, serialize(imported, this.game.now())).then(() => location.reload());
+    this.switchTo(serialize(imported, this.game.now()));
     return true;
   }
 
   private resetSave(): void {
     this.frozen = true;
-    void this.platform.storage.remove(SAVE_KEY).then(() => location.reload());
+    void this.saves.clear().then(() => location.reload());
+  }
+
+  /** Restores the backup with the most progress (kept when a reset, import or other save replaced it). */
+  private restoreBackup(): void {
+    const backup = this.saves.backup();
+    const state = backup ? deserialize(backup.text, this.game.now()) : null;
+    // Re-stamped as saved now: it should win over every other copy, and earns no time-away bonus.
+    if (state) this.switchTo(serialize(state, this.game.now()));
+  }
+
+  /** Makes text the save everywhere and reloads into it. */
+  private switchTo(text: string): void {
+    this.frozen = true;
+    void this.saves.replace(text).then(() => location.reload());
   }
 
   private save(): void {
     if (this.frozen) return;
-    void this.platform.storage.set(SAVE_KEY, serialize(this.game.state, this.game.now()));
+    this.saves.save(serialize(this.game.state, this.game.now()));
+  }
+
+  /** Warns when nothing can keep the save, and switches to a newer cloud save that answers late. */
+  private watchSaves(): void {
+    const warnIfUnsaved = () => {
+      const st = this.saves.status();
+      if (!st.device && st.cloud !== 'synced' && st.cloud !== 'saving' && st.cloud !== 'connecting') {
+        this.editor.log("this view can't keep your save: export it from cfg before closing", 'warn');
+      }
+    };
+    warnIfUnsaved();
+    if (this.saves.status().cloud === 'connecting') window.setTimeout(warnIfUnsaved, 11_000);
+    this.saves.onLateSave((text) => {
+      this.editor.log('found a newer save in your claude account, loading it', 'info');
+      this.frozen = true;
+      window.setTimeout(() => void this.saves.replace(text).then(() => location.reload()), 1200);
+    });
+  }
+
+  /** What the settings panel says about saving. */
+  private saveInfo(): { status: string; ok: boolean; backup: string | null } {
+    const st = this.saves.status();
+    const ago = st.cloudSavedAt ? ` · synced ${clock(Math.max(0, (Date.now() - st.cloudSavedAt) / 1000))} ago` : '';
+    const status =
+      st.cloud === 'synced' || st.cloud === 'saving' ? `saving to your claude account${st.device ? ' and this device' : ''}${ago}`
+      : st.cloud === 'connecting' ? 'connecting to your claude account…'
+      : st.device ? (st.cloud === 'error' ? "claude account unreachable: saving on this device only" : 'saving on this device only')
+      : "not saving: export your save to keep it";
+    const ok = st.device || st.cloud === 'synced' || st.cloud === 'saving';
+    const b = this.saves.backup();
+    const backup = b && D(b.meta.lifetime).gt(this.game.state.lifetime) ? `v${b.meta.release}.0 · ${fmt(D(b.meta.lifetime))} lines · ${b.meta.savedAt ? `${ageText(Date.now() - b.meta.savedAt)} ago` : 'older'}` : null;
+    return { status, ok, backup };
   }
 }

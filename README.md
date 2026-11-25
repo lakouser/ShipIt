@@ -65,6 +65,8 @@ src/
     game.ts          The Game class: the UI's only entry point. Applies actions and time, emits events.
     save.ts          Versioned save format with migrations, validation, export/import.
   platform/    What the game needs from the device (storage, haptics, app hidden). web.ts today.
+    saves.ts         Where saves live: this device plus a cloud copy, backups, newest-wins loading.
+    claude.ts        The cloud copy when served as a Claude artifact (its per-player database).
   ui/          Everything on screen: editor, code generator, key, bug, incidents, header, panels,
                merge and welcome splashes, sounds.
   styles/      The visual language and the four themes (main.css).
@@ -80,4 +82,5 @@ Flow: the UI calls methods on `Game` (`tap`, `buy`, `buyPerk`, `runScript`, `sta
 - All quantities are `Decimal`s (via `core/num.ts`) so numbers can pass 1e308.
 - After changing anything in `content.ts`, run `npm run simulate` to see the effect on pacing. `tests/pacing.test.ts` fails if the first ship gets too fast or too slow.
 - Device features go through `platform/`. To ship natively, add a `capacitor.ts` implementing `Platform` (Preferences for storage, the Haptics plugin, app state events) and return it from `getPlatform()`.
+- Saves: browser storage alone is not trusted (some embedded views drop it). As a Claude artifact the game also keeps a copy in the player's private artifact database (the artifact must declare `capabilities: { db: {}, user: {} }`); elsewhere it saves on the device only, and settings says which. The cloud copy is always read before it is written, and a save with less progress never replaces another without leaving a backup that settings can restore.
 - Changing the shape of the save: bump `SAVE_VERSION` in `core/save.ts` and add a migration from the previous version. Old saves are upgraded on load; unreadable saves fall back to a new game instead of crashing.

@@ -9,18 +9,36 @@ import { Game } from './core/game';
 import { deserialize, SAVE_KEY } from './core/save';
 import { newGame } from './core/state';
 import { getPlatform } from './platform';
+import { SaveStore, type Candidate } from './platform/saves';
 import { App } from './ui/app';
 
 async function boot(): Promise<void> {
   const platform = getPlatform();
+  const saves = new SaveStore(platform.storage, () => platform.cloud(), {
+    key: SAVE_KEY,
+    waitMs: 3000,
+    cloudEveryMs: 60_000,
+    visible: () => platform.isVisible(),
+  });
+  const candidates = await saves.load();
   const now = Date.now();
-  const saved = await platform.storage.get(SAVE_KEY);
-  const restored = saved ? deserialize(saved, now) : null;
+  // Newest first; a save that can't be read is kept aside and the next one tried.
+  let restored = null;
+  let from: Candidate['source'] | null = null;
+  for (const c of candidates) {
+    restored = deserialize(c.text, now);
+    if (restored) {
+      from = c.source;
+      break;
+    }
+    await saves.keepUnreadable(c.text);
+  }
+  saves.started(from ? candidates.find((c) => c.source === from)!.text : null);
   const state = restored ?? newGame(now);
   // ?dev or #dev in the address turns on developer mode.
   if (/[?#&]dev\b/.test(location.search + location.hash)) state.settings.dev = true;
   const game = new Game(state);
-  new App(game, platform).start(restored !== null);
+  new App(game, platform, saves).start(from);
   registerServiceWorker();
 }
 
