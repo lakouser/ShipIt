@@ -1,5 +1,5 @@
 import type { Game, GameEvent } from '../core/game';
-import type { Decimal } from '../core/num';
+import { D, type Decimal } from '../core/num';
 import { SAVE_KEY, serialize } from '../core/save';
 import { starsAvailable } from '../core/ship';
 import type { Platform } from '../platform';
@@ -8,12 +8,23 @@ import { $ } from './dom';
 import { Editor } from './editor';
 import { Header } from './header';
 import { Keycap } from './keycap';
-import { describe } from './messages';
+import { describe, type LogKind } from './messages';
 import { Panels } from './panels';
 import { createClicker } from './sound';
 
 const TICK_MS = 200;
 const SAVE_MS = 5000;
+const TYPING_MS = 700;
+const SPARK_SAMPLES = 20;
+const SPARK_CHARS = '▁▂▃▄▅▆▇█';
+
+const BOOT_LOG: [LogKind, string][] = [
+  ['ok', 'booting ship-it'],
+  ['ok', 'mounting /dev/coffee'],
+  ['ok', 'loading rubber-duck drivers'],
+  ['warn', 'no tests found (that is fine)'],
+  ['info', 'ready: tap the key or type anything to write code'],
+];
 
 /** Characters typed per tap grow slowly with tap power, so the editor feels faster as you upgrade. */
 const charsPerTap = (lines: Decimal): number => 6 + Math.min(12, Math.floor(Math.log10(lines.toNumber() + 1) * 3));
@@ -31,18 +42,26 @@ export class App {
   private readonly counter = $('#loc');
   private charBudget = 0;
   private lastFrame = 0;
+  private lastTapAt = 0;
+  private readonly spark: Decimal[] = [];
+  private sparkPrev: Decimal;
+  private readonly tabButtons = {
+    sprints: $('[data-tab="sprints"]'),
+    ship: $('[data-tab="ship"]'),
+  };
 
   constructor(
     private readonly game: Game,
     private readonly platform: Platform,
   ) {
     const s = game.state;
+    this.sparkPrev = s.lifetime;
     this.editor = new Editor(
       { lines: $('#lines'), live: $('#live'), minimap: $('#mini') },
       { get: () => s.editorLine, set: (n) => (s.editorLine = n) },
     );
     this.header = new Header(game);
-    this.panels = new Panels(game, $('#panel'), $('.seg'), () => this.feedback());
+    this.panels = new Panels(game, $('#panel'), $('.bar'), () => this.feedback());
     this.keycap = new Keycap($<HTMLButtonElement>('#key'), $('.keywrap'), () => this.tap());
     this.bug = new BugView($('#code'), () => game.squashBug());
 
@@ -60,10 +79,10 @@ export class App {
     this.game.on((e) => this.onEvent(e));
     this.editor.prefill(16);
     if (returning) {
-      this.editor.log(`session restored on v${s.release}.0`);
+      this.editor.log(`session restored on v${s.release}.0`, 'ok');
       this.game.creditTimeAway((this.game.now() - s.savedAt) / 1000);
     } else {
-      this.editor.log('tap the key, or type on your keyboard, to write code');
+      for (const [kind, text] of BOOT_LOG) this.editor.log(text, kind);
     }
     this.renderSoundToggle();
     this.panels.render();
@@ -71,12 +90,15 @@ export class App {
 
     window.setInterval(() => this.tick(), TICK_MS);
     window.setInterval(() => this.save(), SAVE_MS);
+    window.setInterval(() => this.sampleSpark(), 1000);
+    this.sampleSpark();
     this.platform.onHide(() => this.save());
     requestAnimationFrame((t) => this.frame(t));
   }
 
   private tap(): void {
     const lines = this.game.tap();
+    this.lastTapAt = performance.now();
     this.editor.type(charsPerTap(lines));
     this.keycap.floater(lines);
     this.counter.classList.remove('bump');
@@ -93,8 +115,7 @@ export class App {
   }
 
   private onEvent(e: GameEvent): void {
-    const text = describe(e);
-    if (text) this.editor.log(text);
+    for (const line of describe(e)) this.editor.log(line.text, line.kind);
     switch (e.type) {
       case 'sprintStarted':
       case 'shipped':
@@ -122,8 +143,11 @@ export class App {
   private tick(): void {
     this.game.tick({ canSpawnBug: this.platform.isVisible() });
     this.panels.refresh();
-    $('#dShip').hidden = starsAvailable(this.game.state) < 1;
-    $('#dSp').hidden = !this.game.state.sprint;
+    // tmux-style window flags: # activity (sprint running), ! bell (ready to ship)
+    this.tabButtons.sprints.classList.toggle('act', !!this.game.state.sprint);
+    this.tabButtons.ship.classList.toggle('bell', starsAvailable(this.game.state) >= 1);
+    const d = new Date();
+    $('#clock').textContent = `${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`;
   }
 
   private frame(t: number): void {
@@ -135,14 +159,27 @@ export class App {
       this.charBudget -= chars;
       this.editor.type(chars);
     }
-    this.header.update(this.game.state.bug !== null);
+    this.header.update(this.game.state.bug !== null, t - this.lastTapAt < TYPING_MS);
     requestAnimationFrame((next) => this.frame(next));
   }
 
   private renderSoundToggle(): void {
     const on = this.game.state.settings.sound;
     $('#snd').setAttribute('aria-pressed', String(on));
-    $('#sndl').textContent = on ? 'Sound on' : 'Sound off';
+    $('#snd').textContent = on ? 'snd:on' : 'snd:off';
+  }
+
+  /** Lines written per second (taps included) for the header sparkline. */
+  private sampleSpark(): void {
+    const now = this.game.state.lifetime;
+    const delta = now.sub(this.sparkPrev);
+    this.sparkPrev = now;
+    this.spark.push(delta.lt(0) ? D(0) : delta);
+    if (this.spark.length > SPARK_SAMPLES) this.spark.shift();
+    const max = this.spark.reduce((m, v) => (v.gt(m) ? v : m), D(0));
+    const top = SPARK_CHARS.length - 1;
+    const padded = [...Array(SPARK_SAMPLES - this.spark.length).fill(D(0)), ...this.spark] as Decimal[];
+    $('#spark').textContent = padded.map((v) => SPARK_CHARS[max.gt(0) ? Math.round(v.div(max).toNumber() * top) : 0]).join('');
   }
 
   private save(): void {

@@ -1,5 +1,6 @@
 import { CodeStream, type CodeLine, type TokenClass } from './codegen';
 import { esc } from './dom';
+import { LOG_TAGS, type LogKind } from './messages';
 
 const MINIMAP_COLOURS: Record<TokenClass, string> = {
   k: '#ff9a84', f: '#ffd27a', s: '#a9e5a0', n: '#c9b8ff', t: '#7fd3e6', c: '#4f6b61', i: '#efe7d3', p: '#9db3a9',
@@ -60,12 +61,12 @@ export class Editor {
     this.renderLive();
   }
 
-  /** Prints a game message (achievement, sprint result…) above the line being typed. */
-  log(text: string): void {
+  /** Prints a tagged log line ([ ok ], [warn], $ …) above the line being typed. */
+  log(text: string, kind: LogKind = 'info'): void {
     const row = document.createElement('div');
     row.className = 'ln sys';
-    row.innerHTML = '<span class="g">›</span><span class="tx"></span>';
-    row.lastElementChild!.textContent = text;
+    row.innerHTML = `<span class="g"></span><span class="tx"><span class="tag tag-${kind}">${LOG_TAGS[kind]}</span> </span>`;
+    row.lastElementChild!.append(text);
     this.els.lines.insertBefore(row, this.els.live);
     this.trim();
   }

@@ -19,7 +19,7 @@ export class BugView {
     bug.className = 'bug';
     bug.setAttribute('aria-label', 'Squash the bug');
     bug.innerHTML = BUG_SVG;
-    bug.style.top = `${8 + Math.random() * Math.max(8, height - 56)}px`;
+    bug.style.top = `${8 + Math.random() * Math.max(8, height - 60)}px`;
     bug.addEventListener('pointerdown', (e) => {
       e.preventDefault();
       e.stopPropagation();
@@ -32,7 +32,7 @@ export class BugView {
     this.el = bug;
 
     if (prefersReducedMotion()) {
-      bug.style.transform = `translateX(${Math.random() * Math.max(10, width - 60)}px)`;
+      bug.style.transform = `translateX(${Math.random() * Math.max(10, width - 70)}px)`;
     } else {
       bug.style.transitionDuration = `${Math.max(1000, expiresAt - now)}ms`;
       // Two frames so the starting position is painted before the transition begins.

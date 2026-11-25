@@ -3,11 +3,11 @@ import { costOf, isUpgradeVisible, nextDoublingAt, owned, quantityToBuy, unitOut
 import type { Game } from '../../core/game';
 import { fmt, fmtRate } from '../../core/num';
 import { setText } from '../dom';
-import { icon } from '../icons';
+import { packageName } from '../messages';
 
 const GROUPS = [
-  { kind: 'tap', label: 'Typing speed', unit: '/ tap' },
-  { kind: 'auto', label: 'Automation', unit: '/ s' },
+  { kind: 'tap', label: '# typing speed', unit: '/tap' },
+  { kind: 'auto', label: '# automation', unit: '/s' },
 ] as const;
 
 /** Which upgrades are showing; the panel re-renders when this changes. */
@@ -17,18 +17,19 @@ export function renderUpgrades(game: Game): string {
   const s = game.state;
   const now = game.now();
   const amounts = [1, 10, 'max'] as const;
-  let html = `<div class="bar"><h2>Upgrades</h2><div class="mult" role="group" aria-label="Buy amount">${amounts
-    .map((m) => `<button data-mult="${m}" aria-pressed="${s.settings.buyAmount === m}">${m === 'max' ? 'Max' : '×' + m}</button>`)
+  let html = `<div class="cmd"><span><span class="ps">$</span> npm install</span><div class="amounts" role="group" aria-label="Buy amount">${amounts
+    .map((m) => `<button data-mult="${m}" aria-pressed="${s.settings.buyAmount === m}">${m === 'max' ? '--max' : 'x' + m}</button>`)
     .join('')}</div></div>`;
   for (const group of GROUPS) {
     html += `<div class="grp">${group.label}</div>`;
     UPGRADES.forEach((u, i) => {
       if (u.kind !== group.kind || !isUpgradeVisible(s, i)) return;
       const n = owned(s, u.id);
-      html += `<div class="row">
-        <span class="ic">${icon(u.icon)}</span>
-        <div class="nm"><b>${u.name}<span class="own">${n}</span></b><small>${u.blurb}</small><small>+${fmtRate(unitOutput(s, u, now))} ${group.unit} each · ×2 at ${nextDoublingAt(n)}</small></div>
-        <button class="buy" data-buy="${u.id}" aria-label="Buy ${u.name}"><span class="bq"></span><span class="bc"></span></button>
+      html += `<div class="pkg">
+        <div><span class="nm">${packageName(u.name)}</span><span class="qty">[${n}]</span></div>
+        <small class="cm"># ${u.blurb.toLowerCase()}</small>
+        <small>+${fmtRate(unitOutput(s, u, now))}${group.unit} each · x2 at ${nextDoublingAt(n)}</small>
+        <button class="buy" data-buy="${u.id}" aria-label="Install ${u.name}"><span class="bq"></span><span class="bc"></span></button>
       </div>`;
     });
   }
@@ -48,7 +49,7 @@ export function refreshUpgrades(game: Game, root: HTMLElement): void {
     btn.classList.toggle('ok', affordable);
     const progress = affordable ? 100 : Math.min(100, s.lines.div(cost).toNumber() * 100);
     btn.style.setProperty('--p', `${progress.toFixed(1)}%`);
-    setText(btn.firstElementChild, `×${count}`);
+    setText(btn.firstElementChild, `x${count}`);
     setText(btn.lastElementChild, fmt(cost));
   });
 }

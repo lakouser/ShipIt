@@ -3,47 +3,61 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
-  <meta name="theme-color" content="#0c1915">
-  <meta name="description" content="Ship It: an idle game about writing code. Tap the key, hire a rubber duck, ship the release.">
+  <meta name="theme-color" content="#070f0c">
+  <meta name="description" content="Ship It: an idle game about writing code. Tap the key, install a rubber duck, ship the release.">
   <link rel="icon" href="./favicon.svg" type="image/svg+xml">
   <title>Ship It</title>
 </head>
 <body>
   <div class="app">
     <header class="top">
-      <div class="brand">ship it<i></i><span class="ver" id="ver">v1.0</span></div>
-      <button class="ibtn" id="snd" aria-pressed="false" aria-label="Key sounds">
-        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 9.5h3.5L12 6v12l-4.5-3.5H4z"/><path class="waves" d="M15.5 9.5a3.5 3.5 0 0 1 0 5M18 7a7 7 0 0 1 0 10"/></svg>
-        <span id="sndl">Sound off</span>
-      </button>
-      <div class="count">
-        <b id="loc">0</b><span class="unit">lines of code</span>
-        <div class="rates"><span class="pill" id="rTap"></span><span class="pill" id="rAuto"></span><span class="pill boost" id="rBoost" hidden></span></div>
+      <div class="readout">
+        <div class="count"><b id="loc">0</b><span class="unit">loc</span></div>
+        <div class="sub" id="sub"></div>
+      </div>
+      <div class="rates">
+        <span><b id="rTap"></b> /tap</span>
+        <span><b id="rAuto"></b> /s</span>
+        <span class="spark" id="spark" aria-hidden="true"></span>
+        <span class="boost" id="rBoost" hidden></span>
       </div>
     </header>
 
     <section class="ide" aria-label="Code editor">
-      <div class="tabs"><span class="tab on"><span class="dot"></span>main.ts</span><span class="tab sp" id="sTab" hidden></span></div>
+      <div class="tabline"><span class="tab on">main.ts</span><span class="tab sp" id="sTab" hidden></span><span class="fill"></span><span class="path">~/ship-it/src</span></div>
       <div class="sbar"><i id="sBar"></i></div>
       <div class="code" id="code">
         <div class="lines" id="lines" aria-hidden="true"><div class="ln live" id="live"></div></div>
         <div class="mini" id="mini" aria-hidden="true"></div>
       </div>
-      <div class="status"><span class="br">main</span><span id="stLn"></span><span id="stProb">0 problems</span><span>TypeScript</span></div>
+      <div class="status">
+        <span class="mode" id="mode">NORMAL</span>
+        <span class="br">main</span>
+        <span id="stLn"></span>
+        <span id="stProb">0 problems</span>
+        <span class="fill"></span>
+        <span class="ft">utf-8 · ts</span>
+      </div>
     </section>
 
     <div class="keywrap">
-      <button class="key" id="key" aria-label="Write code"><span class="cap"><span class="leg">write code</span><span class="hint">or type anything</span></span></button>
+      <button class="key" id="key" aria-label="Write code">
+        <span class="prompt">❯</span><span class="leg">write_code()</span><i class="kcur"></i>
+        <span class="hint">[enter] or any key</span>
+      </button>
     </div>
 
-    <aside class="side">
-      <nav class="seg" role="tablist" aria-label="Panels">
-        <button role="tab" data-tab="upgrades">Upgrades</button>
-        <button role="tab" data-tab="sprints">Sprints<i class="dot" id="dSp" hidden></i></button>
-        <button role="tab" data-tab="ship">Ship<i class="dot" id="dShip" hidden></i></button>
-      </nav>
-      <section class="panel" id="panel" role="tabpanel"></section>
-    </aside>
+    <section class="panel" id="panel" role="tabpanel" aria-live="off"></section>
+
+    <nav class="bar" role="tablist" aria-label="Panels">
+      <span class="sess">ship-it</span>
+      <button role="tab" data-tab="upgrades">0:upgrades</button>
+      <button role="tab" data-tab="sprints">1:sprints</button>
+      <button role="tab" data-tab="ship">2:ship</button>
+      <span class="fill"></span>
+      <button class="snd" id="snd" aria-pressed="false" aria-label="Key sounds">snd:off</button>
+      <span class="clock" id="clock"></span>
+    </nav>
   </div>
   <script type="module" src="/src/main.ts"></script>
 </body>

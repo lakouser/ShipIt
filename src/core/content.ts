@@ -3,7 +3,6 @@
  */
 
 export type UpgradeKind = 'tap' | 'auto';
-export type IconId = 'kb' | 'vim' | 'mon' | 'snip' | 'duck' | 'intern' | 'lint' | 'ci' | 'pair' | 'gen';
 
 export interface UpgradeDef {
   id: string;
@@ -14,20 +13,19 @@ export interface UpgradeDef {
   baseCost: number;
   /** Lines per tap ('tap') or per second ('auto') for one copy, before multipliers. */
   output: number;
-  icon: IconId;
 }
 
 export const UPGRADES: readonly UpgradeDef[] = [
-  { id: 'kb', kind: 'tap', name: 'Mechanical keyboard', blurb: 'Satisfying thock, measurable output.', baseCost: 15, output: 1, icon: 'kb' },
-  { id: 'vim', kind: 'tap', name: 'Vim motions', blurb: 'You can finally exit.', baseCost: 140, output: 6, icon: 'vim' },
-  { id: 'mon', kind: 'tap', name: 'Second monitor', blurb: 'More screen, more scroll.', baseCost: 1_500, output: 40, icon: 'mon' },
-  { id: 'snip', kind: 'tap', name: 'Snippet library', blurb: 'Copy, paste, ship.', baseCost: 20_000, output: 300, icon: 'snip' },
-  { id: 'duck', kind: 'auto', name: 'Rubber duck', blurb: 'Listens. Somehow helps.', baseCost: 25, output: 1, icon: 'duck' },
-  { id: 'intern', kind: 'auto', name: 'Summer intern', blurb: 'Eager. Mostly writes tests.', baseCost: 300, output: 7, icon: 'intern' },
-  { id: 'lint', kind: 'auto', name: 'Linter bot', blurb: 'Fixes semicolons at 3 a.m.', baseCost: 3_200, output: 45, icon: 'lint' },
-  { id: 'ci', kind: 'auto', name: 'CI pipeline', blurb: 'Builds while you sleep.', baseCost: 36_000, output: 300, icon: 'ci' },
-  { id: 'pair', kind: 'auto', name: 'Pair programmer', blurb: 'Two keyboards, one brain.', baseCost: 400_000, output: 2_200, icon: 'pair' },
-  { id: 'gen', kind: 'auto', name: 'Code generator', blurb: 'Writes code that writes code.', baseCost: 5_000_000, output: 16_000, icon: 'gen' },
+  { id: 'kb', kind: 'tap', name: 'Mechanical keyboard', blurb: 'Satisfying thock, measurable output.', baseCost: 15, output: 1 },
+  { id: 'vim', kind: 'tap', name: 'Vim motions', blurb: 'You can finally exit.', baseCost: 140, output: 6 },
+  { id: 'mon', kind: 'tap', name: 'Second monitor', blurb: 'More screen, more scroll.', baseCost: 1_500, output: 40 },
+  { id: 'snip', kind: 'tap', name: 'Snippet library', blurb: 'Copy, paste, ship.', baseCost: 20_000, output: 300 },
+  { id: 'duck', kind: 'auto', name: 'Rubber duck', blurb: 'Listens. Somehow helps.', baseCost: 25, output: 1 },
+  { id: 'intern', kind: 'auto', name: 'Summer intern', blurb: 'Eager. Mostly writes tests.', baseCost: 300, output: 7 },
+  { id: 'lint', kind: 'auto', name: 'Linter bot', blurb: 'Fixes semicolons at 3 a.m.', baseCost: 3_200, output: 45 },
+  { id: 'ci', kind: 'auto', name: 'CI pipeline', blurb: 'Builds while you sleep.', baseCost: 36_000, output: 300 },
+  { id: 'pair', kind: 'auto', name: 'Pair programmer', blurb: 'Two keyboards, one brain.', baseCost: 400_000, output: 2_200 },
+  { id: 'gen', kind: 'auto', name: 'Code generator', blurb: 'Writes code that writes code.', baseCost: 5_000_000, output: 16_000 },
 ];
 
 /** Lines per tap with no upgrades. */
