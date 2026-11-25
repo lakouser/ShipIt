@@ -429,7 +429,7 @@ export class App {
   private replaceSave(text: string): boolean {
     const imported = importSave(text, this.game.now());
     if (!imported) return false;
-    this.switchTo(serialize(imported, this.game.now()));
+    this.switchTo(serialize(imported, this.game.now()), 'import');
     return true;
   }
 
@@ -443,13 +443,22 @@ export class App {
     const backup = this.saves.backup();
     const state = backup ? deserialize(backup.text, this.game.now()) : null;
     // Re-stamped as saved now: it should win over every other copy, and earns no time-away bonus.
-    if (state) this.switchTo(serialize(state, this.game.now()));
+    if (state) this.switchTo(serialize(state, this.game.now()), 'restore');
   }
 
-  /** Makes text the save everywhere and reloads into it. */
-  private switchTo(text: string): void {
+  /**
+   * Makes text the save everywhere and reloads into it, once it is kept somewhere (this device or the
+   * account). If it can't be kept yet, nothing is replaced and the player is told.
+   */
+  private switchTo(text: string, what: 'import' | 'restore'): void {
+    if (this.frozen) return;
     this.frozen = true;
-    void this.saves.replace(text).then(() => location.reload());
+    if (this.saves.status().cloud === 'connecting') this.editor.log(`waiting for your claude account to keep the ${what === 'import' ? 'imported save' : 'backup'}…`, 'info');
+    void this.saves.replace(text).then((kept) => {
+      if (kept) return location.reload();
+      this.frozen = false;
+      this.editor.log(`couldn't keep the ${what === 'import' ? 'imported save' : 'backup'}: your claude account isn't answering and this view can't store saves. nothing was replaced; try again in a minute`, 'err');
+    });
   }
 
   private save(): void {
@@ -475,11 +484,21 @@ export class App {
       }
     };
     warn();
-    if (this.saves.status().cloud === 'connecting') window.setTimeout(warn, 11_000);
+    // The account can take a while to answer (about 30 s where live updates aren't available).
+    window.setTimeout(() => {
+      const st = this.saves.status();
+      if (st.cloud === 'connecting') this.editor.log(st.device ? 'still waiting for your claude account: saving on this device meanwhile' : "your claude account hasn't answered yet, so nothing is saved: export from cfg before closing", 'warn');
+      else warn();
+    }, 45_000);
     const b = this.saves.backup();
     if (b && D(b.meta.lifetime).gt(this.game.state.lifetime)) this.editor.log(`a backup with more progress is kept (v${b.meta.release}.0): cfg → restore backup`, 'info');
-    this.saves.onLateSave((text) => {
-      this.editor.log(text ? 'found a save with more progress in your claude account, loading it' : 'this save was reset on another device, starting over', 'info');
+    this.saves.onLateSave((text, reason) => {
+      this.editor.log(
+        !text ? 'this save was reset on another device, starting over'
+        : reason === 'replaced' ? 'your save was replaced on another device, loading it'
+        : 'found a save with more progress in your claude account, loading it',
+        'info',
+      );
       this.frozen = true;
       window.setTimeout(() => void this.saves.adopt(text).then(() => location.reload()), 1200);
     });
