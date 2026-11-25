@@ -25,7 +25,8 @@ export interface SimReport {
   milestones: number;
   topUpgrade: string;
   perks: Record<string, number>;
-  timeline: { minute: number; lines: string; perSecond: string; perTap: string; release: number; stars: number }[];
+  /** top: the latest package tier owned at that point. */
+  timeline: { minute: number; lines: string; perSecond: string; perTap: string; release: number; stars: number; top: string }[];
 }
 
 /**
@@ -39,6 +40,7 @@ export function simulate({ minutes, tapsPerSecond, seed = 7 }: SimOptions): SimR
   const botRng = seededRng(seed + 1000);
   const game = new Game(newGame(now), { clock: () => now, rng });
   const s = game.state;
+  const topOwned = () => [...UPGRADES].reverse().find((u) => owned(s, u.id) > 0)?.id ?? 'none';
   const report: SimReport = { ships: [], unlocks: {}, finalPerSecond: '', finalPerTap: '', lifetime: '', achievements: 0, quests: 0, milestones: 0, topUpgrade: '', perks: {}, timeline: [] };
   game.on((e) => {
     if (e.type === 'unlocked') report.unlocks[e.tab] = Math.round(now / 600) / 100;
@@ -88,7 +90,7 @@ export function simulate({ minutes, tapsPerSecond, seed = 7 }: SimOptions): SimR
     for (const p of [...PERKS].sort((a, b) => a.baseCost - b.baseCost)) if (perkStatus(s, p) === 'affordable') game.buyPerk(p.id);
 
     if (step % (4 * 60 * 10) === 0) {
-      report.timeline.push({ minute: Math.round(now / 60000), lines: fmt(s.lifetime), perSecond: fmt(perSecond(s, now)), perTap: fmt(perTap(s, now)), release: s.release, stars: s.stars });
+      report.timeline.push({ minute: Math.round(now / 60000), lines: fmt(s.lifetime), perSecond: fmt(perSecond(s, now)), perTap: fmt(perTap(s, now)), release: s.release, stars: s.stars, top: topOwned() });
     }
   }
 
@@ -98,7 +100,7 @@ export function simulate({ minutes, tapsPerSecond, seed = 7 }: SimOptions): SimR
   report.achievements = s.achievements.length;
   report.quests = s.stats.quests;
   report.milestones = s.stats.milestones;
-  report.topUpgrade = [...UPGRADES].reverse().find((u) => owned(s, u.id) > 0)?.id ?? 'none';
+  report.topUpgrade = topOwned();
   report.perks = { ...s.perks };
   return report;
 }

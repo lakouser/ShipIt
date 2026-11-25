@@ -28,8 +28,9 @@ describe('pacing', () => {
     expect(r.ships[0].minute).toBeLessThan(35);
     if (minutes >= 120) {
       expect(r.ships.length).toBeGreaterThanOrEqual(3);
-      // Two hours in, the last tiers should still be ahead.
-      expect(['quantum', 'agents', 'neural']).not.toContain(r.topUpgrade);
+      // Two hours in, the last tiers should still be ahead (longer runs may reach them).
+      const atTwoHours = r.timeline.find((t) => t.minute >= 120)?.top ?? r.topUpgrade;
+      expect(['quantum', 'agents', 'neural']).not.toContain(atTwoHours);
     }
   }, 120_000);
 });
