@@ -3,7 +3,6 @@ import { D, type Decimal } from './num';
 
 export type BuyAmount = 1 | 10 | 'max';
 export type Tab = 'upgrades' | 'sprints' | 'todo' | 'ship' | 'settings';
-export type KeySound = 'thock' | 'click' | 'beep';
 export type Notation = 'suffix' | 'sci';
 export type Skin = 'pine' | 'phosphor' | 'amber' | 'paper';
 
@@ -81,7 +80,6 @@ export interface Stats {
 
 export interface Settings {
   sound: boolean;
-  keySound: KeySound;
   haptics: boolean;
   reduceMotion: boolean;
   notation: Notation;
@@ -142,7 +140,7 @@ export const newStats = (): Stats => ({
 });
 
 export const defaultSettings = (): Settings => ({
-  sound: false, keySound: 'thock', haptics: true, reduceMotion: false, notation: 'suffix', skin: 'pine',
+  sound: false, haptics: true, reduceMotion: false, notation: 'suffix', skin: 'pine',
   welcome: true, buyAmount: 1, tab: 'upgrades', dev: false,
 });
 

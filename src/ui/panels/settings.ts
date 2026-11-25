@@ -1,5 +1,5 @@
 import type { Game } from '../../core/game';
-import type { KeySound, Notation, Skin } from '../../core/state';
+import type { Notation, Skin } from '../../core/state';
 import { esc } from '../dom';
 
 export interface SettingsView {
@@ -19,7 +19,6 @@ export const SKINS: { id: Skin; label: string; unlocked: (g: Game) => boolean; h
   { id: 'amber', label: 'amber', unlocked: (g) => g.state.stats.bugs >= 25, hint: 'squash 25 bugs' },
 ];
 
-const KEY_SOUNDS: KeySound[] = ['thock', 'click', 'beep'];
 const NOTATIONS: { id: Notation; label: string }[] = [
   { id: 'suffix', label: '1.23M' },
   { id: 'sci', label: '1.23e6' },
@@ -49,7 +48,6 @@ export function renderSettings(game: Game, view: SettingsView): string {
 
   html += '<div class="grp"># sound</div><div class="opts">';
   html += toggle('sound', st.sound, 'key sounds');
-  html += `<div class="row2"><span class="lbl">switch</span>${KEY_SOUNDS.map((k) => choice('keySound', k, st.keySound === k, k)).join('')}</div>`;
   html += toggle('haptics', st.haptics, 'haptics', view.hapticsSupported ? '' : 'not supported in this browser');
   html += '</div>';
 

@@ -13,7 +13,7 @@ import { Keycap } from './keycap';
 import { playMergeSplash } from './merge';
 import { describe, scriptFile, type LogKind } from './messages';
 import { Panels } from './panels';
-import { createClicker } from './sound';
+import { createKeySounds } from './sound';
 import { playWelcome, type WelcomeSummary } from './welcome';
 
 declare const __APP_VERSION__: string;
@@ -52,7 +52,7 @@ export class App {
   private readonly keycap: Keycap;
   private readonly bug: BugView;
   private readonly incidents: IncidentView;
-  private readonly clicker = createClicker();
+  private readonly keys = createKeySounds();
   private readonly counter = $('#loc');
   private charBudget = 0;
   private lastFrame = 0;
@@ -75,7 +75,7 @@ export class App {
     this.editor = new Editor({ lines: $('#lines'), live: $('#live'), minimap: $('#mini') }, { get: () => s.editorLine, set: (n) => (s.editorLine = n) });
     this.header = new Header(game);
     this.panels = new Panels(game, $('#panel'), $('.bar'), {
-      feedback: () => this.feedback(),
+      feedback: () => this.feedback('click'),
       settingsChanged: () => this.applySettings(),
       exportSave: () => {
         game.markExported();
@@ -89,7 +89,16 @@ export class App {
       hapticsSupported: platform.haptics.supported,
       version: `v${__APP_VERSION__}`,
     });
-    this.keycap = new Keycap($<HTMLButtonElement>('#key'), $('.keywrap'), () => this.tap(), () => !this.dialogOpen, (key) => game.typed(key));
+    this.keycap = new Keycap(
+      $<HTMLButtonElement>('#key'),
+      $('.keywrap'),
+      () => this.tap(),
+      () => !this.dialogOpen,
+      (key) => game.typed(key),
+      () => {
+        if (game.state.settings.sound) this.keys.release();
+      },
+    );
     this.bug = new BugView($('#code'), () => game.squashBug());
     this.incidents = new IncidentView($('#code'), game);
   }
@@ -101,6 +110,7 @@ export class App {
     html.dataset.skin = st.skin;
     html.classList.toggle('rm', st.reduceMotion);
     setNotation(st.notation);
+    if (st.sound) this.keys.preload();
     document.querySelector('meta[name="theme-color"]')?.setAttribute('content', SKIN_THEME_COLOR[st.skin] ?? '#070f0c');
   }
 
@@ -151,11 +161,18 @@ export class App {
     this.game.tap();
   }
 
-  /** Key click and haptic tick, each if enabled. */
-  private feedback(strong = false): void {
+  /**
+   * Key sound and haptic tick, each if enabled. tap: the big key going down (it plays its release
+   * when let go); crit: a heavier press; reward: a quick run of keystrokes; click: any other button.
+   */
+  private feedback(kind: 'tap' | 'crit' | 'reward' | 'click'): void {
     const settings = this.game.state.settings;
-    if (settings.sound) this.clicker.click(settings.keySound, strong);
-    if (settings.haptics) strong ? this.platform.haptics.success() : this.platform.haptics.tap();
+    if (settings.sound) {
+      if (kind === 'tap' || kind === 'crit') this.keys.press(kind === 'crit');
+      else if (kind === 'reward') this.keys.run();
+      else this.keys.stroke();
+    }
+    if (settings.haptics) kind === 'crit' || kind === 'reward' ? this.platform.haptics.success() : this.platform.haptics.tap();
   }
 
   private onEvent(e: GameEvent): void {
@@ -169,7 +186,7 @@ export class App {
         this.counter.classList.remove('bump');
         void this.counter.offsetWidth; // restart the bump animation
         this.counter.classList.add('bump');
-        this.feedback(e.crit);
+        this.feedback(e.crit ? 'crit' : 'tap');
         break;
       case 'sprintStarted':
       case 'backlogRefreshed':
@@ -179,13 +196,13 @@ export class App {
         break;
       case 'sprintEnded':
         if (tab === 'sprints') this.panels.render();
-        if (e.result.ok) this.feedback(true);
+        if (e.result.ok) this.feedback('reward');
         break;
       case 'achievement':
       case 'questDone':
       case 'milestoneDone':
         if (tab === 'todo') this.panels.render();
-        if (e.type !== 'achievement') this.feedback(true);
+        if (e.type !== 'achievement') this.feedback('reward');
         break;
       case 'perk':
         if (tab === 'ship') this.panels.render();
@@ -200,21 +217,21 @@ export class App {
         this.bug.hide();
         break;
       case 'bugSquashed':
-        this.feedback(true);
+        this.feedback('reward');
         break;
       case 'incidentSpawned':
         this.incidents.show(e.incident);
         break;
       case 'incidentEnded':
         this.incidents.hide();
-        if (e.outcome === 'caught' || e.outcome === 'fixed' || e.outcome === 'resolved') this.feedback(true);
+        if (e.outcome === 'caught' || e.outcome === 'fixed' || e.outcome === 'resolved') this.feedback('reward');
         break;
       case 'shipped':
         this.save();
         void this.saves.flush();
         this.panels.render();
         this.dialogOpen = true;
-        void playMergeSplash(e.result, { onStars: () => this.feedback(true) }).then(() => {
+        void playMergeSplash(e.result, { onStars: () => this.feedback('reward') }).then(() => {
           this.dialogOpen = false;
           this.header.bounceStars();
         });

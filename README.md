@@ -69,8 +69,11 @@ src/
     claude.ts        The cloud copy when served as a Claude artifact (its per-player database).
   ui/          Everything on screen: editor, code generator, key, bug, incidents, header, panels,
                merge and welcome splashes, sounds.
+  assets/      keyboard.wav: the key sounds, cut from a recording of a real mechanical keyboard
+               (presses, their releases, heavy presses for crits, runs of keys for rewards).
   styles/      The visual language and the four themes (main.css).
 public/        Icons, web app manifest, service worker.
+scripts/       keyboard-sprite.py: re-cuts keyboard.wav and its clip list from the recording.
 tests/         Vitest unit tests for core/, plus the pacing simulator (sim.ts).
 ```
 

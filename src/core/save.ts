@@ -135,7 +135,6 @@ function settings(x: unknown): Settings {
   if (!isObj(x)) return d;
   return {
     sound: x.sound === true,
-    keySound: oneOf(x.keySound, ['thock', 'click', 'beep'] as const, d.keySound),
     haptics: x.haptics !== false,
     reduceMotion: x.reduceMotion === true,
     notation: oneOf(x.notation, ['suffix', 'sci'] as const, d.notation),

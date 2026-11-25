@@ -1,7 +1,7 @@
 import type { EffectId, IncidentKind } from '../../core/content';
 import type { DevAction } from '../../core/dev';
 import type { Game } from '../../core/game';
-import type { BuyAmount, KeySound, Notation, Skin, Tab } from '../../core/state';
+import type { BuyAmount, Notation, Skin, Tab } from '../../core/state';
 import { renderSettings, type SettingsView } from './settings';
 import { renderShip, refreshShip } from './ship';
 import { renderSprints, refreshSprints } from './sprints';
@@ -146,7 +146,6 @@ export class Panels {
       s.settings[key] = !s.settings[key];
       this.settingsChanged();
     } else if (d.choice) {
-      if (d.choice === 'keySound') s.settings.keySound = d.value as KeySound;
       if (d.choice === 'skin') s.settings.skin = d.value as Skin;
       if (d.choice === 'notation') s.settings.notation = d.value as Notation;
       this.settingsChanged();
