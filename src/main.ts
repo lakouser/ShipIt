@@ -6,7 +6,7 @@ import '@fontsource/jetbrains-mono/latin-800.css';
 import './styles/main.css';
 
 import { Game } from './core/game';
-import { deserialize, isNewerSave, SAVE_KEY } from './core/save';
+import { deserialize, isNewerSave, SAVE_KEY, SAVE_VERSION } from './core/save';
 import { newGame } from './core/state';
 import { getPlatform } from './platform';
 import { SaveStore, type Candidate } from './platform/saves';
@@ -29,6 +29,8 @@ async function boot(): Promise<void> {
     restored = deserialize(c.text, now);
     if (restored) {
       from = c;
+      // A newer save this version reads only in part: keep the original aside before saving over it.
+      if (JSON.parse(c.text).v > SAVE_VERSION) await saves.keepUnreadable(c.text);
       break;
     }
     if (isNewerSave(c.text)) {

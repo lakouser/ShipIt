@@ -17,6 +17,12 @@ import {
 } from './state';
 
 export const SAVE_VERSION = 2;
+/**
+ * Newer save versions that only add fields, keeping every field this version knows as it is: such a
+ * save is read, and what this version doesn't know is dropped when it saves (as SAVE_VERSION).
+ * v3: the v0.3.0 builds (team, mail, forks, bosses...), published as the game before this code.
+ */
+const READABLE_NEWER = new Set([3]);
 export const SAVE_KEY = 'shipit.save';
 /** Prefix for exported save strings, so pasted text is recognisable. */
 export const EXPORT_PREFIX = 'SHIPIT:';
@@ -146,17 +152,17 @@ function settings(x: unknown): Settings {
   };
 }
 
-/** True for a save written by a newer version of the game than this one: it must never be overwritten. */
+/** True for a save written by a newer version than this one that it can't read: it must never be overwritten. */
 export function isNewerSave(text: string): boolean {
   try {
     const data: unknown = JSON.parse(text);
-    return isObj(data) && typeof data.v === 'number' && data.v > SAVE_VERSION;
+    return isObj(data) && typeof data.v === 'number' && data.v > SAVE_VERSION && !READABLE_NEWER.has(data.v);
   } catch {
     return false;
   }
 }
 
-/** Parses a save, migrating old versions. Returns null for anything unreadable or from a newer version. */
+/** Parses a save, migrating old versions. Returns null for anything unreadable or from a newer version it can't read. */
 export function deserialize(text: string, now: number): GameState | null {
   let data: unknown;
   try {
@@ -164,7 +170,7 @@ export function deserialize(text: string, now: number): GameState | null {
   } catch {
     return null;
   }
-  if (!isObj(data) || typeof data.v !== 'number' || data.v > SAVE_VERSION) return null;
+  if (!isObj(data) || typeof data.v !== 'number' || (data.v > SAVE_VERSION && !READABLE_NEWER.has(data.v))) return null;
   let raw: Raw = data;
   for (let v = data.v; v < SAVE_VERSION; v++) {
     const migrate = MIGRATIONS[v];

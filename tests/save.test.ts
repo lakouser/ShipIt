@@ -73,11 +73,28 @@ describe('saves', () => {
     expect(deserialize('not json', 0)).toBeNull();
     expect(deserialize('[]', 0)).toBeNull();
     expect(deserialize(JSON.stringify({ lines: '5' }), 0)).toBeNull();
-    expect(deserialize(JSON.stringify({ v: SAVE_VERSION + 1 }), 0)).toBeNull();
+    expect(deserialize(JSON.stringify({ v: 99 }), 0)).toBeNull();
+  });
+
+  it('reads a save from the v0.3.0 builds (version 3), dropping what this version does not know', () => {
+    const s = newGame(0);
+    s.lines = D('123456');
+    s.lifetime = D('5e9');
+    s.release = 4;
+    s.owned = { kb: 30 };
+    const v3 = { ...JSON.parse(serialize(s, 1234)), v: 3, forks: { kb: ['major'] }, team: [{ id: 1, name: 'Ada' }], mail: [], debt: 24, settings: { ...s.settings, tab: 'team', screensaver: true } };
+    const back = deserialize(JSON.stringify(v3), 5000)!;
+    expect(back.lifetime.eq(D('5e9'))).toBe(true);
+    expect(back.release).toBe(4);
+    expect(back.owned).toEqual({ kb: 30 });
+    expect(back.settings.tab).toBe('upgrades');
+    expect(JSON.parse(serialize(back, 0)).v).toBe(SAVE_VERSION);
+    expect('team' in JSON.parse(serialize(back, 0))).toBe(false);
   });
 
   it('tells a save from a newer version apart from a broken one', () => {
-    expect(isNewerSave(JSON.stringify({ v: SAVE_VERSION + 1 }))).toBe(true);
+    expect(isNewerSave(JSON.stringify({ v: 99 }))).toBe(true);
+    expect(isNewerSave(JSON.stringify({ v: 3 }))).toBe(false); // readable, see above
     expect(isNewerSave(serialize(newGame(0), 0))).toBe(false);
     expect(isNewerSave('not json')).toBe(false);
   });
