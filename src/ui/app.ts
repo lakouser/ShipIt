@@ -120,7 +120,7 @@ export class App {
     this.editor.prefill(16);
     if (returning) this.editor.log(from === 'cloud' ? `save loaded from your claude account, v${s.release}.0` : `session restored on v${s.release}.0`, 'ok');
     else for (const [kind, text] of BOOT_LOG) this.editor.log(text, kind);
-    this.watchSaves();
+    this.watchSaves(returning);
     if (returning) g.creditTimeAway((g.now() - s.savedAt) / 1000);
     g.checkIn();
 
@@ -292,20 +292,31 @@ export class App {
     this.saves.save(serialize(this.game.state, this.game.now()));
   }
 
-  /** Warns when nothing can keep the save, and switches to a newer cloud save that answers late. */
-  private watchSaves(): void {
-    const warnIfUnsaved = () => {
+  /**
+   * Says where the save stands (nothing can keep it, this version can't read it, the account is out
+   * of reach, a backup has more progress) and switches to a better cloud save that answers late.
+   */
+  private watchSaves(returning: boolean): void {
+    if (this.saves.status().held) {
+      this.editor.log('your save is from a newer version of ship-it: reload to update. nothing is saved until then', 'warn');
+      return;
+    }
+    const warn = () => {
       const st = this.saves.status();
       if (!st.device && st.cloud !== 'synced' && st.cloud !== 'saving' && st.cloud !== 'connecting') {
         this.editor.log("this view can't keep your save: export it from cfg before closing", 'warn');
+      } else if (!returning && st.cloud === 'error') {
+        this.editor.log("couldn't reach your claude account: a save there is left untouched and loads next time", 'warn');
       }
     };
-    warnIfUnsaved();
-    if (this.saves.status().cloud === 'connecting') window.setTimeout(warnIfUnsaved, 11_000);
+    warn();
+    if (this.saves.status().cloud === 'connecting') window.setTimeout(warn, 11_000);
+    const b = this.saves.backup();
+    if (b && D(b.meta.lifetime).gt(this.game.state.lifetime)) this.editor.log(`a backup with more progress is kept (v${b.meta.release}.0): cfg → restore backup`, 'info');
     this.saves.onLateSave((text) => {
-      this.editor.log('found a newer save in your claude account, loading it', 'info');
+      this.editor.log(text ? 'found a save with more progress in your claude account, loading it' : 'this save was reset on another device, starting over', 'info');
       this.frozen = true;
-      window.setTimeout(() => void this.saves.replace(text).then(() => location.reload()), 1200);
+      window.setTimeout(() => void this.saves.adopt(text).then(() => location.reload()), 1200);
     });
   }
 
@@ -314,12 +325,13 @@ export class App {
     const st = this.saves.status();
     const ago = st.cloudSavedAt ? ` · synced ${clock(Math.max(0, (Date.now() - st.cloudSavedAt) / 1000))} ago` : '';
     const status =
-      st.cloud === 'synced' || st.cloud === 'saving' ? `saving to your claude account${st.device ? ' and this device' : ''}${ago}`
+      st.held ? 'not saving: your save is from a newer version, reload to update'
+      : st.cloud === 'synced' || st.cloud === 'saving' ? `saving to your claude account${st.device ? ' and this device' : ''}${ago}`
       : st.cloud === 'connecting' ? 'connecting to your claude account…'
       : st.device ? (st.cloud === 'error' ? "claude account unreachable: saving on this device only" : 'saving on this device only')
       : "not saving: export your save to keep it";
-    const ok = st.device || st.cloud === 'synced' || st.cloud === 'saving';
-    const b = this.saves.backup();
+    const ok = !st.held && (st.device || st.cloud === 'synced' || st.cloud === 'saving');
+    const b = st.held ? null : this.saves.backup();
     const backup = b && D(b.meta.lifetime).gt(this.game.state.lifetime) ? `v${b.meta.release}.0 · ${fmt(D(b.meta.lifetime))} lines · ${b.meta.savedAt ? `${ageText(Date.now() - b.meta.savedAt)} ago` : 'older'}` : null;
     return { status, ok, backup };
   }

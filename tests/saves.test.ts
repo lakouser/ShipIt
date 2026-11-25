@@ -69,13 +69,28 @@ describe('loading', () => {
     expect(list[0]!.meta.release).toBe(4);
   });
 
-  it('starts from whichever save is newer', async () => {
-    const older = save(800_000, 100);
-    const newer = save(900_000, 50);
-    let list = await load(make(fakeLocal({ [KEY]: newer }), fakeCloud({ save: older })));
-    expect(list.map((c) => c.source)).toEqual(['device', 'cloud']);
-    list = await load(make(fakeLocal({ [KEY]: older }), fakeCloud({ save: newer })));
+  it('starts from the save with the most progress, not the newest', async () => {
+    const more = save(800_000, 100);
+    const less = save(900_000, 50);
+    let list = await load(make(fakeLocal({ [KEY]: less }), fakeCloud({ save: more })));
     expect(list.map((c) => c.source)).toEqual(['cloud', 'device']);
+    list = await load(make(fakeLocal({ [KEY]: more }), fakeCloud({ save: less })));
+    expect(list.map((c) => c.source)).toEqual(['device', 'cloud']);
+  });
+
+  it('never lets a new game saved while the account was out of reach outrank the account save (the update case)', async () => {
+    // A new game started on this device after an update, saved a minute ago; the real save is older.
+    const fresh = save(990_000, 230);
+    const real = save(900_000, 5e9, 4);
+    const local = fakeLocal({ [KEY]: fresh });
+    const cloud = fakeCloud({ save: real, savedAt: 900_000, lifetime: 5e9, release: 4 });
+    const store = make(local, cloud);
+    const list = await load(store);
+    expect(list[0]!.text).toBe(real);
+    store.started(real);
+    store.save(save(1_001_000, 5e9 + 10, 4));
+    await flush(store);
+    expect(cloud.data!.lifetime).toBe(5e9 + 10);
   });
 
   it('works with no cloud at all (other hosts)', async () => {
@@ -215,5 +230,93 @@ describe('backups', () => {
     const store = make(local, null);
     await store.keepUnreadable('{"v":99}');
     expect([...local.map.values()]).toContain('{"v":99}');
+  });
+});
+
+describe('deliberate replacements (reset, import, restore)', () => {
+  it('an import made on another device wins over this device\'s older save, which is kept as a backup', async () => {
+    const big = save(800_000, 5e9, 4);
+    const imported = save(900_000, 100);
+    const local = fakeLocal({ [KEY]: big });
+    const store = make(local, fakeCloud({ save: imported, resetAt: 900_000 }));
+    const list = await load(store);
+    expect(list.map((c) => c.text)).toEqual([imported]);
+    store.started(imported);
+    expect(store.backup()!.meta.lifetime).toBe(5e9);
+  });
+
+  it('replace starts a new generation on this device and in the cloud, keeping the old save as a backup', async () => {
+    const big = save(900_000, 5e9, 4);
+    const local = fakeLocal({ [KEY]: big });
+    const cloud = fakeCloud({ save: big });
+    const store = make(local, cloud);
+    await load(store);
+    store.started(big);
+    const small = save(1_000_000, 100);
+    const p = store.replace(small);
+    await vi.advanceTimersByTimeAsync(20);
+    await p;
+    expect(cloud.data).toMatchObject({ save: small, prev: big });
+    expect(cloud.data!.resetAt).toBeGreaterThan(0);
+    expect(local.map.get(`${KEY}.resetAt`)).toBe(String(cloud.data!.resetAt));
+    // another device still holding the big save now starts from the import
+    const list = await load(make(fakeLocal({ [KEY]: big }), cloud));
+    expect(list.map((c) => c.text)).toEqual([small]);
+  });
+
+  it('a reset on another device: this device\'s save no longer counts, but stays restorable', async () => {
+    const big = save(800_000, 5e9, 4);
+    const store = make(fakeLocal({ [KEY]: big }), fakeCloud({ save: '', resetAt: 900_000, prev: big }));
+    expect(await load(store)).toEqual([]);
+    store.started(null);
+    expect(store.backup()!.meta.lifetime).toBe(5e9);
+  });
+
+  it('a device whose clock is behind keeps its own saves after a replacement', async () => {
+    const imported = save(2_000_000, 100);
+    const local = fakeLocal();
+    const cloud = fakeCloud({ save: imported, resetAt: 2_000_000 });
+    const store = make(local, cloud);
+    await load(store); // this device's clock says 1,000,000: "before" the import
+    store.started(imported);
+    store.save(save(1_001_000, 500));
+    await flush(store);
+    expect(cloud.data!.resetAt).toBe(2_000_000);
+    const list = await load(make(local, cloud));
+    expect(list.map((c) => c.meta.lifetime)).toEqual([500, 500]);
+  });
+
+  it('a late answer saying the save was reset elsewhere starts over', async () => {
+    const big = save(800_000, 5e9, 4);
+    const local = fakeLocal({ [KEY]: big });
+    const store = make(local, fakeCloud({ save: '', resetAt: 900_000, prev: big }, 8000));
+    const late = vi.fn();
+    store.onLateSave(late);
+    const p = store.load();
+    await vi.advanceTimersByTimeAsync(3000);
+    store.started((await p)[0]!.text);
+    await vi.advanceTimersByTimeAsync(10_000);
+    expect(late).toHaveBeenCalledWith(null);
+    await store.adopt(null);
+    expect(local.map.has(KEY)).toBe(false);
+    expect(local.map.get(`${KEY}.prev`)).toBe(big);
+  });
+});
+
+describe('a save this version cannot read', () => {
+  it('hold stops every write', async () => {
+    const newer = JSON.stringify({ v: 99, savedAt: 900_000, lifetime: '5e9', release: 4 });
+    const local = fakeLocal({ [KEY]: newer });
+    const cloud = fakeCloud({ save: newer });
+    const store = make(local, cloud);
+    await load(store);
+    store.hold();
+    store.started(null);
+    store.save(save(1_001_000, 10));
+    await flush(store);
+    await vi.advanceTimersByTimeAsync(120_000);
+    expect(local.map.get(KEY)).toBe(newer);
+    expect(cloud.sets).toEqual([]);
+    expect(store.status().held).toBe(true);
   });
 });

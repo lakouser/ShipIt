@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { D } from '../src/core/num';
-import { deserialize, exportSave, importSave, SAVE_VERSION, serialize } from '../src/core/save';
+import { deserialize, exportSave, importSave, isNewerSave, SAVE_VERSION, serialize } from '../src/core/save';
 import { newGame } from '../src/core/state';
 
 describe('saves', () => {
@@ -74,6 +74,12 @@ describe('saves', () => {
     expect(deserialize('[]', 0)).toBeNull();
     expect(deserialize(JSON.stringify({ lines: '5' }), 0)).toBeNull();
     expect(deserialize(JSON.stringify({ v: SAVE_VERSION + 1 }), 0)).toBeNull();
+  });
+
+  it('tells a save from a newer version apart from a broken one', () => {
+    expect(isNewerSave(JSON.stringify({ v: SAVE_VERSION + 1 }))).toBe(true);
+    expect(isNewerSave(serialize(newGame(0), 0))).toBe(false);
+    expect(isNewerSave('not json')).toBe(false);
   });
 
   it('fills missing or broken fields with defaults', () => {

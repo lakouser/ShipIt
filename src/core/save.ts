@@ -147,6 +147,16 @@ function settings(x: unknown): Settings {
   };
 }
 
+/** True for a save written by a newer version of the game than this one: it must never be overwritten. */
+export function isNewerSave(text: string): boolean {
+  try {
+    const data: unknown = JSON.parse(text);
+    return isObj(data) && typeof data.v === 'number' && data.v > SAVE_VERSION;
+  } catch {
+    return false;
+  }
+}
+
 /** Parses a save, migrating old versions. Returns null for anything unreadable or from a newer version. */
 export function deserialize(text: string, now: number): GameState | null {
   let data: unknown;
