@@ -1,28 +1,43 @@
+import { BOSSES, TRAITS } from '../core/content';
+import { language } from '../core/economy';
 import type { Game, GameEvent } from '../core/game';
-import { clock, D, fmt, setNotation, type Decimal } from '../core/num';
+import { mailDef } from '../core/mail';
+import { clock, D, fmt, fmtRate, setNotation, type Decimal } from '../core/num';
 import { deserialize, exportSave, importSave, serialize } from '../core/save';
 import { starsAvailable } from '../core/ship';
 import type { Platform } from '../platform';
 import type { SaveStore } from '../platform/saves';
+import { BossView } from './boss';
 import { BugView } from './bug';
-import { $ } from './dom';
+import { $, prefersReducedMotion } from './dom';
 import { Editor } from './editor';
+import { Fx } from './fx';
 import { Header } from './header';
 import { IncidentView } from './incidents';
 import { Keycap } from './keycap';
-import { playMergeSplash } from './merge';
+import { playMergeSplash, playRoundSplash } from './merge';
 import { describe, scriptFile, type LogKind } from './messages';
 import { Panels } from './panels';
+import { Screensaver } from './screensaver';
 import { createKeySounds } from './sound';
 import { playWelcome, type WelcomeSummary } from './welcome';
+import { Workspace } from './workspace';
 
 declare const __APP_VERSION__: string;
 
 const TICK_MS = 200;
 const SAVE_MS = 5000;
 const TYPING_MS = 700;
+/** Seconds shown in the header sparkline. */
 const SPARK_SAMPLES = 20;
+/** Seconds kept for the output graph in pkgs. */
+const HISTORY_SAMPLES = 60;
 const SPARK_CHARS = '▁▂▃▄▅▆▇█';
+/** Idle time before the screensaver starts. */
+const SCREENSAVER_MS = 60_000;
+/** Characters per second each teammate types in the editor. */
+const GHOST_CHARS_PER_SECOND = 9;
+const TAB_NAMES: Record<string, string> = { sprints: 'sprints', todo: 'todo', ship: 'ship', team: 'team', mail: 'mail' };
 const SKIN_THEME_COLOR: Record<string, string> = { pine: '#070f0c', phosphor: '#020803', amber: '#0b0700', paper: '#f3f0e8' };
 
 const BOOT_LOG: [LogKind, string][] = [
@@ -52,7 +67,15 @@ export class App {
   private readonly keycap: Keycap;
   private readonly bug: BugView;
   private readonly incidents: IncidentView;
+  private readonly boss: BossView;
+  private readonly fx: Fx;
+  private readonly workspace: Workspace;
+  private readonly saver: Screensaver;
+  private readonly ide = $('.ide');
+  private readonly code = $('#code');
   private readonly keys = createKeySounds();
+  private ghostBudget = 0;
+  private lastInputAt = performance.now();
   private readonly counter = $('#loc');
   private charBudget = 0;
   private lastFrame = 0;
@@ -88,6 +111,8 @@ export class App {
       copy: (text) => void navigator.clipboard?.writeText(text).catch(() => {}),
       hapticsSupported: platform.haptics.supported,
       version: `v${__APP_VERSION__}`,
+      history: () => this.history(),
+      duck: () => this.workspace.pokeDuck(),
     });
     this.keycap = new Keycap(
       $<HTMLButtonElement>('#key'),
@@ -99,8 +124,27 @@ export class App {
         if (game.state.settings.sound) this.keys.release();
       },
     );
-    this.bug = new BugView($('#code'), () => game.squashBug());
-    this.incidents = new IncidentView($('#code'), game);
+    this.fx = new Fx(this.ide, $('#toasts'));
+    this.bug = new BugView(this.code, () => game.squashBug(), (x, y) => this.fx.burst(this.code, x, y, 12, 'pbug'));
+    this.incidents = new IncidentView(this.code, game, (text, kind) => this.editor.log(text, kind), () => s.editorLine);
+    this.boss = new BossView(this.ide, game);
+    this.workspace = new Workspace(game);
+    this.saver = new Screensaver($('#saver'), $('#saverTag'));
+    // Any input wakes the screen.
+    const woke = () => {
+      this.lastInputAt = performance.now();
+      this.saver.stop();
+    };
+    window.addEventListener('pointerdown', woke, true);
+    window.addEventListener('keydown', woke, true);
+  }
+
+  /** Lines per second over the last minute, scaled so ordinary peaks reach about 80% (the top 15% clip). */
+  private history(): number[] {
+    const sorted = [...this.spark].sort((a, b) => a.cmp(b));
+    const top = (sorted[Math.floor((sorted.length - 1) * 0.85)] ?? D(0)).mul(1.25);
+    const values = this.spark.map((v) => (top.gt(0) ? Math.min(1, v.div(top).toNumber()) : 0));
+    return [...Array(HISTORY_SAMPLES - values.length).fill(0), ...values];
   }
 
   /** Theme, motion and number format from settings. */
@@ -127,6 +171,7 @@ export class App {
     });
     g.on((e) => this.onEvent(e));
 
+    this.editor.setLanguage(language(s).id);
     this.editor.prefill(16);
     if (returning) this.editor.log(from === 'cloud' ? `save loaded from your claude account, v${s.release}.0` : `session restored on v${s.release}.0`, 'ok');
     else for (const [kind, text] of BOOT_LOG) this.editor.log(text, kind);
@@ -183,6 +228,10 @@ export class App {
         this.editor.type(e.auto ? 4 : charsPerTap(e.lines));
         if (e.auto) break;
         this.keycap.floater(e.lines, e.crit);
+        if (e.crit) {
+          this.editor.flashLive();
+          this.fx.shake();
+        }
         this.counter.classList.remove('bump');
         void this.counter.offsetWidth; // restart the bump animation
         this.counter.classList.add('bump');
@@ -203,12 +252,73 @@ export class App {
       case 'milestoneDone':
         if (tab === 'todo') this.panels.render();
         if (e.type !== 'achievement') this.feedback('reward');
+        if (e.type === 'achievement') this.fx.toast('achievement', [e.achievement.name, '+1% output'], 'star');
+        if (e.type === 'milestoneDone')
+          this.fx.toast('milestone', [`v${e.milestone.release}.0 complete`, `+${e.milestone.stars} star${e.milestone.stars > 1 ? 's' : ''}`], 'star');
         break;
       case 'perk':
         if (tab === 'ship') this.panels.render();
         break;
-      case 'unlocked':
+      case 'unlocked': {
         this.panels.syncTabs(e.tab);
+        const label = document.querySelector<HTMLElement>(`[data-tab="${e.tab}"] .tl`);
+        if (label) this.fx.scramble(label, 900);
+        this.fx.toast('unlocked', [`new tab: ${TAB_NAMES[e.tab]}`], 'ok');
+        break;
+      }
+      case 'refactored':
+        this.feedback('reward');
+        this.fx.toast('refactored', [`${Math.round(e.refactor.cleared)}% tech debt cleared`], 'ok');
+        break;
+      case 'debtHigh':
+        this.fx.shake();
+        this.fx.toast('tech debt', [`${Math.round(e.debt)}% and climbing`, 'refactor from pkgs'], 'warn');
+        break;
+      case 'applicant':
+        this.fx.toast('applicant', [`${e.dev.name} · ${TRAITS[e.dev.trait].label}`, 'waiting in team'], 'ok');
+        break;
+      case 'hired':
+        this.feedback('reward');
+        break;
+      case 'mail': {
+        const def = mailDef(e.item.id);
+        if (def) this.fx.toast('mail', [def.subject, def.from], 'ok');
+        break;
+      }
+      case 'bossIncoming':
+        this.fx.shake();
+        this.feedback('reward');
+        this.boss.update();
+        break;
+      case 'bossEngaged':
+      case 'bossStage':
+        this.feedback('reward');
+        this.fx.shake();
+        this.boss.update();
+        break;
+      case 'bossIgnored':
+        this.boss.update();
+        break;
+      case 'bossWon':
+        this.boss.update();
+        this.feedback('reward');
+        this.fx.burst(this.code, this.code.clientWidth / 2, this.code.clientHeight / 2, 24, 'pwin');
+        this.fx.toast('incident resolved', [BOSSES[e.kind].name.toLowerCase(), `+${fmt(e.reward)} lines`], 'star', 4200);
+        break;
+      case 'bossFailed':
+        this.boss.update();
+        this.fx.shake();
+        this.fx.toast('incident lost', [BOSSES[e.kind].name.toLowerCase(), 'tech debt went up'], 'err', 4200);
+        break;
+      case 'raised':
+        this.save();
+        void this.saves.flush();
+        this.editor.setLanguage(language(this.game.state).id);
+        this.panels.syncTabs();
+        this.panels.render();
+        this.dialogOpen = true;
+        this.feedback('reward');
+        void playRoundSplash(e.result).then(() => (this.dialogOpen = false));
         break;
       case 'bugSpawned':
         this.bug.show(e.expiresAt, this.game.now());
@@ -241,9 +351,22 @@ export class App {
 
   private tick(): void {
     const s = this.game.state;
+    const now = performance.now();
     this.game.tick({ canSpawn: this.platform.isVisible() && !this.dialogOpen });
     this.panels.refresh();
     this.incidents.update();
+    this.boss.update();
+    this.workspace.update(now);
+    this.editor.setGhosts(this.workspace.ghosts());
+    // The editor stops taking code while a merge conflict or a boss fight has the player's attention.
+    this.editor.frozen = this.incidents.showing === 'conflict' || this.boss.fighting;
+    this.ide.classList.toggle('alert', s.incident?.kind === 'outage');
+    this.ide.classList.toggle('bossmode', this.boss.fighting);
+    const sess = $('#sess');
+    const name = this.boss.fighting ? 'INCIDENT' : s.incident?.kind === 'outage' ? 'prod-down' : 'ship-it';
+    if (sess.textContent !== name) sess.textContent = name;
+    sess.classList.toggle('alarm', name !== 'ship-it');
+    this.updateScreensaver(now);
     // tmux-style window flags: # activity (sprint running), ! bell (ready to ship)
     this.tabButtons.sprints.classList.toggle('act', !!s.sprint);
     this.tabButtons.ship.classList.toggle('bell', starsAvailable(s) >= 1);
@@ -251,9 +374,33 @@ export class App {
     $('#clock').textContent = `${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`;
   }
 
+  /** Starts after a minute without input (never during a boss, an incident or a dialog); any input stops it. */
+  private updateScreensaver(now: number): void {
+    const s = this.game.state;
+    if (
+      s.settings.screensaver &&
+      !prefersReducedMotion() &&
+      !this.dialogOpen &&
+      this.platform.isVisible() &&
+      !s.boss &&
+      !s.incident &&
+      now - this.lastInputAt > SCREENSAVER_MS
+    )
+      this.saver.start();
+    else if (this.saver.active && (s.boss || this.dialogOpen)) this.saver.stop();
+    if (this.saver.active) this.saver.setTag(`${fmtRate(this.game.perSecond())} loc/s still running · tap or press a key`);
+  }
+
   private frame(t: number): void {
     const dt = this.lastFrame ? Math.min(0.25, (t - this.lastFrame) / 1000) : 0;
     this.lastFrame = t;
+    // Teammates type alongside the player.
+    this.ghostBudget += dt * GHOST_CHARS_PER_SECOND * this.workspace.ghosts().length;
+    const ghostChars = Math.floor(this.ghostBudget);
+    if (ghostChars > 0) {
+      this.ghostBudget -= ghostChars;
+      this.editor.typeGhosts(ghostChars);
+    }
     this.charBudget += dt * autoCharsPerSecond(this.game.perSecond());
     const chars = Math.floor(this.charBudget);
     if (chars > 0) {
@@ -261,20 +408,21 @@ export class App {
       this.editor.type(chars);
     }
     const s = this.game.state;
-    this.header.update((s.bug ? 1 : 0) + (s.incident && s.incident.kind !== 'coffee' ? 1 : 0), t - this.lastTapAt < TYPING_MS);
+    this.header.update(+!!s.bug + (s.incident && s.incident.kind !== 'coffee' ? 1 : 0) + +!!s.boss, t - this.lastTapAt < TYPING_MS);
     requestAnimationFrame((next) => this.frame(next));
   }
 
-  /** Lines written per second (taps included) for the header sparkline. */
+  /** Lines written per second (taps included): the last minute for the output graph, the last 20 seconds for the header sparkline. */
   private sampleSpark(): void {
     const now = this.game.state.lifetime;
     const delta = now.sub(this.sparkPrev);
     this.sparkPrev = now;
     this.spark.push(delta.lt(0) ? D(0) : delta);
-    if (this.spark.length > SPARK_SAMPLES) this.spark.shift();
-    const max = this.spark.reduce((m, v) => (v.gt(m) ? v : m), D(0));
+    if (this.spark.length > HISTORY_SAMPLES) this.spark.shift();
+    const recent = this.spark.slice(-SPARK_SAMPLES);
+    const max = recent.reduce((m, v) => (v.gt(m) ? v : m), D(0));
     const top = SPARK_CHARS.length - 1;
-    const padded = [...Array(SPARK_SAMPLES - this.spark.length).fill(D(0)), ...this.spark] as Decimal[];
+    const padded = [...Array(SPARK_SAMPLES - recent.length).fill(D(0)), ...recent] as Decimal[];
     $('#spark').textContent = padded.map((v) => SPARK_CHARS[max.gt(0) ? Math.round(v.div(max).toNumber() * top) : 0]).join('');
   }
 

@@ -1,5 +1,6 @@
-import { EFFECTS, SHIP, packageName, type EffectId } from '../core/content';
+import { BOSSES, DEBT, EFFECTS, FUNDING, LANGUAGES, ROLES, SHIP, TRAITS, packageName, type EffectId, type ForkDef, type UpgradeKind } from '../core/content';
 import type { GameEvent } from '../core/game';
+import { mailDef } from '../core/mail';
 import { clock, fmt } from '../core/num';
 import { questText } from '../core/quests';
 import type { QuestReward, SprintResult } from '../core/state';
@@ -17,7 +18,7 @@ export const LOG_TAGS: Record<LogKind, string> = { ok: '[ ok ]', warn: '[warn]',
 
 export const scriptFile = (id: EffectId): string => EFFECTS[id].file ?? id;
 
-const TAB_NAMES = { sprints: '1:sprints', todo: '2:todo', ship: '3:ship' } as const;
+const TAB_NAMES = { sprints: '1:sprints', todo: '2:todo', ship: '3:ship', team: '4:team', mail: '5:mail' } as const;
 
 export function rewardText(r: QuestReward): string {
   if (r.kind === 'script') return `+1 ${scriptFile(r.script)}`;
@@ -31,9 +32,9 @@ export function describe(e: GameEvent): LogLine[] {
     case 'achievement':
       return [{ kind: 'ok', text: `achievement unlocked: ${e.achievement.name} (+1% output)` }];
     case 'purchase': {
-      const { upgrade, count, doubledAt } = e.purchase;
+      const { upgrade, count, upgradeAt } = e.purchase;
       const lines: LogLine[] = [{ kind: 'cmd', text: `npm i ${packageName(upgrade.name)}${count > 1 ? ` --count ${count}` : ''}` }];
-      if (doubledAt) lines.push({ kind: 'ok', text: `${packageName(upgrade.name)} output doubled at ${doubledAt} installed` });
+      if (upgradeAt) lines.push({ kind: 'info', text: `${packageName(upgrade.name)} reached ${upgradeAt} installed: pick its upgrade in 0:pkgs` });
       return lines;
     }
     case 'perk':
@@ -72,13 +73,63 @@ export function describe(e: GameEvent): LogLine[] {
       return [{ kind: 'info', text: `new tab unlocked: ${TAB_NAMES[e.tab]}` }];
     case 'checkIn':
       return [{ kind: 'ok', text: `day ${e.checkIn.count} streak: +${fmt(e.checkIn.lines)} lines${e.checkIn.script ? ` and ${scriptFile(e.checkIn.script)}` : ''}` }];
-    case 'shipped':
-      return [{ kind: 'ok', text: `shipped v${e.result.release}.0, +${e.result.stars} star${e.result.stars > 1 ? 's' : ''}, output +${Math.round(e.totalStars * SHIP.bonusPerStar * 100)}%` }];
+    case 'shipped': {
+      const lines: LogLine[] = [{ kind: 'ok', text: `shipped v${e.result.release}.0, +${e.result.stars} star${e.result.stars > 1 ? 's' : ''}, output +${Math.round(e.totalStars * SHIP.bonusPerStar * 100)}%` }];
+      if (e.result.next.id !== 'webapp' || e.result.shipped.id !== 'webapp') lines.push({ kind: 'cmd', text: `git init ~/${e.result.next.dir} (${e.result.next.rules.join(', ')})` });
+      return lines;
+    }
+    case 'forkChosen':
+      return [{ kind: 'cmd', text: `npm update ${packageName(e.upgrade.name)} --${e.fork.id} (${forkSummary(e.fork, e.upgrade.kind)})` }];
+    case 'refactored':
+      return [{ kind: 'ok', text: `refactored: ${Math.round(e.refactor.cleared)}% tech debt cleared for ${fmt(e.refactor.cost)} lines` }];
+    case 'debtHigh':
+      return [{ kind: 'warn', text: `tech debt passed ${DEBT.warnAt}%: automation is slowing down. refactor from 0:pkgs` }];
+    case 'applicant':
+      return [{ kind: 'info', text: `${e.dev.name} (${TRAITS[e.dev.trait].label}) applied to join the team: see 4:team` }];
+    case 'hired':
+      return [{ kind: 'ok', text: `${e.dev.name} joined the team for ${fmt(e.cost)} lines` }];
+    case 'assigned':
+      return [{ kind: 'cmd', text: `assign ${e.dev.name} --to ${ROLES[e.dev.role].label} (${ROLES[e.dev.role].summary})` }];
+    case 'letGo':
+      return [{ kind: 'info', text: `${e.dev.name} left the team` }];
+    case 'bossIncoming':
+      return [{ kind: 'err', text: `${BOSSES[e.boss.kind].name}: ${BOSSES[e.boss.kind].intro}. engage, or sit it out` }];
+    case 'bossIgnored':
+      return [{ kind: 'info', text: `${BOSSES[e.kind].name.toLowerCase()}: someone else dealt with it` }];
+    case 'bossEngaged':
+      return [{ kind: 'warn', text: `war room open: ${BOSSES[e.boss.kind].stages.length} stages` }];
+    case 'bossStage':
+      return [{ kind: 'ok', text: `stage ${e.stage + 1} cleared: ${BOSSES[e.kind].stages[e.stage].label}, +${fmt(e.reward)} lines` }];
+    case 'bossWon':
+      return [{ kind: 'ok', text: `${BOSSES[e.kind].name.toLowerCase()} resolved: +${fmt(e.reward)} lines, ${e.scripts.map(scriptFile).join(' and ')}, ${DEBT.bossBeaten} tech debt` }];
+    case 'bossFailed':
+      return [{ kind: 'err', text: `${BOSSES[e.kind].name.toLowerCase()} got away at stage ${e.stage + 1}: +${DEBT.bossFailed} tech debt` }];
+    case 'raised':
+      return [
+        { kind: 'ok', text: `${e.result.name} round closed: x${FUNDING.outputPerRound} output for good, +${e.result.equity} equity` },
+        { kind: 'cmd', text: `git init --lang ${LANGUAGES[e.result.round % LANGUAGES.length].name.toLowerCase()} (the rewrite begins)` },
+      ];
+    case 'companyPerk':
+      return [{ kind: 'cmd', text: `board approve ${e.perk.name} --level ${e.level}` }];
+    case 'mail': {
+      const def = mailDef(e.item.id);
+      return def ? [{ kind: 'info', text: `new mail from ${def.from}: "${def.subject}" (5:mail)` }] : [];
+    }
+    case 'mailAnswered':
+      return [{ kind: 'cmd', text: `reply "${e.answer.option.label}" (${e.answer.outcome})` }];
     case 'offline':
       return [{ kind: 'info', text: `while you were away your team wrote ${fmt(e.lines)} lines` }];
     default:
       return [];
   }
+}
+
+/** What a fork does, in words: "x2 output", "x1.4 output, +8% to all typing packages", ... */
+export function forkSummary(f: ForkDef, kind: UpgradeKind): string {
+  const parts = [`x${f.outputMul} output`];
+  if (f.kindBonus) parts.push(`+${Math.round(f.kindBonus * 100)}% to all ${kind === 'tap' ? 'typing' : 'automation'} packages`);
+  if (f.costMul) parts.push(`costs ${Math.round((1 - f.costMul) * 100)}% less`);
+  return parts.join(', ');
 }
 
 export function sprintResultText(r: SprintResult): string {

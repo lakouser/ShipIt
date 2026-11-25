@@ -5,3 +5,12 @@ export const BUG_SVG = `<svg viewBox="0 0 15 9" aria-hidden="true">
 <g fill="#2a0b0b"><rect x="3" y="4" width="8" height="1"/><rect x="5" y="3" width="1" height="1"/><rect x="8" y="5" width="1" height="1"/><rect x="11" y="3" width="2" height="3"/><rect x="13" y="2" width="1" height="1"/><rect x="13" y="6" width="1" height="1"/><rect x="14" y="1" width="1" height="1"/><rect x="14" y="7" width="1" height="1"/></g>
 <rect x="4" y="2" width="2" height="1" fill="#ffb3a3"/>
 </svg>`;
+
+/** The boat from the ship tab's neofetch, also used by the merge splash. */
+export const BOAT = String.raw`      |\
+      | \
+      |  \
+      |___\
+   ___|_______
+   \  o  o  o/
+ ~~~\_______/~~`;

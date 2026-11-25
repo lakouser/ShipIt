@@ -7,7 +7,7 @@ import { esc } from './dom';
  *   auto  anything per second: automation                               violet
  *   star  stars                                                         gold
  *   name  files, scripts, paths, packages, ticket ids, tabs             cyan
- *   bug   bugs                                                          red
+ *   bug   bugs and tech debt                                            red
  *   time  durations and countdowns                                      bright
  *   num   any other number                                              bright
  *   str   "quoted strings"                                              string green
@@ -34,8 +34,8 @@ const RULES: [Hue, string][] = [
     String.raw`(?<![\w.])\.vimrc\b`,
     String.raw`\bcrontab\b`,
     String.raw`\bTKT-\d+\b`,
-    String.raw`\b\d:(?:pkgs|sprints|todo|ship)\b`,
-    String.raw`(?<=npm i |× )[\w-]+`,
+    String.raw`\b\d:(?:pkgs|sprints|todo|ship|team|mail)\b`,
+    String.raw`(?<=npm i |npm update |× )[\w-]+`,
   ].join('|')],
   ['tap', [
     `${B}${SIGN}${NUM}(?: lines?)?(?:\\/tap| per tap)`,
@@ -53,7 +53,13 @@ const RULES: [Hue, string][] = [
     String.raw`\b(?:automation|loc\/s)\b`,
   ].join('|')],
   ['star', `${B}${SIGN}\\d+ ?(?:stars?\\b|★)|★`],
-  ['bug', [`${B}${PCT} bug rewards`, `${B}\\d+ bugs?\\b`, String.raw`\bbugs?(?: #\d+)?\b`].join('|')],
+  ['bug', [
+    `${B}${PCT} bug rewards`,
+    `${B}\\d+ bugs?\\b`,
+    String.raw`\bbugs?(?: #\d+)?\b`,
+    `${B}${SIGN}\\d+(?:\\.\\d+)?%? tech debt`,
+    String.raw`\btech debt\b`,
+  ].join('|')],
   ['loc', [
     `${B}${SIGN}${NUM} (?:more )?(?:lines?|loc)\\b`,
     `\\b${MUL} everything`,

@@ -1,5 +1,5 @@
-import { ASSUMED_TAPS_PER_SECOND, INCIDENTS, type IncidentKind } from './content';
-import { addLines, typicalOutput } from './economy';
+import { ASSUMED_TAPS_PER_SECOND, INCIDENTS, TEAM, type IncidentKind } from './content';
+import { addLines, devrelMultiplier, projectOf, roleStrength, typicalOutput } from './economy';
 import { applyEffect } from './effects';
 import { Decimal } from './num';
 import type { Rng } from './rng';
@@ -18,13 +18,17 @@ function pickKind(rng: Rng): IncidentKind {
   return entries[0][0];
 }
 
-function spawn(kind: IncidentKind, now: number, rng: Rng): Incident {
+function spawn(s: GameState, kind: IncidentKind, now: number, rng: Rng): Incident {
   if (kind === 'coffee') return { kind, expiresAt: now + INCIDENTS.coffee.lifetimeMs };
-  if (kind === 'outage') return { kind, expiresAt: now + INCIDENTS.outage.lifetimeMs, taps: 0, needed: INCIDENTS.outage.taps };
+  if (kind === 'outage') {
+    // Developers on call cut the taps needed.
+    const cut = Math.min(TEAM.oncallCap, TEAM.oncallTaps * roleStrength(s, 'oncall'));
+    return { kind, expiresAt: now + INCIDENTS.outage.lifetimeMs, taps: 0, needed: Math.max(1, Math.round(INCIDENTS.outage.taps * (1 - cut))) };
+  }
   return { kind, expiresAt: now + INCIDENTS.conflict.lifetimeMs, correct: rng() < 0.5 ? 0 : 1 };
 }
 
-/** Expires the current incident, or starts a new one when due. Expiring never costs anything. */
+/** Expires the current incident, or starts a new one when due (not during a boss fight). Expiring never costs anything. */
 export function updateIncident(s: GameState, now: number, rng: Rng, canSpawn: boolean, force?: IncidentKind): IncidentChange {
   if (s.incident) {
     if (now < s.incident.expiresAt) return null;
@@ -32,15 +36,15 @@ export function updateIncident(s: GameState, now: number, rng: Rng, canSpawn: bo
     s.incident = null;
     return { type: 'expired', incident };
   }
-  if (!force && (!canSpawn || now < s.nextIncidentAt)) return null;
-  s.nextIncidentAt = now + INCIDENTS.minGapMs + rng() * INCIDENTS.extraGapMs;
-  s.incident = spawn(force ?? pickKind(rng), now, rng);
+  if (!force && (!canSpawn || s.boss || now < s.nextIncidentAt)) return null;
+  s.nextIncidentAt = now + (INCIDENTS.minGapMs + rng() * INCIDENTS.extraGapMs) * (projectOf(s).incidentGapMul ?? 1);
+  s.incident = spawn(s, force ?? pickKind(rng), now, rng);
   return { type: 'spawned', incident: s.incident };
 }
 
-/** Reward for fixing an outage or resolving a conflict: seconds of typical output. */
+/** Reward for fixing an outage or resolving a conflict: seconds of typical output, raised by devrel. */
 export function incidentReward(s: GameState, now: number, seconds: number): Decimal {
-  return Decimal.max(50, typicalOutput(s, now, seconds, ASSUMED_TAPS_PER_SECOND)).floor();
+  return Decimal.max(50, typicalOutput(s, now, seconds, ASSUMED_TAPS_PER_SECOND)).mul(devrelMultiplier(s)).floor();
 }
 
 export function catchCoffee(s: GameState, now: number): boolean {

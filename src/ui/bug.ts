@@ -9,6 +9,8 @@ export class BugView {
   constructor(
     private readonly host: HTMLElement,
     private readonly squash: () => Decimal | null,
+    /** Where the bug was squashed, relative to the host (for a particle burst). */
+    private readonly onSplat: (x: number, y: number) => void = () => {},
   ) {}
 
   show(expiresAt: number, now: number): void {
@@ -57,6 +59,7 @@ export class BugView {
     splat.style.top = `${bugBox.top - hostBox.top}px`;
     this.host.appendChild(splat);
     window.setTimeout(() => splat.remove(), 1000);
+    this.onSplat(bugBox.left - hostBox.left + bugBox.width / 2, bugBox.top - hostBox.top + bugBox.height / 2);
     this.hide();
   }
 }

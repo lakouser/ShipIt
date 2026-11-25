@@ -1,8 +1,8 @@
-import { BUGS, INCIDENTS, type EffectId } from './content';
+import { BUGS, INCIDENTS, type BossKind, type EffectId, type ForkId, type ProjectId, type RoleId, type TraitId } from './content';
 import { D, type Decimal } from './num';
 
 export type BuyAmount = 1 | 10 | 'max';
-export type Tab = 'upgrades' | 'sprints' | 'todo' | 'ship' | 'settings';
+export type Tab = 'upgrades' | 'sprints' | 'todo' | 'ship' | 'team' | 'mail' | 'settings';
 export type Notation = 'suffix' | 'sci';
 export type Skin = 'pine' | 'phosphor' | 'amber' | 'paper';
 
@@ -60,6 +60,40 @@ export type Incident =
   | { kind: 'outage'; expiresAt: number; taps: number; needed: number }
   | { kind: 'conflict'; expiresAt: number; correct: 0 | 1 };
 
+export interface Developer {
+  id: number;
+  name: string;
+  trait: TraitId;
+  role: RoleId;
+  /** Which of the portrait variants to draw. */
+  face: number;
+}
+
+export interface Boss {
+  kind: BossKind;
+  /** 'incoming' while the warning shows; 'fight' once engaged. */
+  phase: 'incoming' | 'fight';
+  stage: number;
+  /** The warning or the current stage times out at this time. */
+  endsAt: number;
+  /** Mash stages: taps so far and taps needed. */
+  taps: number;
+  needed: number;
+  /** Pick stages: the right option, and which wording to show. */
+  correct: number;
+  variant: number;
+}
+
+export interface MailItem {
+  /** Unique per delivery (the same mail can come again later). */
+  key: string;
+  id: string;
+  at: number;
+  read: boolean;
+  /** The option answered, for choice mail. */
+  choice: number | null;
+}
+
 export interface Stats {
   taps: number;
   crits: number;
@@ -76,6 +110,13 @@ export interface Stats {
   perksBought: number;
   flowMaxed: number;
   maxOfOne: number;
+  refactors: number;
+  forksChosen: number;
+  hires: number;
+  bossesBeaten: number;
+  bossesFailed: number;
+  mailAnswered: number;
+  duckPokes: number;
 }
 
 export interface Settings {
@@ -86,6 +127,8 @@ export interface Settings {
   skin: Skin;
   /** Show the welcome-back screen after time away (otherwise just a log line). */
   welcome: boolean;
+  /** Show the screensaver in the editor when idle. */
+  screensaver: boolean;
   buyAmount: BuyAmount;
   tab: Tab;
   dev: boolean;
@@ -107,7 +150,7 @@ export interface GameState {
   /** Current major version; starts at 1. */
   release: number;
   achievements: string[];
-  flags: { crunch?: boolean; sudo?: boolean; rmrf?: boolean; nightOwl?: boolean; exported?: boolean; touchGrass?: boolean };
+  flags: { crunch?: boolean; sudo?: boolean; rmrf?: boolean; nightOwl?: boolean; exported?: boolean; touchGrass?: boolean; bankrupt?: boolean };
   /** Line number shown in the editor gutter. */
   editorLine: number;
   /** Script inventory (~/bin). */
@@ -128,8 +171,36 @@ export interface GameState {
   nextBugAt: number;
   incident: Incident | null;
   nextIncidentAt: number;
-  streak: { lastDay: string; count: number; days: string[] };
-  unlocked: { sprints: boolean; todo: boolean; ship: boolean };
+  /** activity: taps per day (YYYY-MM-DD), for the days kept. */
+  streak: { lastDay: string; count: number; days: string[]; activity: Record<string, number> };
+  unlocked: { sprints: boolean; todo: boolean; ship: boolean; team: boolean; mail: boolean };
+  /** Tech debt, 0 to DEBT.max. */
+  debt: number;
+  /** What this release is building. */
+  project: ProjectId;
+  projectsShipped: ProjectId[];
+  /** Forks chosen per package, in order. */
+  forks: Record<string, ForkId[]>;
+  team: Developer[];
+  applicant: Developer | null;
+  nextApplicantAt: number;
+  nextDevId: number;
+  boss: Boss | null;
+  nextBossAt: number;
+  /** Kinds of boss beaten at least once. */
+  bossKinds: BossKind[];
+  /** Funding rounds raised. */
+  round: number;
+  equity: number;
+  equitySpent: number;
+  /** Company perk levels, bought with equity. */
+  company: Record<string, number>;
+  /** Newest first. */
+  mail: MailItem[];
+  nextMailAt: number;
+  /** Story mail already sent. */
+  mailSeen: string[];
+  manRead: string[];
   settings: Settings;
   savedAt: number;
 }
@@ -137,11 +208,12 @@ export interface GameState {
 export const newStats = (): Stats => ({
   taps: 0, crits: 0, purchases: 0, sprints: 0, bugs: 0, bugsEscaped: 0, coffees: 0, outagesFixed: 0,
   conflictsResolved: 0, scriptsRun: 0, quests: 0, milestones: 0, perksBought: 0, flowMaxed: 0, maxOfOne: 0,
+  refactors: 0, forksChosen: 0, hires: 0, bossesBeaten: 0, bossesFailed: 0, mailAnswered: 0, duckPokes: 0,
 });
 
 export const defaultSettings = (): Settings => ({
   sound: false, haptics: true, reduceMotion: false, notation: 'suffix', skin: 'pine',
-  welcome: true, buyAmount: 1, tab: 'upgrades', dev: false,
+  welcome: true, screensaver: true, buyAmount: 1, tab: 'upgrades', dev: false,
 });
 
 export function newGame(now: number): GameState {
@@ -171,8 +243,27 @@ export function newGame(now: number): GameState {
     nextBugAt: now + BUGS.firstDelayMs,
     incident: null,
     nextIncidentAt: now + INCIDENTS.firstDelayMs,
-    streak: { lastDay: '', count: 0, days: [] },
-    unlocked: { sprints: false, todo: false, ship: false },
+    streak: { lastDay: '', count: 0, days: [], activity: {} },
+    unlocked: { sprints: false, todo: false, ship: false, team: false, mail: false },
+    debt: 0,
+    project: 'webapp',
+    projectsShipped: [],
+    forks: {},
+    team: [],
+    applicant: null,
+    nextApplicantAt: 0,
+    nextDevId: 1,
+    boss: null,
+    nextBossAt: 0,
+    bossKinds: [],
+    round: 0,
+    equity: 0,
+    equitySpent: 0,
+    company: {},
+    mail: [],
+    nextMailAt: 0,
+    mailSeen: [],
+    manRead: [],
     settings: defaultSettings(),
     savedAt: now,
   };
