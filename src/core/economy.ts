@@ -17,6 +17,7 @@ import {
   UPGRADES,
   type ForkDef,
   type ForkId,
+  type LanguageId,
   type ProjectDef,
   type RoleId,
   type UpgradeDef,
@@ -76,7 +77,7 @@ export const isUpgradeAvailable = (s: GameState, u: UpgradeDef): boolean => (u.m
 export const roundMultiplier = (s: GameState): number => FUNDING.outputPerRound ** s.round;
 
 /** The language the editor writes, which changes with each round. */
-export const language = (s: GameState): { id: string; name: string } => LANGUAGES[s.round % LANGUAGES.length];
+export const language = (s: GameState): { id: LanguageId; name: string } => LANGUAGES[s.round % LANGUAGES.length];
 
 /** devrel: bigger bug, incident and boss rewards. */
 export const devrelMultiplier = (s: GameState): number => 1 + COMPANY_VALUES.devrelReward * companyLevel(s, 'devrel');

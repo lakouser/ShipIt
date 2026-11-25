@@ -16,7 +16,10 @@ describe('saves', () => {
     s.achievements = ['hello', 'ship'];
     s.scripts = { turbo: 2, sudo: 1 };
     s.questBonus.tap = 0.04;
-    s.streak = { lastDay: '2026-11-25', count: 3, days: ['2026-11-23', '2026-11-24', '2026-11-25'] };
+    s.streak = { lastDay: '2026-11-25', count: 3, days: ['2026-11-23', '2026-11-24', '2026-11-25'], activity: { '2026-11-25': 40 } };
+    s.forks = { duck: ['major', 'lts'] };
+    s.debt = 42.5;
+    s.round = 2;
     s.settings.buyAmount = 'max';
     s.settings.skin = 'amber';
     s.settings.tab = 'ship';
@@ -29,6 +32,10 @@ describe('saves', () => {
     expect(back.scripts).toEqual({ turbo: 2, sudo: 1 });
     expect(back.questBonus.tap).toBe(0.04);
     expect(back.streak.count).toBe(3);
+    expect(back.streak.activity).toEqual({ '2026-11-25': 40 });
+    expect(back.forks).toEqual({ duck: ['major', 'lts'] });
+    expect(back.debt).toBe(42.5);
+    expect(back.round).toBe(2);
     expect(back.settings.skin).toBe('amber');
     expect(back.settings.tab).toBe('ship');
     expect(back.savedAt).toBe(1234);
@@ -57,6 +64,14 @@ describe('saves', () => {
     expect(back.settings.sound).toBe(true);
     expect(back.settings.buyAmount).toBe(10);
     expect(back.lines.toNumber()).toBe(500);
+  });
+
+  it('turns version 2 doublings into major-rewrite forks', () => {
+    const v2 = { v: 2, lines: '10', lifetime: '10', thisRelease: '10', owned: { kb: 60, duck: 24, intern: 25 } };
+    const back = deserialize(JSON.stringify(v2), 0)!;
+    expect(back.forks).toEqual({ kb: ['major', 'major'], intern: ['major'] });
+    expect(back.owned).toEqual({ kb: 60, duck: 24, intern: 25 });
+    expect(SAVE_VERSION).toBe(3);
   });
 
   it('exports and imports as a single line', () => {

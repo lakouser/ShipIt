@@ -15,7 +15,7 @@ export interface SettingsView {
 export const SKINS: { id: Skin; label: string; unlocked: (g: Game) => boolean; hint: string }[] = [
   { id: 'pine', label: 'pine', unlocked: () => true, hint: '' },
   { id: 'paper', label: 'paper', unlocked: () => true, hint: '' },
-  { id: 'phosphor', label: 'phosphor', unlocked: (g) => g.state.release > 1, hint: 'ship once' },
+  { id: 'phosphor', label: 'phosphor', unlocked: (g) => g.state.release > 1 || g.state.round > 0, hint: 'ship once' },
   { id: 'amber', label: 'amber', unlocked: (g) => g.state.stats.bugs >= 25, hint: 'squash 25 bugs' },
 ];
 
@@ -59,8 +59,9 @@ export function renderSettings(game: Game, view: SettingsView): string {
     return choice('skin', k.id, st.skin === k.id, k.label, !open, open ? '' : k.hint);
   }).join('')}</div>`;
   html += `<div class="row2"><span class="lbl">numbers</span>${NOTATIONS.map((n) => choice('notation', n.id, st.notation === n.id, n.label)).join('')}</div>`;
-  html += toggle('reduceMotion', st.reduceMotion, 'reduce motion', 'no floating numbers, crawling or bouncing');
+  html += toggle('reduceMotion', st.reduceMotion, 'reduce motion', 'no floating numbers, shaking, particles or screensaver');
   html += toggle('welcome', st.welcome, 'welcome-back screen', 'otherwise just a log line');
+  html += toggle('screensaver', st.screensaver, 'screensaver', 'takes over the editor after a minute idle; automation keeps running');
   html += '</div>';
 
   html += `<div class="grp"># about</div><div class="opts"><button class="opt about" data-act="version">ship-it ${esc(view.version)} <small>${st.dev ? 'developer mode on' : 'an idle game about writing code'}</small></button></div>`;
@@ -71,6 +72,7 @@ export function renderSettings(game: Game, view: SettingsView): string {
       ${dev('lines', 'lines x10')}${dev('stars', '+5 stars')}${dev('bug', 'spawn bug')}
       ${dev('incident', 'coffee', ' data-kind="coffee"')}${dev('incident', 'outage', ' data-kind="outage"')}${dev('incident', 'conflict', ' data-kind="conflict"')}
       ${dev('sprint', 'finish sprint')}${dev('scripts', '+1 every script')}${dev('quests', 'complete tasks')}
+      ${dev('debt', '+30 debt')}${dev('applicant', 'new applicant')}${dev('boss', 'boss incident')}${dev('mail', 'send mail')}
       ${dev('unlock', 'unlock tabs')}${dev('warp', '+1h away')}${dev('off', 'dev mode off')}
     </div></div>`;
   }

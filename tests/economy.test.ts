@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { UPGRADES } from '../src/core/content';
-import { buy, costOf, maxAffordable, perSecond, perTap } from '../src/core/economy';
+import { buy, chooseFork, costOf, forkOptions, maxAffordable, perSecond, perTap } from '../src/core/economy';
 import { D, fmt } from '../src/core/num';
 import { newGame } from '../src/core/state';
 
@@ -45,14 +45,36 @@ describe('economy', () => {
     expect(s.lines.lt(costOf(s, kb, 1))).toBe(true);
   });
 
-  it('doubles an upgrade at every 25 copies', () => {
+  it('offers a fork at every 25 copies', () => {
     const s = newGame(0);
     s.owned.duck = 24;
     expect(perSecond(s, 0).toNumber()).toBe(24);
     s.lines = D(1e9);
     const p = buy(s, 'duck')!;
-    expect(p.doubledAt).toBe(25);
+    expect(p.upgradeAt).toBe(25);
+    // Nothing changes until the player picks one.
+    expect(perSecond(s, 0).toNumber()).toBe(25);
+    expect(forkOptions(s, 'duck')!.map((f) => f.id)).toEqual(['major', 'plugin']);
+    expect(chooseFork(s, 'duck', 'lts')).toBeNull();
+    expect(chooseFork(s, 'duck', 'major')!.fork.id).toBe('major');
     expect(perSecond(s, 0).toNumber()).toBe(50);
+    expect(forkOptions(s, 'duck')).toBeNull();
+    // The second fork offers the LTS build instead of the plugin ecosystem.
+    s.owned.duck = 50;
+    expect(forkOptions(s, 'duck')!.map((f) => f.id)).toEqual(['major', 'lts']);
+    const before = costOf(s, UPGRADES.find((u) => u.id === 'duck')!, 1).toNumber();
+    chooseFork(s, 'duck', 'lts');
+    expect(costOf(s, UPGRADES.find((u) => u.id === 'duck')!, 1).toNumber()).toBe(Math.ceil(before / 2));
+  });
+
+  it('plugin ecosystems boost every package of their kind', () => {
+    const s = newGame(0);
+    s.owned.duck = 25;
+    s.owned.intern = 1;
+    const base = perSecond(s, 0).toNumber();
+    chooseFork(s, 'duck', 'plugin');
+    // duck x1.4 and a +8% bonus on all automation.
+    expect(perSecond(s, 0).toNumber()).toBeCloseTo((25 * 1.4 + (base - 25)) * 1.08);
   });
 
   it('applies stars, achievements, perks and effects', () => {

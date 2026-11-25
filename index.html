@@ -29,11 +29,17 @@
     </header>
 
     <section class="ide" aria-label="Code editor">
-      <div class="tabline"><span class="tab on">main.ts</span><span class="tab sp" id="sTab" hidden></span><span class="fill"></span><span class="path">~/ship-it/src</span></div>
+      <div class="tabline"><span class="tab on" id="mainTab">main.ts</span><span class="tab sp" id="sTab" hidden></span><span class="xtabs" id="xTabs" aria-hidden="true"></span><span class="fill"></span><span class="path" id="path">~/web-app/src</span></div>
       <div class="sbar"><i id="sBar"></i></div>
       <div class="code" id="code">
         <div class="lines" id="lines" aria-hidden="true"><div class="ln live" id="live"></div></div>
         <div class="mini" id="mini" aria-hidden="true"></div>
+        <div class="toasts" id="toasts" aria-live="polite"></div>
+        <div class="saver" id="saver" hidden aria-hidden="true"><canvas></canvas><div class="savertag" id="saverTag"></div></div>
+      </div>
+      <div class="pane" id="pane" hidden aria-hidden="true">
+        <div class="ptitle"><span class="pname" id="paneName">1:ci</span><span class="fill"></span><span id="paneStat"></span></div>
+        <div class="plog" id="paneLog"></div>
       </div>
       <div class="status">
         <span class="mode" id="mode">NORMAL</span>
@@ -41,8 +47,9 @@
         <span class="br">main</span>
         <span id="stLn"></span>
         <span id="stProb">0 problems</span>
+        <span id="stDebt" hidden></span>
         <span class="fill"></span>
-        <span class="ft">utf-8 · ts</span>
+        <span class="ft" id="stLang">utf-8 · ts</span>
       </div>
     </section>
 
@@ -56,11 +63,13 @@
     <section class="panel" id="panel" role="tabpanel" aria-live="off"></section>
 
     <nav class="bar" role="tablist" aria-label="Panels">
-      <span class="sess">ship-it</span>
-      <button role="tab" data-tab="upgrades">0:pkgs</button>
-      <button role="tab" data-tab="sprints" hidden>1:sprints</button>
-      <button role="tab" data-tab="todo" hidden>2:todo</button>
-      <button role="tab" data-tab="ship" hidden>3:ship</button>
+      <span class="sess" id="sess">ship-it</span>
+      <button role="tab" data-tab="upgrades"><span class="ix">0:</span><span class="tl">pkgs</span></button>
+      <button role="tab" data-tab="sprints" hidden><span class="ix">1:</span><span class="tl">sprints</span></button>
+      <button role="tab" data-tab="todo" hidden><span class="ix">2:</span><span class="tl">todo</span></button>
+      <button role="tab" data-tab="ship" hidden><span class="ix">3:</span><span class="tl">ship</span></button>
+      <button role="tab" data-tab="team" hidden><span class="ix">4:</span><span class="tl">team</span></button>
+      <button role="tab" data-tab="mail" hidden><span class="ix">5:</span><span class="tl">mail</span></button>
       <span class="fill"></span>
       <button role="tab" data-tab="settings" class="cfg" aria-label="Settings">cfg</button>
       <span class="clock" id="clock"></span>

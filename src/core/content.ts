@@ -434,7 +434,10 @@ export const BOSS = {
 
 export const ROUNDS: readonly string[] = ['Bootstrapped', 'Seed', 'Series A', 'Series B', 'Series C', 'IPO'];
 
-export const LANGUAGES: readonly { id: string; name: string }[] = [
+/** The editor writes a different language each funding round. */
+export type LanguageId = 'ts' | 'rs' | 'go' | 'py';
+
+export const LANGUAGES: readonly { id: LanguageId; name: string }[] = [
   { id: 'ts', name: 'TypeScript' },
   { id: 'rs', name: 'Rust' },
   { id: 'go', name: 'Go' },
