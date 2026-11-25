@@ -1,9 +1,12 @@
-import { ASSUMED_TAPS_PER_SECOND, DIFFICULTY_BANDS, SPRINT_TIERS, TICKET_TITLES } from './content';
-import { addLines, perSecond, perTap } from './economy';
+import { ASSUMED_TAPS_PER_SECOND, DIFFICULTY_BANDS, PERK_VALUES, SPRINT_TIERS, TICKET_TITLES } from './content';
+import { addLines, perSecond, perTap, typicalOutput } from './economy';
+import { grantScript, randomScript } from './effects';
 import { D, Decimal } from './num';
+import { perkLevel } from './perks';
+import type { Rng } from './rng';
 import type { ActiveSprint, GameState, SprintResult, Ticket } from './state';
 
-export type Rng = () => number;
+export type { Rng } from './rng';
 export type Difficulty = 'relaxed' | 'tight' | 'crunch';
 
 function shuffled<T>(items: readonly T[], rng: Rng): T[] {
@@ -15,21 +18,41 @@ function shuffled<T>(items: readonly T[], rng: Rng): T[] {
   return a;
 }
 
-/** One fresh ticket per tier, sized to the player's current output. */
-export function makeBacklog(s: GameState, now: number, rng: Rng): Ticket[] {
+/** A fresh ticket for one tier, sized to the player's current output. Perks add time and reward. */
+function makeTicket(s: GameState, tierIndex: number, now: number, rng: Rng, title: string): Ticket {
+  const tier = SPRINT_TIERS[tierIndex];
+  const timeBonus = 1 + PERK_VALUES.timeoutsBonus * perkLevel(s, 'timeouts');
+  const rewardBonus = (1 + PERK_VALUES.retroReward * perkLevel(s, 'retro')) * (1 + s.questBonus.sprint);
+  const target = Decimal.max(50, typicalOutput(s, now, tier.durationS * tier.difficulty, ASSUMED_TAPS_PER_SECOND).div(10).ceil().mul(10));
+  return {
+    tier: tierIndex,
+    id: `TKT-${100 + Math.floor(rng() * 900)}`,
+    title,
+    durationS: Math.round(tier.durationS * timeBonus),
+    target,
+    reward: target.mul(tier.rewardMultiplier * rewardBonus).round(),
+    readyAt: 0,
+  };
+}
+
+/** One fresh ticket per tier. Pass the old backlog to keep each slot's standup cooldown. */
+export function makeBacklog(s: GameState, now: number, rng: Rng, keepCooldowns?: Ticket[]): Ticket[] {
   const titles = shuffled(TICKET_TITLES, rng);
-  const estimate = perSecond(s, now).add(perTap(s, now).mul(ASSUMED_TAPS_PER_SECOND));
-  return SPRINT_TIERS.map((tier, i) => {
-    const target = Decimal.max(50, estimate.mul(tier.durationS * tier.difficulty).div(10).ceil().mul(10));
-    return {
-      tier: i,
-      id: `TKT-${100 + Math.floor(rng() * 900)}`,
-      title: titles[i % titles.length],
-      durationS: tier.durationS,
-      target,
-      reward: target.mul(tier.rewardMultiplier).round(),
-    };
+  return SPRINT_TIERS.map((_, i) => ({ ...makeTicket(s, i, now, rng, titles[i % titles.length]), readyAt: keepCooldowns?.[i]?.readyAt ?? 0 }));
+}
+
+/** Replaces tickets whose standup cooldown has passed with fresh ones sized to current output. */
+export function refreshBacklog(s: GameState, now: number, rng: Rng): number[] {
+  const refreshed: number[] = [];
+  s.backlog.forEach((t, i) => {
+    if (t.readyAt > 0 && now >= t.readyAt) {
+      const used = new Set(s.backlog.map((x) => x.title));
+      const title = shuffled(TICKET_TITLES.filter((x) => !used.has(x)), rng)[0] ?? t.title;
+      s.backlog[i] = makeTicket(s, t.tier, now, rng, title);
+      refreshed.push(i);
+    }
   });
+  return refreshed;
 }
 
 /** Taps per second the player would need, on top of automation, to finish a ticket in time. 0 means automation alone is enough. */
@@ -46,7 +69,7 @@ export function difficultyOf(rate: number): Difficulty {
 
 export function startSprint(s: GameState, slot: number, now: number): ActiveSprint | null {
   const t = s.backlog[slot];
-  if (s.sprint || !t) return null;
+  if (s.sprint || !t || t.readyAt > now) return null;
   s.sprint = { ...t, slot, endsAt: now + t.durationS * 1000, progress: D(0) };
   s.lastSprint = null;
   return s.sprint;
@@ -64,19 +87,20 @@ export function resolveSprint(s: GameState, now: number, rng: Rng): SprintResult
 
   s.sprint = null;
   const secondsLeft = Math.max(0, (sp.endsAt - now) / 1000);
-  let boosted = false;
+  let script: SprintResult['script'] = null;
   if (ok) {
     addLines(s, sp.reward);
-    s.sprintsMerged++;
+    s.stats.sprints++;
     if (secondsLeft < 3) s.flags.crunch = true;
-    const boost = SPRINT_TIERS[sp.tier]?.boost;
-    if (boost) {
-      s.boost = { multiplier: boost.multiplier, endsAt: now + boost.seconds * 1000 };
-      boosted = true;
+    if (rng() < (SPRINT_TIERS[sp.tier]?.scriptChance ?? 0)) {
+      script = randomScript(rng);
+      grantScript(s, script);
     }
   }
-  const result: SprintResult = { ok, ticketId: sp.id, title: sp.title, progress: sp.progress, target: sp.target, reward: sp.reward, secondsLeft, boosted };
+  const result: SprintResult = { ok, ticketId: sp.id, title: sp.title, progress: sp.progress, target: sp.target, reward: sp.reward, secondsLeft, script };
   s.lastSprint = result;
-  s.backlog = makeBacklog(s, now, rng);
+  // The slot waits for the next standup; refreshBacklog fills it in later.
+  const tier = SPRINT_TIERS[sp.tier] ?? SPRINT_TIERS[0];
+  s.backlog[sp.slot] = { ...sp, readyAt: now + tier.cooldownS * 1000 };
   return result;
 }

@@ -1,27 +1,53 @@
 import { checkAchievements, type AchievementDef } from './achievements';
 import { squashBug, updateBugs } from './bugs';
-import { BUGS, OFFLINE } from './content';
-import { addLines, buy, perSecond, perTap, type Purchase } from './economy';
+import { BUGS, CRIT, FLOW, OFFLINE, PERK_VALUES, UNLOCKS, type EffectDef, type EffectId, type IncidentKind, type PerkDef } from './content';
+import { applyDev, type DevAction } from './dev';
+import { addLines, buy, critChance, perSecond, perTap, type Purchase } from './economy';
+import { effectSum, pruneEffects, runScript } from './effects';
+import { catchCoffee, chooseConflict, outageTap, updateIncident } from './incidents';
 import type { Decimal } from './num';
+import { buyPerk, perkLevel } from './perks';
+import { makeMilestone, updateMilestone, updateQuests } from './quests';
+import type { Rng } from './rng';
 import { ship, type ShipResult } from './ship';
-import { makeBacklog, resolveSprint, startSprint, type Rng } from './sprints';
-import type { ActiveSprint, GameState, SprintResult } from './state';
+import { makeBacklog, refreshBacklog, resolveSprint, startSprint } from './sprints';
+import type { ActiveSprint, GameState, Incident, Milestone, Quest, SprintResult } from './state';
+import { checkIn, type CheckIn } from './streak';
+
+export type UnlockTab = 'sprints' | 'todo' | 'ship';
+export type IncidentOutcome = 'caught' | 'fixed' | 'resolved' | 'wrong' | 'missed';
 
 export type GameEvent =
-  | { type: 'tap'; lines: Decimal }
+  | { type: 'tap'; lines: Decimal; crit: boolean; auto: boolean }
+  | { type: 'flowMax' }
   | { type: 'purchase'; purchase: Purchase }
+  | { type: 'perk'; perk: PerkDef; level: number }
+  | { type: 'script'; effect: EffectDef }
+  | { type: 'effectEnded'; id: EffectId }
   | { type: 'achievement'; achievement: AchievementDef }
   | { type: 'sprintStarted'; sprint: ActiveSprint }
   | { type: 'sprintEnded'; result: SprintResult }
+  | { type: 'backlogRefreshed' }
   | { type: 'bugSpawned'; expiresAt: number }
   | { type: 'bugEscaped' }
-  | { type: 'bugSquashed'; reward: Decimal; total: number }
+  | { type: 'bugSquashed'; reward: Decimal; total: number; auto: boolean }
+  | { type: 'incidentSpawned'; incident: Incident }
+  | { type: 'incidentEnded'; kind: IncidentKind; outcome: IncidentOutcome; reward: Decimal | null }
+  | { type: 'questDone'; quest: Quest }
+  | { type: 'milestoneDone'; milestone: Milestone }
+  | { type: 'unlocked'; tab: UnlockTab }
+  | { type: 'checkIn'; checkIn: CheckIn }
   | { type: 'shipped'; result: ShipResult; totalStars: number }
-  | { type: 'offline'; lines: Decimal; seconds: number };
+  | { type: 'offline'; lines: Decimal; seconds: number; awaySeconds: number; rate: number };
 
 export interface GameOptions {
   clock?: () => number;
   rng?: Rng;
+}
+
+export interface TickOptions {
+  /** False while the game is hidden or a dialog is open: bugs and incidents wait. */
+  canSpawn?: boolean;
 }
 
 /**
@@ -36,6 +62,11 @@ export class Game {
   private readonly listeners = new Set<(e: GameEvent) => void>();
   private readonly taps: number[] = [];
   private lastTick: number;
+  private lastTapAt = 0;
+  private autoTapBudget = 0;
+  private typedBuffer = '';
+  /** Flow state, 0–1. Not saved: it is about the current burst of typing. */
+  flow = 0;
 
   constructor(state: GameState, options: GameOptions = {}) {
     this.clock = options.clock ?? Date.now;
@@ -43,10 +74,12 @@ export class Game {
     this.state = state;
     const now = this.clock();
     this.lastTick = now;
-    // A bug saved mid-crawl would have no sprite to tap; start the timer again instead.
+    // Bugs and incidents saved mid-flight would have no sprite to tap; restart their timers instead.
     state.bug = null;
+    state.incident = null;
     state.nextBugAt = now + BUGS.firstDelayMs;
     if (state.backlog.length === 0) state.backlog = makeBacklog(state, now, this.rng);
+    if (!state.milestone || state.milestone.release !== state.release) state.milestone = makeMilestone(state);
   }
 
   now(): number {
@@ -70,26 +103,75 @@ export class Game {
     return perSecond(this.state, this.clock());
   }
 
-  /** Taps per second over the last windowMs. */
+  /** Multiplier the flow meter currently gives taps. */
+  flowMultiplier(): number {
+    return 1 + this.flow * (FLOW.maxBonus + PERK_VALUES.flowPerLevel * perkLevel(this.state, 'flow'));
+  }
+
+  /** Taps per second over the last windowMs (player taps only). */
   tapRate(windowMs: number): number {
     const now = this.clock();
     return this.taps.filter((t) => now - t < windowMs).length / (windowMs / 1000);
   }
 
-  tap(): Decimal {
+  /** A press of the write-code key. Scripted taps (autotype.sh) skip flow and tap-rate tracking. */
+  tap(auto = false): Decimal {
+    const s = this.state;
     const now = this.clock();
-    const lines = perTap(this.state, now);
-    addLines(this.state, lines);
-    this.taps.push(now);
-    if (this.taps.length > 64) this.taps.shift();
-    this.emit({ type: 'tap', lines });
+    let lines = perTap(s, now);
+    if (!auto) {
+      const before = this.flow;
+      this.flow = Math.min(1, this.flow + FLOW.gainPerTap);
+      this.lastTapAt = now;
+      if (before < 1 && this.flow >= 1) {
+        s.stats.flowMaxed++;
+        this.emit({ type: 'flowMax' });
+      }
+      lines = lines.mul(this.flowMultiplier());
+      this.taps.push(now);
+      if (this.taps.length > 64) this.taps.shift();
+    }
+    const crit = this.rng() < critChance(s, now);
+    if (crit) {
+      lines = lines.mul(CRIT.multiplier);
+      s.stats.crits++;
+    }
+    addLines(s, lines);
+    s.stats.taps++;
+    this.emit({ type: 'tap', lines, crit, auto });
+
+    const fixed = outageTap(s, now);
+    if (fixed) this.emit({ type: 'incidentEnded', kind: 'outage', outcome: 'fixed', reward: fixed });
     return lines;
+  }
+
+  /** Characters typed on a physical keyboard, for the secret achievements. */
+  typed(key: string): void {
+    if (key.length !== 1) return;
+    this.typedBuffer = (this.typedBuffer + key.toLowerCase()).slice(-12);
+    if (this.typedBuffer.endsWith('sudo')) this.state.flags.sudo = true;
+    if (this.typedBuffer.endsWith('rm -rf')) this.state.flags.rmrf = true;
   }
 
   buy(id: string): Purchase | null {
     const purchase = buy(this.state, id);
     if (purchase) this.emit({ type: 'purchase', purchase });
     return purchase;
+  }
+
+  buyPerk(id: string): boolean {
+    const result = buyPerk(this.state, id);
+    if (!result) return false;
+    this.emit({ type: 'perk', perk: result.perk, level: result.level });
+    // Perks can change sprint times and rewards: refresh the tickets, keeping each slot's standup cooldown.
+    if (!this.state.sprint) this.state.backlog = makeBacklog(this.state, this.clock(), this.rng, this.state.backlog);
+    return true;
+  }
+
+  runScript(id: EffectId): boolean {
+    const effect = runScript(this.state, id, this.clock());
+    if (effect) this.emit({ type: 'script', effect });
+    return !!effect;
   }
 
   startSprint(slot: number): ActiveSprint | null {
@@ -100,8 +182,21 @@ export class Game {
 
   squashBug(): Decimal | null {
     const reward = squashBug(this.state, this.clock());
-    if (reward) this.emit({ type: 'bugSquashed', reward, total: this.state.bugsSquashed });
+    if (reward) this.emit({ type: 'bugSquashed', reward, total: this.state.stats.bugs, auto: false });
     return reward;
+  }
+
+  catchCoffee(): boolean {
+    const ok = catchCoffee(this.state, this.clock());
+    if (ok) this.emit({ type: 'incidentEnded', kind: 'coffee', outcome: 'caught', reward: null });
+    return ok;
+  }
+
+  chooseConflict(side: 0 | 1): boolean | null {
+    const result = chooseConflict(this.state, side, this.clock());
+    if (!result) return null;
+    this.emit({ type: 'incidentEnded', kind: 'conflict', outcome: result.ok ? 'resolved' : 'wrong', reward: result.reward });
+    return result.ok;
   }
 
   ship(): ShipResult | null {
@@ -110,33 +205,99 @@ export class Game {
     return result;
   }
 
-  /** Credits time away (closed app, sleeping tab) at the reduced offline rate, capped. */
-  creditTimeAway(seconds: number): void {
-    const capped = Math.min(OFFLINE.maxSeconds, Math.max(0, seconds));
-    const lines = perSecond(this.state, this.clock()).mul(capped * OFFLINE.rate).floor();
+  markExported(): void {
+    this.state.flags.exported = true;
+  }
+
+  /** First session of the day: streak and daily bonus. Call once after subscribing. */
+  checkIn(): CheckIn | null {
+    const result = checkIn(this.state, this.clock());
+    if (result) this.emit({ type: 'checkIn', checkIn: result });
+    return result;
+  }
+
+  /** Credits time away (closed app, sleeping tab) at the offline rate, capped. The crontab perk raises both. */
+  creditTimeAway(awaySeconds: number): void {
+    const s = this.state;
+    const level = perkLevel(s, 'cron');
+    const rate = OFFLINE.rate + PERK_VALUES.cronRate * level;
+    const cap = OFFLINE.maxSeconds + PERK_VALUES.cronHours * 3600 * level;
+    const seconds = Math.min(cap, Math.max(0, awaySeconds));
+    if (awaySeconds >= 2 * 3600) s.flags.touchGrass = true;
+    const lines = perSecond(s, this.clock()).mul(seconds * rate).floor();
     if (lines.lt(1)) return;
-    addLines(this.state, lines, false);
-    this.emit({ type: 'offline', lines, seconds: capped });
+    addLines(s, lines, false);
+    this.emit({ type: 'offline', lines, seconds, awaySeconds, rate });
+  }
+
+  /** Developer shortcuts (dev mode only). */
+  dev(action: DevAction, incident?: IncidentKind): void {
+    const now = this.clock();
+    const spawned = applyDev(this.state, action, now, this.rng, incident);
+    if (spawned) this.emit({ type: 'incidentSpawned', incident: spawned });
+    if (action === 'warp') this.creditTimeAway(3600);
+    this.tick();
   }
 
   /** Advances the game to now. Call it often (every 100–250 ms). */
-  tick(options: { canSpawnBug?: boolean } = {}): void {
+  tick(options: TickOptions = {}): void {
+    const s = this.state;
     const now = this.clock();
+    const canSpawn = options.canSpawn ?? true;
     const dt = Math.max(0, (now - this.lastTick) / 1000); // a clock moved backwards gives nothing
     this.lastTick = now;
 
-    if (dt > OFFLINE.thresholdS) this.creditTimeAway(dt);
-    else if (dt > 0) addLines(this.state, perSecond(this.state, now).mul(dt));
+    if (dt > OFFLINE.thresholdS) {
+      this.creditTimeAway(dt);
+    } else if (dt > 0) {
+      addLines(s, perSecond(s, now).mul(dt));
+      const autoTaps = effectSum(s, 'autoTapsPerSecond', now);
+      if (autoTaps > 0) {
+        this.autoTapBudget += autoTaps * dt;
+        while (this.autoTapBudget >= 1) {
+          this.autoTapBudget--;
+          this.tap(true);
+        }
+      }
+    }
+    if (now - this.lastTapAt > FLOW.idleS * 1000) this.flow = Math.max(0, this.flow - FLOW.decayPerS * dt);
 
-    const result = resolveSprint(this.state, now, this.rng);
+    for (const id of pruneEffects(s, now)) this.emit({ type: 'effectEnded', id });
+
+    const result = resolveSprint(s, now, this.rng);
     if (result) this.emit({ type: 'sprintEnded', result });
+    if (refreshBacklog(s, now, this.rng).length) this.emit({ type: 'backlogRefreshed' });
 
-    const bug = updateBugs(this.state, now, this.rng, options.canSpawnBug ?? true);
-    if (bug === 'spawned') this.emit({ type: 'bugSpawned', expiresAt: this.state.bug!.expiresAt });
-    else if (bug === 'escaped') this.emit({ type: 'bugEscaped' });
+    const bug = updateBugs(s, now, this.rng, canSpawn);
+    if (bug?.type === 'spawned') this.emit({ type: 'bugSpawned', expiresAt: bug.expiresAt });
+    else if (bug?.type === 'escaped') this.emit({ type: 'bugEscaped' });
+    else if (bug?.type === 'autoSquashed') this.emit({ type: 'bugSquashed', reward: bug.reward, total: s.stats.bugs, auto: true });
 
-    for (const achievement of checkAchievements(this.state, { tapRate: this.tapRate(2000) })) {
+    const incident = updateIncident(s, now, this.rng, canSpawn && s.lifetime.gte(500));
+    if (incident?.type === 'spawned') this.emit({ type: 'incidentSpawned', incident: incident.incident });
+    else if (incident?.type === 'expired') this.emit({ type: 'incidentEnded', kind: incident.incident.kind, outcome: 'missed', reward: null });
+
+    this.checkUnlocks();
+    if (s.unlocked.todo) for (const quest of updateQuests(s, now, this.rng)) this.emit({ type: 'questDone', quest });
+    const milestone = updateMilestone(s);
+    if (milestone) this.emit({ type: 'milestoneDone', milestone });
+
+    const hour = new Date(now).getHours();
+    if (hour >= 2 && hour < 5 && s.stats.taps > 0) s.flags.nightOwl = true;
+    for (const achievement of checkAchievements(s, { tapRate: this.tapRate(2000), hour, now })) {
       this.emit({ type: 'achievement', achievement });
     }
+  }
+
+  private checkUnlocks(): void {
+    const s = this.state;
+    const u = s.unlocked;
+    const unlock = (tab: UnlockTab) => {
+      u[tab] = true;
+      this.emit({ type: 'unlocked', tab });
+    };
+    if (!u.sprints && s.lifetime.gte(UNLOCKS.sprintsAtLifetime)) unlock('sprints');
+    if (!u.todo && s.lifetime.gte(UNLOCKS.todoAtLifetime)) unlock('todo');
+    if (!u.ship && (s.thisRelease.gte(UNLOCKS.shipAtRelease) || s.stars > 0)) unlock('ship');
   }
 }

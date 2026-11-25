@@ -15,19 +15,19 @@ describe('economy', () => {
 
   it('prices copies on a 1.15 geometric curve', () => {
     const s = newGame(0);
-    expect(costOf(s, kb, 1).toNumber()).toBe(15);
+    expect(costOf(s, kb, 1).toNumber()).toBe(kb.baseCost);
     s.owned.kb = 1;
-    expect(costOf(s, kb, 1).toNumber()).toBe(Math.ceil(15 * 1.15));
+    expect(costOf(s, kb, 1).toNumber()).toBe(Math.ceil(kb.baseCost * 1.15));
     s.owned.kb = 0;
-    const ten = 15 * ((1.15 ** 10 - 1) / 0.15);
+    const ten = kb.baseCost * ((1.15 ** 10 - 1) / 0.15);
     expect(costOf(s, kb, 10).toNumber()).toBe(Math.ceil(ten));
   });
 
   it('buys only when affordable and deducts the cost', () => {
     const s = newGame(0);
-    s.lines = D(14);
+    s.lines = D(kb.baseCost - 1);
     expect(buy(s, 'kb')).toBeNull();
-    s.lines = D(20);
+    s.lines = D(kb.baseCost + 5);
     const p = buy(s, 'kb')!;
     expect(p.count).toBe(1);
     expect(s.lines.toNumber()).toBe(5);
@@ -55,14 +55,25 @@ describe('economy', () => {
     expect(perSecond(s, 0).toNumber()).toBe(50);
   });
 
-  it('applies stars and boosts to everything', () => {
+  it('applies stars, achievements, perks and effects', () => {
     const s = newGame(0);
     s.owned.duck = 10;
     s.stars = 5;
     expect(perSecond(s, 0).toNumber()).toBeCloseTo(15);
-    s.boost = { multiplier: 2, endsAt: 100 };
-    expect(perSecond(s, 50).toNumber()).toBeCloseTo(30);
-    expect(perSecond(s, 100).toNumber()).toBeCloseTo(15);
+    s.achievements = ['a', 'b'];
+    expect(perSecond(s, 0).toNumber()).toBeCloseTo(15 * 1.02);
+    s.achievements = [];
+    s.perks.team = 2;
+    expect(perSecond(s, 0).toNumber()).toBeCloseTo(15 * 1.5);
+    s.effects.nightly = 100;
+    expect(perSecond(s, 50).toNumber()).toBeCloseTo(15 * 1.5 * 2);
+    expect(perSecond(s, 100).toNumber()).toBeCloseTo(15 * 1.5);
+  });
+
+  it('discounts prices with cache.conf', () => {
+    const s = newGame(0);
+    s.perks.cache = 5;
+    expect(costOf(s, kb, 1).toNumber()).toBe(Math.ceil(kb.baseCost * 0.9));
   });
 });
 

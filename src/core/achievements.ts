@@ -1,25 +1,94 @@
+import { UPGRADES } from './content';
+import { owned } from './economy';
+import { perSecond, perTap } from './economy';
+import { PERKS } from './content';
 import type { GameState } from './state';
 
 export interface AchievementContext {
   /** Taps per second over the last two seconds. */
   tapRate: number;
+  /** Local hour of day (0–23). */
+  hour: number;
+  now: number;
 }
 
 export interface AchievementDef {
   id: string;
   name: string;
   description: string;
+  /** Secret achievements hide their description until unlocked. */
+  secret?: boolean;
   unlocked(s: GameState, ctx: AchievementContext): boolean;
 }
 
+const lifetime = (n: number) => (s: GameState) => s.lifetime.gte(n);
+
+/** Each unlocked achievement adds ACHIEVEMENT_BONUS (1%) to all output. */
 export const ACHIEVEMENTS: readonly AchievementDef[] = [
-  { id: 'hello', name: 'Hello, world', description: 'Write 100 lines', unlocked: (s) => s.lifetime.gte(100) },
-  { id: 'wom', name: 'Works on my machine', description: 'Write 10,000 lines', unlocked: (s) => s.lifetime.gte(1e4) },
-  { id: '10x', name: '10x engineer', description: 'Hit 8 taps per second', unlocked: (_s, ctx) => ctx.tapRate >= 8 },
-  { id: 'ext', name: 'Exterminator', description: 'Squash 5 bugs', unlocked: (s) => s.bugsSquashed >= 5 },
+  // lines written
+  { id: 'hello', name: 'Hello, world', description: 'Write 100 lines', unlocked: lifetime(100) },
+  { id: 'commit', name: 'First commit', description: 'Write 1,000 lines', unlocked: lifetime(1e3) },
+  { id: 'wom', name: 'Works on my machine', description: 'Write 10,000 lines', unlocked: lifetime(1e4) },
+  { id: 'kloc', name: 'Kilo-LOC', description: 'Write 100,000 lines', unlocked: lifetime(1e5) },
+  { id: 'bigo', name: 'Big O', description: 'Write 1,000,000 lines', unlocked: lifetime(1e6) },
+  { id: 'legacy', name: 'Legacy codebase', description: 'Write 100 million lines', unlocked: lifetime(1e8) },
+  { id: 'monorepo', name: 'Monorepo', description: 'Write 10 billion lines', unlocked: lifetime(1e10) },
+  { id: 'heat', name: 'Heat death of the backlog', description: 'Write 1 trillion lines', unlocked: lifetime(1e12) },
+  // output
+  { id: 'fingers', name: 'Strong fingers', description: 'Write 100 lines per tap', unlocked: (s, c) => perTap(s, c.now).gte(100) },
+  { id: 'fingers2', name: 'Hands of steel', description: 'Write 10,000 lines per tap', unlocked: (s, c) => perTap(s, c.now).gte(1e4) },
+  { id: 'handsoff', name: 'Hands off', description: 'Automate 100 lines per second', unlocked: (s, c) => perSecond(s, c.now).gte(100) },
+  { id: 'auto', name: 'Fully automated', description: 'Automate 10,000 lines per second', unlocked: (s, c) => perSecond(s, c.now).gte(1e4) },
+  { id: 'lightsout', name: 'Lights-out factory', description: 'Automate 1 million lines per second', unlocked: (s, c) => perSecond(s, c.now).gte(1e6) },
+  // tapping
+  { id: 'taps1k', name: 'Keyboard warrior', description: 'Tap 1,000 times', unlocked: (s) => s.stats.taps >= 1e3 },
+  { id: 'taps10k', name: 'Mechanical sympathy', description: 'Tap 10,000 times', unlocked: (s) => s.stats.taps >= 1e4 },
+  { id: 'taps100k', name: 'Worn-out spacebar', description: 'Tap 100,000 times', unlocked: (s) => s.stats.taps >= 1e5 },
+  { id: '10x', name: '10x engineer', description: 'Hit 8 taps per second', unlocked: (_s, c) => c.tapRate >= 8 },
+  { id: 'flow', name: 'Flow state', description: 'Fill the flow meter', unlocked: (s) => s.stats.flowMaxed >= 1 },
+  { id: 'crit', name: 'Critical path', description: 'Land a critical tap', unlocked: (s) => s.stats.crits >= 1 },
+  { id: 'crit100', name: 'Crit happens', description: 'Land 100 critical taps', unlocked: (s) => s.stats.crits >= 100 },
+  // packages
+  { id: 'install', name: 'npm install everything', description: 'Install 100 packages', unlocked: (s) => s.stats.purchases >= 100 },
+  { id: 'double', name: 'Doubling down', description: 'Have 25 of one package', unlocked: (s) => s.stats.maxOfOne >= 25 },
+  { id: 'lockin', name: 'Vendor lock-in', description: 'Have 100 of one package', unlocked: (s) => s.stats.maxOfOne >= 100 },
+  { id: 'fullstack', name: 'Full stack', description: 'Have at least one of every package', unlocked: (s) => UPGRADES.every((u) => owned(s, u.id) > 0) },
+  // bugs and incidents
+  { id: 'feature', name: "It's a feature", description: 'Squash your first bug', unlocked: (s) => s.stats.bugs >= 1 },
+  { id: 'ext', name: 'Exterminator', description: 'Squash 5 bugs', unlocked: (s) => s.stats.bugs >= 5 },
+  { id: 'zero', name: 'Zero bugs policy', description: 'Squash 25 bugs', unlocked: (s) => s.stats.bugs >= 25 },
+  { id: 'ento', name: 'Entomologist', description: 'Squash 100 bugs', unlocked: (s) => s.stats.bugs >= 100 },
+  { id: 'known', name: 'Shipped with known issues', description: 'Let a bug escape', unlocked: (s) => s.stats.bugsEscaped >= 1 },
+  { id: 'coffee', name: 'Caffeinated', description: 'Grab a coffee', unlocked: (s) => s.stats.coffees >= 1 },
+  { id: 'beans', name: 'Bean counter', description: 'Grab 10 coffees', unlocked: (s) => s.stats.coffees >= 10 },
+  { id: 'oncall', name: 'On-call hero', description: 'Fix an outage', unlocked: (s) => s.stats.outagesFixed >= 1 },
+  { id: 'conflict', name: 'Conflict resolution', description: 'Resolve a merge conflict', unlocked: (s) => s.stats.conflictsResolved >= 1 },
+  { id: 'rebase', name: 'Rebase wizard', description: 'Resolve 10 merge conflicts', unlocked: (s) => s.stats.conflictsResolved >= 10 },
+  // sprints, scripts, todo
+  { id: 'agile', name: 'Agile', description: 'Merge a sprint', unlocked: (s) => s.stats.sprints >= 1 },
+  { id: 'velocity', name: 'Velocity', description: 'Merge 10 sprints', unlocked: (s) => s.stats.sprints >= 10 },
+  { id: 'scrum', name: 'Scrum master', description: 'Merge 50 sprints', unlocked: (s) => s.stats.sprints >= 50 },
   { id: 'crunch', name: 'Crunch time', description: 'Finish a sprint with under 3 seconds left', unlocked: (s) => !!s.flags.crunch },
+  { id: 'chmod', name: 'chmod +x', description: 'Run a script', unlocked: (s) => s.stats.scriptsRun >= 1 },
+  { id: 'kiddie', name: 'Script kiddie', description: 'Run 25 scripts', unlocked: (s) => s.stats.scriptsRun >= 25 },
+  { id: 'inbox', name: 'Inbox zero', description: 'Finish 10 TODO tasks', unlocked: (s) => s.stats.quests >= 10 },
+  { id: 'roadmap', name: 'On the roadmap', description: 'Complete a release milestone', unlocked: (s) => s.stats.milestones >= 1 },
+  // releases and dotfiles
   { id: 'ship', name: 'Shipped', description: 'Ship your first release', unlocked: (s) => s.release > 1 },
-  { id: 'bigo', name: 'Big O', description: 'Write 1,000,000 lines in total', unlocked: (s) => s.lifetime.gte(1e6) },
+  { id: 'semver', name: 'Semantic versioning', description: 'Reach v5.0', unlocked: (s) => s.release >= 5 },
+  { id: 'lts', name: 'Long-term support', description: 'Reach v10.0', unlocked: (s) => s.release >= 10 },
+  { id: 'stars10', name: 'Trending', description: 'Earn 10 stars', unlocked: (s) => s.stars >= 10 },
+  { id: 'stars50', name: 'Starred repo', description: 'Earn 50 stars', unlocked: (s) => s.stars >= 50 },
+  { id: 'ricing', name: 'Ricing', description: 'Buy a dotfiles perk', unlocked: (s) => s.stats.perksBought >= 1 },
+  { id: 'perfect', name: 'Dotfile perfectionist', description: 'Max out a dotfiles perk', unlocked: (s) => PERKS.some((p) => (s.perks[p.id] ?? 0) >= p.maxLevel) },
+  { id: 'standup', name: 'Daily standup', description: 'Play 3 days in a row', unlocked: (s) => s.streak.count >= 3 },
+  { id: 'green', name: 'Green squares', description: 'Play 7 days in a row', unlocked: (s) => s.streak.count >= 7 },
+  // secrets
+  { id: 'sudo', name: 'sudo make me a sandwich', description: 'Type sudo on a keyboard', secret: true, unlocked: (s) => !!s.flags.sudo },
+  { id: 'rmrf', name: 'Living dangerously', description: 'Type rm -rf on a keyboard', secret: true, unlocked: (s) => !!s.flags.rmrf },
+  { id: 'owl', name: 'Night owl', description: 'Play between 2 and 5 a.m.', secret: true, unlocked: (s, c) => !!s.flags.nightOwl || (c.hour >= 2 && c.hour < 5 && s.stats.taps > 0) },
+  { id: 'backup', name: 'Backup strategy', description: 'Export your save', secret: true, unlocked: (s) => !!s.flags.exported },
+  { id: 'grass', name: 'Touch grass', description: 'Come back after 2 hours away', secret: true, unlocked: (s) => !!s.flags.touchGrass },
 ];
 
 /** Marks newly earned achievements on the state and returns them. */

@@ -1,15 +1,19 @@
-import { SHIP } from './content';
+import { PERK_VALUES, SHIP } from './content';
 import { D, type Decimal } from './num';
-import { makeBacklog, type Rng } from './sprints';
+import { perkLevel } from './perks';
+import { makeMilestone } from './quests';
+import type { Rng } from './rng';
+import { makeBacklog } from './sprints';
 import type { GameState } from './state';
 
 /** Stars the player would get by shipping now. */
 export function starsAvailable(s: GameState): number {
-  return s.thisRelease.div(SHIP.linesPerStar).sqrt().floor().toNumber();
+  // Cube root (plus a hair, so exact cubes don't round down): growth slows as releases get bigger.
+  return Math.floor(Math.cbrt(s.thisRelease.div(SHIP.linesPerStar).toNumber()) + 1e-9);
 }
 
 /** Lines needed this release to be able to ship for n stars. */
-export const linesForStars = (n: number): Decimal => D(SHIP.linesPerStar).mul(n * n);
+export const linesForStars = (n: number): Decimal => D(SHIP.linesPerStar).mul(n * n * n);
 
 export interface ShipResult {
   /** Stars gained by this ship. */
@@ -33,10 +37,12 @@ export function ship(s: GameState, now: number, rng: Rng): ShipResult | null {
   s.release++;
   s.lines = D(0);
   s.thisRelease = D(0);
-  s.owned = {};
+  // bootstrap.sh: start the new release with a few copies already installed.
+  const head = PERK_VALUES.bootstrapCopies * perkLevel(s, 'bootstrap');
+  s.owned = head > 0 ? { kb: head, duck: head } : {};
   s.sprint = null;
   s.lastSprint = null;
-  s.boost = null;
   s.backlog = makeBacklog(s, now, rng);
+  s.milestone = makeMilestone(s);
   return result;
 }

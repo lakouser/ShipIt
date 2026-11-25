@@ -15,13 +15,19 @@ export const isFiniteDecimal = (d: Decimal): boolean => Number.isFinite(d.mantis
 
 const SUFFIXES = ['', 'K', 'M', 'B', 'T', 'Qa', 'Qi', 'Sx', 'Sp', 'Oc', 'No', 'Dc'];
 
+let notation: 'suffix' | 'sci' = 'suffix';
+/** Display setting: "1.23M" (suffix) or "1.23e6" (sci). Formatting below a million is unaffected. */
+export const setNotation = (n: 'suffix' | 'sci'): void => {
+  notation = n;
+};
+
 /** Whole numbers: "1,234" below a million, then "1.23M", "4.56B" … and "7.89e45" past the named suffixes. */
 export function fmt(value: NumLike): string {
   const d = D(value).floor();
   if (d.lt(1e6)) return d.toNumber().toLocaleString('en-US');
   const exp = Math.floor(d.log10());
   const group = Math.floor(exp / 3);
-  if (group < SUFFIXES.length) return (d.toNumber() / 10 ** (group * 3)).toFixed(2) + SUFFIXES[group];
+  if (notation === 'suffix' && group < SUFFIXES.length) return (d.toNumber() / 10 ** (group * 3)).toFixed(2) + SUFFIXES[group];
   return (10 ** (d.log10() - exp)).toFixed(2) + 'e' + exp;
 }
 
