@@ -4,4 +4,3 @@ dist/
 *.log
 .vite/
 __pycache__/
-tools/v030-patch/dist/
