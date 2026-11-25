@@ -3,11 +3,12 @@ import { costOf, isUpgradeVisible, nextDoublingAt, owned, quantityToBuy, unitOut
 import type { Game } from '../../core/game';
 import { fmt, fmtRate } from '../../core/num';
 import { setText } from '../dom';
+import { hl, tint } from '../hl';
 import { packageName } from '../messages';
 
 const GROUPS = [
-  { kind: 'tap', label: '# typing speed', unit: '/tap' },
-  { kind: 'auto', label: '# automation', unit: '/s' },
+  { kind: 'tap', label: '# typing speed', unit: '/tap', hue: 'tap' },
+  { kind: 'auto', label: '# automation', unit: '/s', hue: 'auto' },
 ] as const;
 
 /** Which upgrades are showing; the panel re-renders when this changes. */
@@ -21,14 +22,14 @@ export function renderUpgrades(game: Game): string {
     .map((m) => `<button data-mult="${m}" aria-pressed="${s.settings.buyAmount === m}">${m === 'max' ? '--max' : 'x' + m}</button>`)
     .join('')}</div></div>`;
   for (const group of GROUPS) {
-    html += `<div class="grp">${group.label}</div>`;
+    html += `<div class="grp">${group.label} ${tint(group.hue, group.unit)}</div>`;
     UPGRADES.forEach((u, i) => {
       if (u.kind !== group.kind || !isUpgradeVisible(s, i)) return;
       const n = owned(s, u.id);
       html += `<div class="pkg">
         <div><span class="nm">${packageName(u.name)}</span><span class="qty">[${n}]</span></div>
         <small class="cm"># ${u.blurb.toLowerCase()}</small>
-        <small>+${fmtRate(unitOutput(s, u, now))}${group.unit} each · x2 at ${nextDoublingAt(n)}</small>
+        <small>${hl(`+${fmtRate(unitOutput(s, u, now))}${group.unit} each · x2 at ${nextDoublingAt(n)}`)}</small>
         <button class="buy" data-buy="${u.id}" aria-label="Install ${u.name}"><span class="bq"></span><span class="bc"></span></button>
       </div>`;
     });

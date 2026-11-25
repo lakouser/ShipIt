@@ -103,7 +103,7 @@ export interface PerkDef {
 
 export const PERKS: readonly PerkDef[] = [
   { id: 'vimrc', branch: 'editor', file: '.vimrc', summary: '+25% lines per tap per level', maxLevel: 10, baseCost: 1, costStep: 1 },
-  { id: 'keybindings', branch: 'editor', file: 'keybindings.json', summary: '+3% chance per level that a tap crits for x5', maxLevel: 5, baseCost: 2, costStep: 1, requires: { id: 'vimrc', level: 1 } },
+  { id: 'keybindings', branch: 'editor', file: 'keybindings.json', summary: '+3% critical tap chance per level (crits write x5)', maxLevel: 5, baseCost: 2, costStep: 1, requires: { id: 'vimrc', level: 1 } },
   { id: 'flow', branch: 'editor', file: 'flow.conf', summary: 'full flow state writes +25% more per level', maxLevel: 4, baseCost: 3, costStep: 2, requires: { id: 'vimrc', level: 2 } },
   { id: 'team', branch: 'team', file: 'team.yml', summary: '+25% automation per level', maxLevel: 10, baseCost: 1, costStep: 1 },
   { id: 'oncall', branch: 'team', file: 'oncall.yml', summary: '10% chance per level that a bug squashes itself (full reward)', maxLevel: 5, baseCost: 2, costStep: 1, requires: { id: 'team', level: 1 } },

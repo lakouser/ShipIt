@@ -9,6 +9,14 @@ export function setText(el: Element | null, text: string): void {
   if (el && el.textContent !== text) el.textContent = text;
 }
 
+const htmlCache = new WeakMap<Element, string>();
+/** Sets markup only when it changed (compared with what was last set, not the browser's serialisation). */
+export function setHtml(el: Element | null, html: string): void {
+  if (!el || htmlCache.get(el) === html) return;
+  htmlCache.set(el, html);
+  el.innerHTML = html;
+}
+
 export const esc = (s: string): string =>
   s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;').replace(/'/g, '&#39;');
 

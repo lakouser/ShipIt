@@ -3,7 +3,8 @@ import type { Game } from '../../core/game';
 import { fmt, fmtRate } from '../../core/num';
 import { perkCost, perkLevel, perkStatus, spendableStars } from '../../core/perks';
 import { linesForStars, starsAvailable } from '../../core/ship';
-import { setText } from '../dom';
+import { setHtml, setText } from '../dom';
+import { hl, tint } from '../hl';
 import { barHtml } from '../messages';
 
 const SESSION_START = Date.now();
@@ -40,7 +41,7 @@ function dotfilesTree(game: Game): string {
       const pre = `${lastBranch ? '&nbsp;&nbsp;&nbsp;&nbsp;' : '│&nbsp;&nbsp;&nbsp;'}${last ? '└──' : '├──'}`;
       html += `<div class="perk" data-perk="${p.id}">
         <div><span class="tr">${pre}</span> <span class="nm"></span> <span class="lv"></span><small class="ps2"></small></div>
-        <button class="buy perkbuy" data-buyperk="${p.id}"><span class="bq"></span><span class="bc"></span></button>
+        <button class="buy star perkbuy" data-buyperk="${p.id}"><span class="bq"></span><span class="bc"></span></button>
       </div>`;
     });
   });
@@ -75,13 +76,13 @@ export function renderShip(game: Game): string {
       <div class="info">
         <span class="who">dev@ship-it</span><span class="rule">───────────</span>
         ${row('release', `v${s.release}.0`)}
-        ${row('stars', `${s.stars} (+${Math.round(s.stars * SHIP.bonusPerStar * 100)}%)`)}
-        ${row('lines', fmt(s.lifetime), ' data-f-lines')}
-        ${row('loc/s', fmtRate(game.perSecond()), ' data-f-rate')}
-        ${row('taps', fmt(s.stats.taps), ' data-f-taps')}
-        ${row('sprints', `${s.stats.sprints} merged`)}
-        ${row('bugs', `${s.stats.bugs} squashed`)}
-        ${row('uptime', uptime(), ' data-f-up')}
+        ${row('stars', `${tint('star', s.stars)} (${tint('loc', `+${Math.round(s.stars * SHIP.bonusPerStar * 100)}%`)})`)}
+        ${row('lines', fmt(s.lifetime), ' class="h h-loc" data-f-lines')}
+        ${row('loc/s', fmtRate(game.perSecond()), ' class="h h-auto" data-f-rate')}
+        ${row('taps', fmt(s.stats.taps), ' class="h h-tap" data-f-taps')}
+        ${row('sprints', `${tint('num', s.stats.sprints)} merged`)}
+        ${row('bugs', `${tint('bug', s.stats.bugs)} squashed`)}
+        ${row('uptime', uptime(), ' class="h h-time" data-f-up')}
       </div>
     </div>`;
 }
@@ -90,7 +91,7 @@ export function refreshShip(game: Game, root: HTMLElement, armed: boolean): void
   const s = game.state;
   const stars = starsAvailable(s);
   const target = linesForStars(stars + 1);
-  setText(root.querySelector('[data-run-text]'), stars >= 1 ? `${fmt(s.thisRelease)} · next star at ${fmt(target)}` : `${fmt(s.thisRelease)} / ${fmt(target)}`);
+  setHtml(root.querySelector('[data-run-text]'), stars >= 1 ? `${tint('loc', fmt(s.thisRelease))} · next ${tint('star', '★')} at ${tint('loc', fmt(target))}` : `${tint('loc', fmt(s.thisRelease))} / ${tint('loc', fmt(target))}`);
   const bar = root.querySelector<HTMLElement>('[data-run-bar]');
   const prev = linesForStars(stars);
   const html = barHtml(s.thisRelease.sub(prev).div(target.sub(prev)).toNumber(), 22);
@@ -113,7 +114,7 @@ export function refreshShip(game: Game, root: HTMLElement, armed: boolean): void
     row.classList.toggle('locked', status === 'locked');
     setText(row.querySelector('.nm'), p.file);
     setText(row.querySelector('.lv'), `${level}/${p.maxLevel}`);
-    setText(row.querySelector('.ps2'), status === 'locked' && p.requires ? `needs ${PERKS.find((x) => x.id === p.requires!.id)?.file} ${p.requires.level}` : p.summary);
+    setHtml(row.querySelector('.ps2'), hl(status === 'locked' && p.requires ? `needs ${PERKS.find((x) => x.id === p.requires!.id)?.file} level ${p.requires.level}` : p.summary));
     const btn = row.querySelector<HTMLButtonElement>('button')!;
     btn.disabled = status !== 'affordable';
     btn.classList.toggle('ok', status === 'affordable');

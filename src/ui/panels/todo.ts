@@ -4,10 +4,16 @@ import type { Game } from '../../core/game';
 import { D, clock, fmt } from '../../core/num';
 import { milestoneTaskProgress, milestoneTaskText, questProgress, questText } from '../../core/quests';
 import { dayKey } from '../../core/streak';
-import { esc, setText } from '../dom';
+import type { Hue } from '../hl';
+import { setHtml, setText } from '../dom';
+import { hl, tint } from '../hl';
 import { rewardText } from '../messages';
 
 const progressText = (p: ReturnType<typeof D>, target: string): string => `${fmt(p.min(target))}/${fmt(target)}`;
+
+/** The colour of a task's progress counter, by what it counts. */
+const QUEST_HUE: Record<string, Hue> = { lines: 'loc', taps: 'tap', crits: 'tap', flow: 'tap', bugs: 'bug', scripts: 'name' };
+const MILESTONE_HUE: Record<string, Hue> = { lines: 'loc' };
 
 function streakGrid(game: Game): string {
   const s = game.state;
@@ -34,9 +40,9 @@ export function renderTodo(game: Game): string {
 
   const m = s.milestone;
   if (m) {
-    html += `<div class="md"><div class="mdh">## v${m.release}.0 milestone <span class="rw">+${m.stars} star${m.stars > 1 ? 's' : ''}</span>${m.done ? ' <span class="okc">done</span>' : ''}</div>`;
+    html += `<div class="md"><div class="mdh">## v${m.release}.0 milestone ${tint('star', `+${m.stars} star${m.stars > 1 ? 's' : ''}`)}${m.done ? ' <span class="okc">done</span>' : ''}</div>`;
     m.tasks.forEach((t, i) => {
-      html += `<div class="ck" data-ms="${i}"><span class="box">[ ]</span> ${esc(milestoneTaskText(t))} <span class="pg"></span></div>`;
+      html += `<div class="ck" data-ms="${i}"><span class="box">[ ]</span> ${hl(milestoneTaskText(t))} <span class="pg h h-${MILESTONE_HUE[t.kind] ?? 'num'}"></span></div>`;
     });
     html += '</div>';
   }
@@ -44,16 +50,16 @@ export function renderTodo(game: Game): string {
   html += '<div class="md"><div class="mdh">## tasks</div>';
   if (s.quests.length === 0) html += '<div class="ck dim">nothing yet</div>';
   s.quests.forEach((q, i) => {
-    html += `<div class="ck" data-q="${i}"><span class="box">[ ]</span> ${esc(questText(q))} <span class="pg"></span><small>→ ${rewardText(q.reward)}</small></div>`;
+    html += `<div class="ck" data-q="${i}"><span class="box">[ ]</span> ${hl(questText(q))} <span class="pg h h-${QUEST_HUE[q.template] ?? 'num'}"></span><small>→ ${hl(rewardText(q.reward))}</small></div>`;
   });
   html += '<div class="ck dim" data-refill></div></div>';
 
-  html += `<div class="md"><div class="mdh">## commit streak <span class="rw">${s.streak.count} day${s.streak.count === 1 ? '' : 's'}</span></div>${streakGrid(game)}<small class="dim">play each day for a bonus; every 3rd day adds turbo.sh, every 7th sudo.sh</small></div>`;
+  html += `<div class="md"><div class="mdh">## commit streak ${tint('time', `${s.streak.count} day${s.streak.count === 1 ? '' : 's'}`)}</div>${streakGrid(game)}<small class="dim">${hl('play each day for a bonus; every 3rd day adds turbo.sh, every 7th sudo.sh')}</small></div>`;
 
-  html += `<div class="md"><div class="mdh">## achievements ${s.achievements.length}/${ACHIEVEMENTS.length} <span class="rw">+${s.achievements.length}% output</span></div><ul class="ach">${ACHIEVEMENTS.map((a) => {
+  html += `<div class="md"><div class="mdh">## achievements ${s.achievements.length}/${ACHIEVEMENTS.length} ${tint('loc', `+${s.achievements.length}% output`)}</div><ul class="ach">${ACHIEVEMENTS.map((a) => {
     const done = s.achievements.includes(a.id);
     const hidden = a.secret && !done;
-    return `<li class="${done ? '' : 'no'}"><span class="box">[${done ? 'x' : ' '}]</span> ${hidden ? '???' : a.name} <small>· ${hidden ? 'secret' : a.description.toLowerCase()}</small></li>`;
+    return `<li class="${done ? '' : 'no'}"><span class="box">[${done ? 'x' : ' '}]</span> ${hidden ? '???' : a.name} <small>· ${hidden ? 'secret' : hl(a.description.toLowerCase())}</small></li>`;
   }).join('')}</ul></div>`;
   return html;
 }
@@ -79,5 +85,5 @@ export function refreshTodo(game: Game, root: HTMLElement): void {
   });
   const refill = root.querySelector('[data-refill]');
   const wait = (s.nextQuestAt - game.now()) / 1000;
-  setText(refill, s.quests.length < 3 && wait > 0 ? `next task in ${clock(wait)}` : '');
+  setHtml(refill, s.quests.length < 3 && wait > 0 ? `next task in ${tint('time', clock(wait))}` : '');
 }

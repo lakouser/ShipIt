@@ -3,7 +3,8 @@ import { effectActive, effectSecondsLeft } from '../../core/effects';
 import type { Game } from '../../core/game';
 import { clock, fmt } from '../../core/num';
 import { difficultyOf, requiredTapRate } from '../../core/sprints';
-import { esc, setText } from '../dom';
+import { esc, setHtml, setText } from '../dom';
+import { hl, tint } from '../hl';
 import { barHtml, sprintResultText } from '../messages';
 
 export function renderSprints(game: Game): string {
@@ -14,7 +15,7 @@ export function renderSprints(game: Game): string {
     const e = EFFECTS[id];
     const count = s.scripts[id] ?? 0;
     html += `<div class="script${count ? '' : ' none'}">
-      <div><span class="nm">${e.file}</span> <span class="qty">[${count}]</span><small>${e.description} · ${e.durationS}s</small></div>
+      <div><span class="nm">${e.file}</span> <span class="qty">[${count}]</span><small>${hl(`${e.description} · ${e.durationS}s`)}</small></div>
       <button class="run" data-run="${id}"${count ? '' : ' disabled'}><span data-fx="${id}">./run</span></button>
     </div>`;
   }
@@ -22,7 +23,7 @@ export function renderSprints(game: Game): string {
 
   html += '<div class="cmd gap"><span><span class="ps">$</span> backlog ls</span><span class="aside" data-pace></span></div>';
   if (s.lastSprint) {
-    html += `<div class="note ${s.lastSprint.ok ? 'ok' : 'bad'}"><span class="tag">${s.lastSprint.ok ? '[ ok ]' : '[fail]'}</span> ${esc(sprintResultText(s.lastSprint))}</div>`;
+    html += `<div class="note ${s.lastSprint.ok ? 'ok' : 'bad'}"><span class="tag">${s.lastSprint.ok ? '[ ok ]' : '[fail]'}</span> ${hl(sprintResultText(s.lastSprint))}</div>`;
   }
   if (s.sprint) {
     html += `<article class="tk live">
@@ -39,9 +40,9 @@ export function renderSprints(game: Game): string {
       <div class="tkh"><span class="id">${waiting ? 'next standup' : esc(t.id)}</span><span class="df" data-tier="${i}"></span></div>
       ${
         waiting
-          ? `<h3 class="dimh">new ticket in <span data-ready="${i}"></span></h3>`
+          ? `<h3 class="dimh">new ticket in <span class="h h-time" data-ready="${i}"></span></h3>`
           : `<h3>${esc(t.title)}</h3>
-      <div class="kv"><span>target <b>${fmt(t.target)}</b></span><span>time <b>${clock(t.durationS)}</b></span><span>reward <b class="rw">+${fmt(t.reward)}</b></span></div>
+      <div class="kv"><span>target ${tint('loc', `${fmt(t.target)} lines`)}</span><span>time ${tint('time', clock(t.durationS))}</span><span>reward ${tint('loc', `+${fmt(t.reward)}`)}</span></div>
       <p class="need" data-need="${i}"></p>
       ${t.tier === 2 ? '<p class="need">always drops a script</p>' : ''}
       <button class="go" data-start="${i}"${s.sprint ? ' disabled' : ''}>start sprint</button>`
@@ -55,7 +56,7 @@ export function refreshSprints(game: Game, root: HTMLElement): void {
   const s = game.state;
   const now = game.now();
   const pace = game.tapRate(5000);
-  setText(root.querySelector('[data-pace]'), pace > 0 ? `pace ${pace.toFixed(1)} taps/s` : 'tap to measure pace');
+  setHtml(root.querySelector('[data-pace]'), pace > 0 ? hl(`pace ${pace.toFixed(1)} taps/s`) : 'tap to measure pace');
 
   for (const id of SCRIPT_IDS) {
     const label = root.querySelector(`[data-fx="${id}"]`);
@@ -67,7 +68,7 @@ export function refreshSprints(game: Game, root: HTMLElement): void {
     const t = s.backlog[slot];
     if (!t) return;
     const rate = requiredTapRate(s, t, now);
-    setText(el, rate <= 0 ? 'automation covers this one on its own' : `needs ~${rate.toFixed(1)} taps/s at current output`);
+    setHtml(el, hl(rate <= 0 ? 'automation covers this one on its own' : `needs ~${rate.toFixed(1)} taps/s at current output`));
     const tag = root.querySelector(`[data-tier="${slot}"]`);
     if (tag) {
       const level = difficultyOf(rate);
@@ -85,6 +86,6 @@ export function refreshSprints(game: Game, root: HTMLElement): void {
     const bar = root.querySelector<HTMLElement>('[data-sp-bar]');
     const html = barHtml(s.sprint.progress.div(s.sprint.target).toNumber(), 22);
     if (bar && bar.innerHTML !== html) bar.innerHTML = html;
-    setText(root.querySelector('[data-sp-text]'), `${fmt(s.sprint.progress)} of ${fmt(s.sprint.target)} lines`);
+    setHtml(root.querySelector('[data-sp-text]'), `${tint('loc', fmt(s.sprint.progress))} of ${tint('loc', `${fmt(s.sprint.target)} lines`)}`);
   }
 }

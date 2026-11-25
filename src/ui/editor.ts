@@ -1,5 +1,6 @@
 import { CodeStream, type CodeLine } from './codegen';
 import { esc } from './dom';
+import { hl } from './hl';
 import { LOG_TAGS, type LogKind } from './messages';
 
 const MAX_LINES = 70;
@@ -63,7 +64,7 @@ export class Editor {
     const row = document.createElement('div');
     row.className = 'ln sys';
     row.innerHTML = `<span class="g"></span><span class="tx"><span class="tag tag-${kind}">${LOG_TAGS[kind]}</span> </span>`;
-    row.lastElementChild!.append(text);
+    row.lastElementChild!.insertAdjacentHTML('beforeend', hl(text));
     this.els.lines.insertBefore(row, this.els.live);
     this.trim();
   }

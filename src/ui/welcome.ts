@@ -1,3 +1,4 @@
+import { hl } from './hl';
 import { fmt, type Decimal } from '../core/num';
 import { prefersReducedMotion } from './dom';
 import { LOG_TAGS } from './messages';
@@ -35,10 +36,10 @@ export function playWelcome(summary: WelcomeSummary): Promise<void> {
     const awayHtml = summary.away
       ? `<div class="mline"><span class="tag tag-cmd">${LOG_TAGS.cmd}</span> git log --since="${duration(summary.away.seconds)} ago" --author=team</div>
          <div class="mcount" data-count>0</div>
-         <div class="mlabel">lines written while you were away (${Math.round(summary.away.rate * 100)}% speed, ${duration(summary.away.seconds)})</div>`
+         <div class="mlabel">${hl(`lines written while you were away (${Math.round(summary.away.rate * 100)}% speed, ${duration(summary.away.seconds)})`)}</div>`
       : '';
     const streakHtml = summary.streak
-      ? `<div class="mlog"><div><span class="tag tag-ok">${LOG_TAGS.ok}</span> day ${summary.streak.count} commit streak: +${fmt(summary.streak.lines)} lines${summary.streak.script ? `, ${summary.streak.script}` : ''}</div></div>`
+      ? `<div class="mlog"><div><span class="tag tag-ok">${LOG_TAGS.ok}</span> ${hl(`day ${summary.streak.count} commit streak: +${fmt(summary.streak.lines)} lines${summary.streak.script ? `, ${summary.streak.script}` : ''}`)}</div></div>`
       : '';
     root.innerHTML = `<div class="mwin">
       <div class="mt"><span>welcome back</span><span>~/ship-it</span></div>

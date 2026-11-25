@@ -1,3 +1,4 @@
+import { hl } from './hl';
 import { SHIP } from '../core/content';
 import { fmt } from '../core/num';
 import type { ShipResult } from '../core/ship';
@@ -75,7 +76,7 @@ export function playMergeSplash(r: ShipResult, options: MergeSplashOptions = {})
     const addLog = (text: string) => {
       const row = document.createElement('div');
       row.innerHTML = `<span class="tag tag-ok">${LOG_TAGS.ok}</span> `;
-      row.append(text);
+      row.insertAdjacentHTML('beforeend', hl(text));
       log.appendChild(row);
     };
     const steps = [
