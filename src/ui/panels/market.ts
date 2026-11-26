@@ -19,7 +19,7 @@ export function renderMarket(game: Game): string {
       ${row('chart', 'data-mk-rank')}
       <span class="k" data-mk-launch-k hidden>launch</span><span data-mk-launch hidden></span>
     </div>
-    <p class="caveat"># every release is reviewed: bigger releases with sprints merged and bugs squashed score better, and better reviews bring more users. users start drifting to rivals after ${MARKET.graceMinutes} minutes without an update (a ship or a major version), up to half of them; time away counts at ${Math.round(MARKET.awayChurnRate * 100)}%, so closing the game costs less than idling in it; a release reviewed ${MARKET.winBackAt}★ or better wins back half of those. each rival behind you adds ${Math.round(MARKET.rankBonus * 100)}% to all output.</p>
+    <p class="caveat"># every release is reviewed: bigger releases with sprints merged and bugs squashed score better, and better reviews bring more users. users start drifting to rivals after ${MARKET.graceMinutes} minutes without an update (a ship or a major version), up to half of them; time away counts at ${Math.round(MARKET.awayChurnRate * 100)}% and on its own costs at most ${Math.round(MARKET.awayMaxChurn * 100)}%, so closing the game costs less than idling in it; a release reviewed ${MARKET.winBackAt}★ or better wins back half of those. each rival behind you adds ${Math.round(MARKET.rankBonus * 100)}% to all output.</p>
     <div class="cmd gap"><span><span class="ps">$</span> app-store top --category dev-tools</span><span class="aside">${RIVALS.length + 1} apps</span></div>
     <div class="chart" data-mk-chart></div>
     <div class="cmd gap"><span><span class="ps">$</span> curl -s news.feed | head</span></div>

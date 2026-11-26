@@ -52,10 +52,22 @@ export const usersFromRelease = (lines: Decimal, review: number): number =>
 /** Wall-clock minutes since the last update (ship or major version), for display. */
 export const minutesSinceUpdate = (s: GameState, now: number): number => (s.market.lastUpdateAt ? Math.max(0, (now - s.market.lastUpdateAt) / 60_000) : 0);
 
-/** Counts time without an update: in full while playing, at MARKET.awayChurnRate while away. */
+/** Quiet minutes at which churn reaches this share. */
+const quietFor = (share: number): number => MARKET.graceMinutes + Math.log(1 - share) / Math.log(1 - MARKET.churnPerMinute);
+
+/**
+ * Counts time without an update: in full while playing, at MARKET.awayChurnRate while away.
+ * Time away alone can't push churn past MARKET.awayMaxChurn (or past where it already was).
+ */
 export function addQuietTime(s: GameState, seconds: number, away: boolean): void {
-  if (!s.market.lastUpdateAt || seconds <= 0) return;
-  s.market.quietMinutes += (seconds / 60) * (away ? MARKET.awayChurnRate : 1);
+  const m = s.market;
+  if (!m.lastUpdateAt || seconds <= 0) return;
+  if (!away) {
+    m.quietMinutes += seconds / 60;
+    return;
+  }
+  const limit = Math.max(m.quietMinutes, quietFor(MARKET.awayMaxChurn));
+  m.quietMinutes = Math.min(limit, m.quietMinutes + (seconds / 60) * MARKET.awayChurnRate);
 }
 
 /** Quiet minutes left before users start drifting. */
