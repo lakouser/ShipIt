@@ -1,4 +1,4 @@
-import { BUGS, INCIDENTS, type EffectId } from './content';
+import { AUTOMATION, BUGS, INCIDENTS, type EffectId, type WorkflowId } from './content';
 import { D, type Decimal } from './num';
 
 export type BuyAmount = 1 | 10 | 'max';
@@ -89,6 +89,9 @@ export interface Stats {
   perksBought: number;
   flowMaxed: number;
   maxOfOne: number;
+  /** Stars earned over the whole game (shipping and milestones), for career titles. */
+  starsEarned: number;
+  autoShips: number;
 }
 
 export interface Settings {
@@ -136,6 +139,10 @@ export interface GameState {
   scripts: Partial<Record<EffectId, number>>;
   /** Active timed effects: id → ends at (ms). */
   effects: Partial<Record<EffectId, number>>;
+  /** Workflows the player switched off (unlocked ones are on unless listed here as false). */
+  workflows: Partial<Record<WorkflowId, boolean>>;
+  /** release.yml ships once a release would grow stars by this fraction. */
+  autoShipAt: number;
   /** Permanent bonuses from finished TODO tasks (fractions). */
   questBonus: { tap: number; auto: number; bug: number; sprint: number };
   quests: Quest[];
@@ -158,7 +165,7 @@ export interface GameState {
 
 export const newStats = (): Stats => ({
   taps: 0, crits: 0, purchases: 0, sprints: 0, bugs: 0, bugsEscaped: 0, coffees: 0, outagesFixed: 0,
-  conflictsResolved: 0, scriptsRun: 0, quests: 0, milestones: 0, perksBought: 0, flowMaxed: 0, maxOfOne: 0,
+  conflictsResolved: 0, scriptsRun: 0, quests: 0, milestones: 0, perksBought: 0, flowMaxed: 0, maxOfOne: 0, starsEarned: 0, autoShips: 0,
 });
 
 export const defaultSettings = (): Settings => ({
@@ -185,6 +192,8 @@ export function newGame(now: number): GameState {
     editorLine: 1,
     scripts: { turbo: 1 },
     effects: {},
+    workflows: {},
+    autoShipAt: AUTOMATION.shipAtDefault,
     questBonus: { tap: 0, auto: 0, bug: 0, sprint: 0 },
     quests: [],
     nextQuestAt: 0,

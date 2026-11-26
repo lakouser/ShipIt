@@ -268,16 +268,21 @@ describe('unlocks, quests and milestone', () => {
     expect(t.state.quests).toHaveLength(1);
   });
 
-  it('awards milestone stars once every task is done', () => {
+  it('pays a finished milestone as extra stars when the release ships', () => {
     const t = testGame();
     const m = t.state.milestone!;
     expect(m.release).toBe(1);
+    expect(m.tasks[0].target).toBe('20000000'); // first release: at least 16M, rounded to read cleanly
     t.state.thisRelease = D(m.tasks[0].target);
     t.state.owned = { kb: 40 };
     t.state.stats.sprints = 5;
     t.game.tick();
     expect(t.state.milestone?.done).toBe(true);
-    expect(t.state.stars).toBe(m.stars);
+    expect(t.state.stars).toBe(0);
+    const result = t.game.ship()!;
+    expect(result.bonus).toBe(1); // max(flat 1, 25% of 4)
+    expect(result.stars).toBe(5);
+    expect(t.state.stats.starsEarned).toBe(5);
   });
 });
 

@@ -8,7 +8,8 @@ export const findPerk = (id: string): PerkDef | undefined => PERKS.find((p) => p
 /** Stars not yet spent on dotfiles. */
 export const spendableStars = (s: GameState): number => s.stars - s.starsSpent;
 
-export const perkCost = (p: PerkDef, level: number): number => p.baseCost + p.costStep * level;
+export const perkCost = (p: PerkDef, level: number): number =>
+  p.costGrowth ? Math.round(p.baseCost * p.costGrowth ** level) : p.baseCost + p.costStep * level;
 
 export type PerkStatus = 'maxed' | 'locked' | 'affordable' | 'expensive';
 

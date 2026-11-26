@@ -1,4 +1,4 @@
-import { PERKS, UPGRADES, type EffectId } from '../src/core/content';
+import { AUTOMATION, PERKS, UPGRADES, type EffectId } from '../src/core/content';
 import { costOf, isUpgradeVisible, owned, perSecond, perTap } from '../src/core/economy';
 import { Game } from '../src/core/game';
 import { D, fmt } from '../src/core/num';
@@ -59,6 +59,9 @@ export function simulate({ minutes, tapsPerSecond, seed = 7, ship = { kind: 'gai
     if (e.type === 'shipped') report.ships.push({ minute: Math.round(now / 600) / 100, release: e.result.release, stars: e.totalStars });
   });
   game.checkIn();
+  // release.yml follows the bot's own policy, so it can't ship on a schedule the policy wouldn't.
+  if (ship.kind === 'gain' && AUTOMATION.shipAtOptions.includes(ship.fraction)) s.autoShipAt = ship.fraction;
+  else s.workflows.release = false;
 
   const stepMs = 250;
   const tapEvery = Math.max(1, Math.round(1000 / stepMs / tapsPerSecond));

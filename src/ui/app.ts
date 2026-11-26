@@ -213,6 +213,11 @@ export class App {
         this.save();
         void this.saves.flush();
         this.panels.render();
+        // release.yml ships quietly: a log line and the star count bouncing, no splash.
+        if (e.auto) {
+          this.header.bounceStars();
+          break;
+        }
         this.dialogOpen = true;
         void playMergeSplash(e.result, { onStars: () => this.feedback(true) }).then(() => {
           this.dialogOpen = false;

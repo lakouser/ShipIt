@@ -32,10 +32,12 @@ npm run preview    # serve dist/ locally
 | **~/bin scripts** | Collectable timed boosts you run when you like: `turbo.sh` (x2 per tap), `nightly.sh` (x2 automation), `autotype.sh` (taps for you), `sudo.sh` (+crit chance). |
 | **Bugs** | Crawl across the editor every 28–50s; squashing pays ~15s of automation plus 10 taps. `oncall.yml` squashes some for you. |
 | **Incidents** | Every 1–2.5 min: coffee (x3 everything for 20s), an outage (tap 30 times to hotfix) or a merge conflict (pick the side that compiles). Missing one never costs anything. |
-| **TODO.md** | Three small tasks at a time with small permanent bonuses (or scripts); a finished slot refills after 45s. Each release has a milestone that pays stars. |
+| **TODO.md** | Three small tasks at a time with small permanent bonuses (or scripts); a finished slot refills after 45s. Each release has a milestone (beat the last release by half, with enough packages and sprints) that makes the ship pay +25% stars. |
 | **Ship** | Stars come from every line ever shipped: floor(2·cbrt(all shipped lines / 2M)), so 2 at 2M, 4 at 16M, 20 at 2B in total. A release needs 2M lines and pays what it adds to that total, so one big release beats several small ones. The ship tab shows stars per minute (now and best this release), marks a release ready to merge once it would grow stars by 50%, and keeps a `git log` of the last 10 releases. Shipping resets lines and packages. Each star earned adds 10% output forever, even after it is spent. |
-| **dotfiles** | 10 permanent perks in `editor/`, `team/` and `system/`, bought with stars. |
-| **Achievements** | 56, each worth +1% output, including a few secrets. |
+| **dotfiles** | 11 permanent perks in `editor/`, `team/` and `system/`, bought with stars. `.zshrc` has no cap (x1.1 all output per level, each level twice the price), so stars always have a use. |
+| **Workflows** | Automation earned by shipping, each switchable in the ship tab: `deps.yml` and `dev-deps.yml` install packages (after 2 and 4 releases), `scripts.yml` runs scripts (6), `triage.yml` squashes bugs and grabs coffee (10), `release.yml` ships once a release would grow stars by +50/75/100/200% (15). |
+| **Career** | A title by stars earned over the whole game, from intern to cto. |
+| **Achievements** | 65, each worth +1% output, including a few secrets. |
 | **Commit streak** | Play on consecutive days for a daily bonus (scripts every 3rd and 7th day). |
 | **Time away** | 25% of automation for up to 2 hours (raised by `crontab`), shown on a welcome-back screen. |
 
@@ -58,6 +60,8 @@ src/
     bugs.ts          Bug spawning, escaping and rewards.
     incidents.ts     Coffee, outages and merge conflicts.
     quests.ts        TODO.md tasks and the release milestone.
+    workflows.ts     Automation earned by shipping (.github/workflows).
+    career.ts        Career titles.
     streak.ts        Daily commit streak.
     ship.ts          Prestige.
     achievements.ts  Achievement definitions and checks.

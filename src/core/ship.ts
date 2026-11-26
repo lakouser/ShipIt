@@ -1,7 +1,7 @@
 import { PERK_VALUES, SHIP } from './content';
 import { D, Decimal } from './num';
 import { perkLevel } from './perks';
-import { makeMilestone } from './quests';
+import { makeMilestone, milestoneBonus } from './quests';
 import type { Rng } from './rng';
 import { makeBacklog } from './sprints';
 import type { GameState } from './state';
@@ -53,8 +53,10 @@ export function shipGain(s: GameState): number {
 export const shipReady = (s: GameState): boolean => shipGain(s) >= SHIP.readyAt;
 
 export interface ShipResult {
-  /** Stars gained by this ship. */
+  /** Stars gained by this ship, milestone bonus included. */
   stars: number;
+  /** The part of `stars` that came from finishing the release milestone. */
+  bonus: number;
   /** Stars held before shipping. */
   starsBefore: number;
   /** The new release number. */
@@ -69,12 +71,15 @@ export interface ShipResult {
 
 /** Prestige: trade this release's lines and upgrades for permanent stars. */
 export function ship(s: GameState, now: number, rng: Rng): ShipResult | null {
-  const stars = starsAvailable(s);
-  if (stars < 1) return null;
+  const curve = starsAvailable(s);
+  if (curve < 1) return null;
+  const bonus = milestoneBonus(s, curve);
+  const stars = curve + bonus;
   const seconds = releaseSeconds(s, now);
-  const result: ShipResult = { stars, starsBefore: s.stars, release: s.release + 1, linesBefore: s.lines, releaseLines: s.thisRelease, seconds };
+  const result: ShipResult = { stars, bonus, starsBefore: s.stars, release: s.release + 1, linesBefore: s.lines, releaseLines: s.thisRelease, seconds };
   s.releaseLog = [{ release: result.release, lines: s.thisRelease, stars, seconds, at: now }, ...s.releaseLog].slice(0, SHIP.logSize);
   s.stars += stars;
+  s.stats.starsEarned += stars;
   s.release++;
   s.shipped = s.shipped.add(s.thisRelease);
   s.lines = D(0);

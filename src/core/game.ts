@@ -1,6 +1,7 @@
 import { checkAchievements, type AchievementDef } from './achievements';
 import { squashBug, updateBugs } from './bugs';
-import { BUGS, CRIT, FLOW, OFFLINE, PERK_VALUES, UNLOCKS, type EffectDef, type EffectId, type IncidentKind, type PerkDef } from './content';
+import { careerLevel } from './career';
+import { AUTOMATION, BUGS, CAREER, CRIT, FLOW, OFFLINE, PERK_VALUES, UNLOCKS, type EffectDef, type EffectId, type IncidentKind, type PerkDef, type WorkflowDef, type WorkflowId } from './content';
 import { applyDev, type DevAction } from './dev';
 import { addLines, buy, critChance, perSecond, perTap, type Purchase } from './economy';
 import { effectSum, pruneEffects, runScript } from './effects';
@@ -9,10 +10,11 @@ import type { Decimal } from './num';
 import { buyPerk, perkLevel } from './perks';
 import { makeMilestone, updateMilestone, updateQuests } from './quests';
 import type { Rng } from './rng';
-import { ship, starsPerMinute, type ShipResult } from './ship';
+import { ship, shipGain, starsPerMinute, type ShipResult } from './ship';
 import { makeBacklog, refreshBacklog, resolveSprint, startSprint } from './sprints';
 import type { ActiveSprint, GameState, Incident, Milestone, Quest, SprintResult } from './state';
 import { checkIn, type CheckIn } from './streak';
+import { autoInstall, autoRunScripts, releasesShipped, workflowOn, workflowsUnlockedBetween } from './workflows';
 
 export type UnlockTab = 'sprints' | 'todo' | 'ship';
 export type IncidentOutcome = 'caught' | 'fixed' | 'resolved' | 'wrong' | 'missed';
@@ -37,7 +39,10 @@ export type GameEvent =
   | { type: 'milestoneDone'; milestone: Milestone }
   | { type: 'unlocked'; tab: UnlockTab }
   | { type: 'checkIn'; checkIn: CheckIn }
-  | { type: 'shipped'; result: ShipResult; totalStars: number }
+  | { type: 'shipped'; result: ShipResult; totalStars: number; auto: boolean }
+  | { type: 'promoted'; title: string }
+  | { type: 'workflowUnlocked'; workflow: WorkflowDef }
+  | { type: 'autoInstalled'; count: number; doublings: Purchase[] }
   | { type: 'offline'; lines: Decimal; seconds: number; awaySeconds: number; rate: number };
 
 export interface GameOptions {
@@ -199,10 +204,28 @@ export class Game {
     return result.ok;
   }
 
-  ship(): ShipResult | null {
-    const result = ship(this.state, this.clock(), this.rng);
-    if (result) this.emit({ type: 'shipped', result, totalStars: this.state.stars });
+  ship(auto = false): ShipResult | null {
+    const s = this.state;
+    const titleBefore = careerLevel(s.stats.starsEarned);
+    const shippedBefore = releasesShipped(s);
+    const result = ship(s, this.clock(), this.rng);
+    if (!result) return null;
+    if (auto) s.stats.autoShips++;
+    this.emit({ type: 'shipped', result, totalStars: s.stars, auto });
+    const title = careerLevel(s.stats.starsEarned);
+    if (title > titleBefore) this.emit({ type: 'promoted', title: CAREER[title].title });
+    for (const workflow of workflowsUnlockedBetween(shippedBefore, releasesShipped(s))) this.emit({ type: 'workflowUnlocked', workflow });
     return result;
+  }
+
+  /** Switches an unlocked workflow on or off. */
+  setWorkflow(id: WorkflowId, on: boolean): void {
+    this.state.workflows[id] = on;
+  }
+
+  /** release.yml's trigger: ship once a release would grow stars by this fraction. */
+  setAutoShipAt(fraction: number): void {
+    if (AUTOMATION.shipAtOptions.includes(fraction)) this.state.autoShipAt = fraction;
   }
 
   markExported(): void {
@@ -274,14 +297,21 @@ export class Game {
     else if (bug?.type === 'autoSquashed') this.emit({ type: 'bugSquashed', reward: bug.reward, total: s.stats.bugs, auto: true });
 
     const incident = updateIncident(s, now, this.rng, canSpawn && s.lifetime.gte(500));
-    if (incident?.type === 'spawned') this.emit({ type: 'incidentSpawned', incident: incident.incident });
+    if (incident?.type === 'spawned' && incident.incident.kind === 'coffee' && workflowOn(s, 'triage') && catchCoffee(s, now)) {
+      this.emit({ type: 'incidentEnded', kind: 'coffee', outcome: 'caught', reward: null });
+    } else if (incident?.type === 'spawned') this.emit({ type: 'incidentSpawned', incident: incident.incident });
     else if (incident?.type === 'expired') this.emit({ type: 'incidentEnded', kind: incident.incident.kind, outcome: 'missed', reward: null });
+
+    const installed = autoInstall(s);
+    if (installed.count > 0) this.emit({ type: 'autoInstalled', ...installed });
+    for (const effect of autoRunScripts(s, now)) this.emit({ type: 'script', effect });
 
     this.checkUnlocks();
     if (s.unlocked.todo) for (const quest of updateQuests(s, now, this.rng)) this.emit({ type: 'questDone', quest });
     const milestone = updateMilestone(s);
     if (milestone) this.emit({ type: 'milestoneDone', milestone });
     s.releasePeak = Math.max(s.releasePeak, starsPerMinute(s, now));
+    if (workflowOn(s, 'release') && shipGain(s) >= s.autoShipAt) this.ship(true);
 
     const hour = new Date(now).getHours();
     if (hour >= 2 && hour < 5 && s.stats.taps > 0) s.flags.nightOwl = true;

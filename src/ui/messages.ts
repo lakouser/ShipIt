@@ -1,4 +1,4 @@
-import { EFFECTS, packageName, type EffectId } from '../core/content';
+import { EFFECTS, MILESTONE, packageName, type EffectId } from '../core/content';
 import { starMultiplier } from '../core/economy';
 import type { GameEvent } from '../core/game';
 import { clock, fmt, fmtDuration, fmtMul } from '../core/num';
@@ -37,6 +37,12 @@ export function describe(e: GameEvent): LogLine[] {
       if (doubledAt) lines.push({ kind: 'ok', text: `${packageName(upgrade.name)} output doubled at ${doubledAt} installed` });
       return lines;
     }
+    case 'autoInstalled':
+      return e.doublings.map((p) => ({ kind: 'ok' as const, text: `${packageName(p.upgrade.name)} output doubled at ${p.doubledAt} installed` }));
+    case 'promoted':
+      return [{ kind: 'ok', text: `promoted to ${e.title}` }];
+    case 'workflowUnlocked':
+      return [{ kind: 'ok', text: `new workflow: .github/workflows/${e.workflow.file} (${e.workflow.summary}). switch it off in 3:ship` }];
     case 'perk':
       return [{ kind: 'cmd', text: `git commit ~/dotfiles/${e.perk.file} -m "level ${e.level}"` }];
     case 'script':
@@ -68,13 +74,13 @@ export function describe(e: GameEvent): LogLine[] {
     case 'questDone':
       return [{ kind: 'ok', text: `TODO done: ${questText(e.quest)} (${rewardText(e.quest.reward)})` }];
     case 'milestoneDone':
-      return [{ kind: 'ok', text: `v${e.milestone.release}.0 milestone complete, +${e.milestone.stars} star${e.milestone.stars > 1 ? 's' : ''}` }];
+      return [{ kind: 'ok', text: `release milestone done: this release ships with +${Math.round(MILESTONE.shipBonus * 100)}% stars (at least ${e.milestone.stars})` }];
     case 'unlocked':
       return [{ kind: 'info', text: `new tab unlocked: ${TAB_NAMES[e.tab]}` }];
     case 'checkIn':
       return [{ kind: 'ok', text: `day ${e.checkIn.count} streak: +${fmt(e.checkIn.lines)} lines${e.checkIn.script ? ` and ${scriptFile(e.checkIn.script)}` : ''}` }];
     case 'shipped':
-      return [{ kind: 'ok', text: `shipped v${e.result.release}.0${e.result.seconds !== null ? ` after ${fmtDuration(e.result.seconds)}` : ''}, +${fmt(e.result.stars)} star${e.result.stars > 1 ? 's' : ''}, output x${fmtMul(starMultiplier(e.totalStars))}` }];
+      return [{ kind: 'ok', text: `${e.auto ? 'release.yml ' : ''}shipped v${e.result.release}.0${e.result.seconds !== null ? ` after ${fmtDuration(e.result.seconds)}` : ''}, +${fmt(e.result.stars)} star${e.result.stars > 1 ? 's' : ''}, output x${fmtMul(starMultiplier(e.totalStars))}` }];
     case 'offline':
       return [{ kind: 'info', text: `while you were away your team wrote ${fmt(e.lines)} lines` }];
     default:

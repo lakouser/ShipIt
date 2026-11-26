@@ -1,9 +1,12 @@
-import { PERKS, SHIP, type PerkBranch } from '../../core/content';
+import { careerTitle, nextTitle } from '../../core/career';
+import { AUTOMATION, PERKS, SHIP, WORKFLOWS, type PerkBranch } from '../../core/content';
 import { starMultiplier } from '../../core/economy';
 import type { Game } from '../../core/game';
 import { fmt, fmtDuration, fmtMul, fmtRate } from '../../core/num';
 import { perkCost, perkLevel, perkStatus, spendableStars } from '../../core/perks';
+import { milestoneBonus } from '../../core/quests';
 import { linesForStars, shipGain, starsAvailable, starsPerMinute } from '../../core/ship';
+import { releasesShipped, workflowOn } from '../../core/workflows';
 import type { GameState, ReleaseEntry } from '../../core/state';
 import { setHtml, setText } from '../dom';
 import { hl, tint } from '../hl';
@@ -52,6 +55,24 @@ function releaseLog(s: GameState): string {
   return `<div class="cmd gap"><span><span class="ps">$</span> git log --oneline --tags</span><span class="aside">last ${s.releaseLog.length} release${s.releaseLog.length === 1 ? '' : 's'}</span></div><div class="rlog">${rows}</div>`;
 }
 
+/** .github/workflows: automation earned by shipping, each switchable. */
+function workflowList(s: GameState): string {
+  const shipped = releasesShipped(s);
+  const on = WORKFLOWS.filter((w) => workflowOn(s, w.id)).length;
+  const rows = WORKFLOWS.map((w) => {
+    const open = shipped >= w.releases;
+    const active = workflowOn(s, w.id);
+    const trigger =
+      w.id === 'release' && open
+        ? `<div class="row2 wfopt"><span class="lbl">ship at stars</span>${AUTOMATION.shipAtOptions
+            .map((f) => `<button class="chip2" data-autoship="${f}" aria-pressed="${s.autoShipAt === f}">${s.autoShipAt === f ? '(•)' : '( )'} +${Math.round(f * 100)}%</button>`)
+            .join('')}</div>`
+        : '';
+    return `<button class="opt" data-workflow="${w.id}" aria-pressed="${active}"${open ? '' : ' disabled'}><span class="box">[${active ? 'x' : ' '}]</span> <span class="h h-name">${w.file}</span> <small>${open ? hl(w.summary) : `unlocks after ${w.releases} releases`}</small></button>${trigger}`;
+  });
+  return `<div class="cmd gap"><span><span class="ps">$</span> ls .github/workflows</span><span class="aside">${on} of ${WORKFLOWS.length} on</span></div><div class="opts wfs">${rows.join('')}</div>`;
+}
+
 function dotfilesTree(game: Game): string {
   const s = game.state;
   let html = `<div class="cmd gap"><span><span class="ps">$</span> tree ~/dotfiles</span><span class="aside"><b class="st" data-spend>${fmt(spendableStars(s))}</b> stars to spend</span></div><div class="tree"><div class="root">~/dotfiles</div>`;
@@ -96,12 +117,14 @@ export function renderShip(game: Game): string {
       <button class="shipbtn" data-ship></button>
     </div>
     ${releaseLog(s)}
+    ${workflowList(s)}
     ${dotfilesTree(game)}
     <div class="fetch">
       <pre aria-hidden="true">${LOGO}</pre>
       <div class="info">
         <span class="who">dev@ship-it</span><span class="rule">───────────</span>
         ${row('release', `v${s.release}.0`)}
+        ${row('title', `${careerTitle(s)}${nextTitle(s) ? ` <span class="cm">· next at ${fmt(nextTitle(s)!.stars)}★ earned</span>` : ''}`)}
         ${row('stars', `${tint('star', fmt(s.stars))} (${tint('loc', `x${fmtMul(starMultiplier(s.stars))} output`)})`, ' data-f-stars')}
         ${row('lines', fmt(s.lifetime), ' class="h h-loc" data-f-lines')}
         ${row('loc/s', fmtRate(game.perSecond()), ' class="h h-auto" data-f-rate')}
@@ -117,9 +140,11 @@ export function renderShip(game: Game): string {
 function readyText(s: GameState, stars: number): string {
   if (stars < 1) return `<span class="cm">○</span> waiting for the first star`;
   const gain = shipGain(s);
-  if (gain === Infinity) return `<span class="ok">✓</span> ready to merge · first stars`;
-  if (gain >= SHIP.readyAt) return `<span class="ok">✓</span> ready to merge · ${tint('star', `+${pct(gain)}`)} stars`;
-  return `<span class="cm">○</span> ${tint('star', `+${pct(gain)}`)} stars · ready at ${tint('star', `+${pct(SHIP.readyAt)}`)}`;
+  const bonus = milestoneBonus(s, stars);
+  const extra = bonus > 0 ? ` · milestone ${tint('star', `+${fmt(bonus)}`)}` : '';
+  if (gain === Infinity) return `<span class="ok">✓</span> ready to merge · first stars${extra}`;
+  if (gain >= SHIP.readyAt) return `<span class="ok">✓</span> ready to merge · ${tint('star', `+${pct(gain)}`)} stars${extra}`;
+  return `<span class="cm">○</span> ${tint('star', `+${pct(gain)}`)} stars · ready at ${tint('star', `+${pct(SHIP.readyAt)}`)}${extra}`;
 }
 
 export function refreshShip(game: Game, root: HTMLElement, armed: boolean): void {
@@ -138,7 +163,8 @@ export function refreshShip(game: Game, root: HTMLElement, armed: boolean): void
   setHtml(root.querySelector('[data-rate]'), stars >= 1 && timed ? `${tint('star', starRate(rate))} now · best ${tint('star', starRate(Math.max(rate, s.releasePeak)))}` : `<span class="cm">${timed ? '—' : '— (from your next release)'}</span>`);
   setHtml(root.querySelector('[data-ready]'), readyText(s, stars));
 
-  const preview = s.stars + Math.max(1, stars);
+  const payout = stars + milestoneBonus(s, stars);
+  const preview = s.stars + Math.max(1, payout);
   const mulBefore = starMultiplier(s.stars);
   const mulAfter = starMultiplier(preview);
   setText(root.querySelector('[data-diff-stars-was]'), `- export const stars = ${fmt(s.stars)};`);
@@ -160,7 +186,7 @@ export function refreshShip(game: Game, root: HTMLElement, armed: boolean): void
     const status = perkStatus(s, p);
     row.classList.toggle('locked', status === 'locked');
     setText(row.querySelector('.nm'), p.file);
-    setText(row.querySelector('.lv'), `${level}/${p.maxLevel}`);
+    setText(row.querySelector('.lv'), Number.isFinite(p.maxLevel) ? `${level}/${p.maxLevel}` : `lvl ${level}`);
     setHtml(row.querySelector('.ps2'), hl(status === 'locked' && p.requires ? `needs ${PERKS.find((x) => x.id === p.requires!.id)?.file} level ${p.requires.level}` : p.summary));
     const btn = row.querySelector<HTMLButtonElement>('button')!;
     btn.disabled = status !== 'affordable';
@@ -180,6 +206,6 @@ export function refreshShip(game: Game, root: HTMLElement, armed: boolean): void
       ? `needs ${fmt(linesForStars(s, 1).sub(s.thisRelease))} more lines`
       : armed
         ? 'confirm: merge and reset lines?'
-        : `merge & ship v${s.release + 1}.0 → +${fmt(stars)} star${stars > 1 ? 's' : ''}`,
+        : `merge & ship v${s.release + 1}.0 → +${fmt(payout)} star${payout > 1 ? 's' : ''}`,
   );
 }

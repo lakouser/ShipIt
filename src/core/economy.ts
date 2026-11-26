@@ -21,6 +21,7 @@ export const starMultiplier = (stars: number): number => 1 + SHIP.bonusPerStar *
 /** Stars, achievements and coffee: applies to everything the player writes. */
 export function globalMultiplier(s: GameState, now: number): Decimal {
   return D(starMultiplier(s.stars))
+    .mul(PERK_VALUES.zshrcMul ** perkLevel(s, 'zshrc'))
     .mul(1 + ACHIEVEMENT_BONUS * s.achievements.length)
     .mul(effectProduct(s, 'allMul', now));
 }
@@ -99,10 +100,11 @@ export interface Purchase {
   doubledAt: number | null;
 }
 
-export function buy(s: GameState, id: string): Purchase | null {
+/** Buys `count` copies (by default, what the buy setting asks for) if the player can afford them. */
+export function buy(s: GameState, id: string, amount?: number): Purchase | null {
   const u = findUpgrade(id);
   if (!u) return null;
-  const count = quantityToBuy(s, u);
+  const count = amount ?? quantityToBuy(s, u);
   const cost = costOf(s, u, count);
   if (s.lines.lt(cost)) return null;
   const before = owned(s, u.id);

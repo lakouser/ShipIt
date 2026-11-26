@@ -275,6 +275,9 @@ b { font-weight: 700; }
 .shipbtn.arm { background: var(--c-star); border-color: var(--c-star); color: var(--on-butter); }
 .chk .ok { color: var(--green); font-weight: 700; }
 .rlog { font-size: 13px; line-height: 1.5; color: var(--mut); }
+.wfs .opt:disabled { color: var(--dim); cursor: default; }
+.wfs .opt:disabled .box { color: var(--dim); }
+.wfopt { padding-left: 4ch; }
 .rlog .sha { color: var(--butter); }
 .rlog .tg { color: var(--cyan); }
 .shipbtn:disabled { border-color: var(--line); color: var(--dim); cursor: default; }

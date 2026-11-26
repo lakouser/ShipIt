@@ -1,4 +1,5 @@
-import type { EffectId, IncidentKind } from '../../core/content';
+import type { EffectId, IncidentKind, WorkflowId } from '../../core/content';
+import { workflowOn } from '../../core/workflows';
 import type { DevAction } from '../../core/dev';
 import type { Game } from '../../core/game';
 import type { BuyAmount, KeySound, Notation, Skin, Tab } from '../../core/state';
@@ -141,6 +142,13 @@ export class Panels {
         this.armTimer = window.setTimeout(() => this.disarm(), ARM_MS);
         this.refresh();
       }
+    } else if (d.workflow) {
+      const id = d.workflow as WorkflowId;
+      this.game.setWorkflow(id, !workflowOn(s, id));
+      this.done();
+    } else if (d.autoship) {
+      this.game.setAutoShipAt(Number(d.autoship));
+      this.done();
     } else if (d.toggle) {
       const key = d.toggle as 'sound' | 'haptics' | 'reduceMotion' | 'welcome';
       s.settings[key] = !s.settings[key];

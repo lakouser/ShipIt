@@ -1,4 +1,4 @@
-import { EFFECTS, PERKS, SHIP, type EffectId } from './content';
+import { AUTOMATION, EFFECTS, PERKS, SHIP, WORKFLOWS, type EffectId, type WorkflowId } from './content';
 import { D, isFiniteDecimal, type Decimal } from './num';
 import { shippedForStars } from './ship';
 import {
@@ -18,7 +18,7 @@ import {
   type Ticket,
 } from './state';
 
-export const SAVE_VERSION = 3;
+export const SAVE_VERSION = 4;
 export const SAVE_KEY = 'shipit.save';
 /** Prefix for exported save strings, so pasted text is recognisable. */
 export const EXPORT_PREFIX = 'SHIPIT:';
@@ -39,6 +39,8 @@ const MIGRATIONS: Record<number, (save: Raw) => Raw> = {
   // so nobody loses a star; the next stars come at the same pace as for anyone else holding that many.
   // The release in progress began before releases were timed, so its start is unknown (-1).
   2: (save) => ({ ...save, v: 3, shipped: shippedForStars(Math.max(0, int(save.stars))).toString(), releaseStartedAt: -1 }),
+  // v3 → v4: career titles count stars earned over the whole game; until now that was just the stars held.
+  3: (save) => ({ ...save, v: 4, stats: { ...(isObj(save.stats) ? save.stats : {}), starsEarned: Math.max(0, int(save.stars)) } }),
 };
 
 export function serialize(s: GameState, now: number): string {
@@ -134,6 +136,12 @@ function releaseEntry(x: unknown): ReleaseEntry | null {
   return { release: Math.max(1, int(x.release, 1)), lines: dec(x.lines, D(0)), stars: Math.max(0, int(x.stars)), seconds: typeof x.seconds === 'number' && Number.isFinite(x.seconds) ? Math.max(0, x.seconds) : null, at: num(x.at) };
 }
 
+function workflowFlags(x: unknown): Partial<Record<WorkflowId, boolean>> {
+  const out: Partial<Record<WorkflowId, boolean>> = {};
+  if (isObj(x)) for (const w of WORKFLOWS) if (typeof x[w.id] === 'boolean') out[w.id] = x[w.id] as boolean;
+  return out;
+}
+
 function stats(x: unknown): Stats {
   const base = newStats();
   if (!isObj(x)) return base;
@@ -201,6 +209,8 @@ export function deserialize(text: string, now: number): GameState | null {
     editorLine: Math.max(1, int(raw.editorLine, 1)),
     scripts: isObj(raw.scripts) ? counts(raw.scripts, isEffect) : base.scripts,
     effects,
+    workflows: workflowFlags(raw.workflows),
+    autoShipAt: oneOf(raw.autoShipAt, AUTOMATION.shipAtOptions, AUTOMATION.shipAtDefault),
     questBonus: { tap: num(qb.tap), auto: num(qb.auto), bug: num(qb.bug), sprint: num(qb.sprint) },
     quests: Array.isArray(raw.quests) ? raw.quests.map(quest).filter((q): q is Quest => q !== null) : [],
     nextQuestAt: num(raw.nextQuestAt),

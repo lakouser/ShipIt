@@ -94,10 +94,12 @@ export interface PerkDef {
   branch: PerkBranch;
   file: string;
   summary: string;
+  /** Infinity for a perk with no cap. */
   maxLevel: number;
-  /** Stars for level n+1 = baseCost + costStep * n. */
+  /** Stars for level n+1 = baseCost + costStep * n, or baseCost * costGrowth^n when costGrowth is set. */
   baseCost: number;
   costStep: number;
+  costGrowth?: number;
   requires?: { id: string; level: number };
 }
 
@@ -112,6 +114,7 @@ export const PERKS: readonly PerkDef[] = [
   { id: 'cron', branch: 'system', file: 'crontab', summary: '+10% offline rate and +1h offline cap per level', maxLevel: 5, baseCost: 2, costStep: 2, requires: { id: 'cache', level: 1 } },
   { id: 'timeouts', branch: 'system', file: 'timeouts.conf', summary: 'sprints get 10% more time per level', maxLevel: 5, baseCost: 2, costStep: 1, requires: { id: 'cache', level: 1 } },
   { id: 'bootstrap', branch: 'system', file: 'bootstrap.sh', summary: 'start each release with 5 keyboards and 5 ducks per level', maxLevel: 5, baseCost: 3, costStep: 3, requires: { id: 'cache', level: 3 } },
+  { id: 'zshrc', branch: 'system', file: '.zshrc', summary: 'x1.1 all output per level, no cap (each level costs twice the last)', maxLevel: Infinity, baseCost: 10, costStep: 0, costGrowth: 2, requires: { id: 'cache', level: 5 } },
 ];
 
 export const PERK_VALUES = {
@@ -126,7 +129,51 @@ export const PERK_VALUES = {
   cronHours: 1,
   timeoutsBonus: 0.1,
   bootstrapCopies: 5,
+  zshrcMul: 1.1,
 };
+
+/* ---------- workflows: automation earned by shipping ---------- */
+
+export type WorkflowId = 'deps' | 'devdeps' | 'scripts' | 'triage' | 'release';
+
+export interface WorkflowDef {
+  id: WorkflowId;
+  /** Shown as .github/workflows/<file>. */
+  file: string;
+  summary: string;
+  /** Releases shipped before it unlocks. Unlocked workflows start switched on. */
+  releases: number;
+}
+
+export const WORKFLOWS: readonly WorkflowDef[] = [
+  { id: 'deps', file: 'deps.yml', summary: 'installs automation packages for you, best value first', releases: 2 },
+  { id: 'devdeps', file: 'dev-deps.yml', summary: 'installs typing packages for you, best value first', releases: 4 },
+  { id: 'scripts', file: 'scripts.yml', summary: 'runs each ~/bin script as soon as the last one ends', releases: 6 },
+  { id: 'triage', file: 'triage.yml', summary: 'squashes bugs and grabs coffee for you', releases: 10 },
+  { id: 'release', file: 'release.yml', summary: 'ships for you once a release would grow stars by the amount you pick', releases: 15 },
+];
+
+export const AUTOMATION = {
+  /** At most this many packages auto-installed per tick. */
+  installsPerTick: 25,
+  /** Choices for release.yml: ship once a release would grow stars by this fraction. */
+  shipAtOptions: [0.5, 0.75, 1, 2] as readonly number[],
+  shipAtDefault: 0.75,
+};
+
+/* ---------- career: titles by stars earned over the whole game ---------- */
+
+export const CAREER: readonly { title: string; stars: number }[] = [
+  { title: 'intern', stars: 0 },
+  { title: 'junior dev', stars: 2 },
+  { title: 'developer', stars: 25 },
+  { title: 'senior dev', stars: 250 },
+  { title: 'staff engineer', stars: 2_500 },
+  { title: 'principal engineer', stars: 25_000 },
+  { title: 'distinguished engineer', stars: 250_000 },
+  { title: 'fellow', stars: 2_500_000 },
+  { title: 'cto', stars: 25_000_000 },
+];
 
 /* ---------- sprints ---------- */
 
@@ -213,6 +260,13 @@ export const OFFLINE = {
   maxSeconds: 2 * 60 * 60,
   /** Share of automation output earned while away (raised by the crontab perk). */
   rate: 0.25,
+};
+
+export const MILESTONE = {
+  /** A finished milestone makes the next ship pay this much more (at least the milestone's flat stars). */
+  shipBonus: 0.25,
+  /** The lines task asks for this multiple of the last release's lines. */
+  beatLast: 1.5,
 };
 
 export const QUESTS = {

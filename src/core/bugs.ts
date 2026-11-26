@@ -2,6 +2,7 @@ import { BUGS, PERK_VALUES } from './content';
 import { addLines, perSecond, perTap } from './economy';
 import { Decimal } from './num';
 import { perkLevel } from './perks';
+import { workflowOn } from './workflows';
 import type { Rng } from './rng';
 import type { GameState } from './state';
 
@@ -17,8 +18,8 @@ export function updateBugs(s: GameState, now: number, rng: Rng, canSpawn: boolea
   }
   if (!canSpawn || now < s.nextBugAt) return null;
   s.nextBugAt = now + BUGS.minGapMs + rng() * BUGS.extraGapMs;
-  // oncall.yml: someone else got it.
-  if (rng() < PERK_VALUES.oncallChance * perkLevel(s, 'oncall')) {
+  // triage.yml or oncall.yml: someone else got it.
+  if (workflowOn(s, 'triage') || rng() < PERK_VALUES.oncallChance * perkLevel(s, 'oncall')) {
     const reward = bugReward(s, now);
     addLines(s, reward);
     s.stats.bugs++;
