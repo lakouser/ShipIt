@@ -2,7 +2,8 @@ import { ASSUMED_TAPS_PER_SECOND, DIFFICULTY_BANDS, PERK_VALUES, SPRINT_TIERS, T
 import { addLines, perSecond, perTap, typicalOutput } from './economy';
 import { grantScript, randomScript } from './effects';
 import { D, Decimal } from './num';
-import { perkLevel } from './perks';
+import { mods } from './mods';
+import { perkEffect } from './perks';
 import type { Rng } from './rng';
 import type { ActiveSprint, GameState, SprintResult, Ticket } from './state';
 
@@ -21,8 +22,9 @@ function shuffled<T>(items: readonly T[], rng: Rng): T[] {
 /** A fresh ticket for one tier, sized to the player's current output. Perks add time and reward. */
 function makeTicket(s: GameState, tierIndex: number, now: number, rng: Rng, title: string): Ticket {
   const tier = SPRINT_TIERS[tierIndex];
-  const timeBonus = 1 + PERK_VALUES.timeoutsBonus * perkLevel(s, 'timeouts');
-  const rewardBonus = (1 + PERK_VALUES.retroReward * perkLevel(s, 'retro')) * (1 + s.questBonus.sprint);
+  const m = mods(s);
+  const timeBonus = (1 + PERK_VALUES.timeoutsBonus * perkEffect(s, 'timeouts')) * m.sprintTime;
+  const rewardBonus = (1 + PERK_VALUES.retroReward * perkEffect(s, 'retro')) * (1 + s.questBonus.sprint) * m.sprintReward;
   const target = Decimal.max(50, typicalOutput(s, now, tier.durationS * tier.difficulty, ASSUMED_TAPS_PER_SECOND).div(10).ceil().mul(10));
   return {
     tier: tierIndex,

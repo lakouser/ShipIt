@@ -1,8 +1,8 @@
-import { AUTOMATION, BUGS, INCIDENTS, type EffectId, type WorkflowId } from './content';
+import { AUTOMATION, BUGS, INCIDENTS, type ChallengeId, type EffectId, type StackId, type WorkflowId } from './content';
 import { D, type Decimal } from './num';
 
 export type BuyAmount = 1 | 10 | 'max';
-export type Tab = 'upgrades' | 'sprints' | 'todo' | 'ship' | 'settings';
+export type Tab = 'upgrades' | 'sprints' | 'todo' | 'ship' | 'major' | 'settings';
 export type KeySound = 'thock' | 'click' | 'beep';
 export type Notation = 'suffix' | 'sci';
 export type Skin = 'pine' | 'phosphor' | 'amber' | 'paper';
@@ -50,8 +50,12 @@ export interface Quest {
 
 /** A shipped release, for the release log. */
 export interface ReleaseEntry {
-  /** The version that was shipped (v{release}.0). */
+  /** Releases shipped by then, counting this one plus one (like GameState.release). */
   release: number;
+  /** The version tag, "1.4" (shown as v1.4). */
+  version: string;
+  /** Set when this was a major version: the XP it earned. */
+  xp?: number;
   lines: Decimal;
   stars: number;
   /** How long the release took, wall-clock seconds (time away included); null if it began before releases were timed. */
@@ -92,6 +96,8 @@ export interface Stats {
   /** Stars earned over the whole game (shipping and milestones), for career titles. */
   starsEarned: number;
   autoShips: number;
+  majors: number;
+  challenges: number;
 }
 
 export interface Settings {
@@ -129,8 +135,23 @@ export interface GameState {
   stars: number;
   starsSpent: number;
   perks: Record<string, number>;
-  /** Current major version; starts at 1. */
+  /** Releases shipped plus one, across the whole game; never resets. */
   release: number;
+  /** The version shown as v{major}.{minor}: majors cut so far, and releases shipped since the last one. */
+  major: number;
+  minor: number;
+  /** XP earned in total (the star bonus counts all of it, spent or not) and XP spent on skills. */
+  xp: number;
+  xpSpent: number;
+  /** Stars banked by cutting major versions; drives XP the way shipped lines drive stars. */
+  banked: number;
+  skills: Record<string, number>;
+  /** The stack this major version is written in, and the one picked for the next. */
+  stack: StackId;
+  nextStack: StackId;
+  /** A challenge release in progress: its id and the lines it needs to count. */
+  challenge: { id: ChallengeId; goal: Decimal } | null;
+  challengesDone: ChallengeId[];
   achievements: string[];
   flags: { crunch?: boolean; sudo?: boolean; rmrf?: boolean; nightOwl?: boolean; exported?: boolean; touchGrass?: boolean };
   /** Line number shown in the editor gutter. */
@@ -158,14 +179,14 @@ export interface GameState {
   incident: Incident | null;
   nextIncidentAt: number;
   streak: { lastDay: string; count: number; days: string[] };
-  unlocked: { sprints: boolean; todo: boolean; ship: boolean };
+  unlocked: { sprints: boolean; todo: boolean; ship: boolean; major: boolean };
   settings: Settings;
   savedAt: number;
 }
 
 export const newStats = (): Stats => ({
   taps: 0, crits: 0, purchases: 0, sprints: 0, bugs: 0, bugsEscaped: 0, coffees: 0, outagesFixed: 0,
-  conflictsResolved: 0, scriptsRun: 0, quests: 0, milestones: 0, perksBought: 0, flowMaxed: 0, maxOfOne: 0, starsEarned: 0, autoShips: 0,
+  conflictsResolved: 0, scriptsRun: 0, quests: 0, milestones: 0, perksBought: 0, flowMaxed: 0, maxOfOne: 0, starsEarned: 0, autoShips: 0, majors: 0, challenges: 0,
 });
 
 export const defaultSettings = (): Settings => ({
@@ -187,6 +208,16 @@ export function newGame(now: number): GameState {
     starsSpent: 0,
     perks: {},
     release: 1,
+    major: 0,
+    minor: 0,
+    xp: 0,
+    xpSpent: 0,
+    banked: 0,
+    skills: {},
+    stack: 'plain',
+    nextStack: 'rust',
+    challenge: null,
+    challengesDone: [],
     achievements: [],
     flags: {},
     editorLine: 1,
@@ -207,7 +238,7 @@ export function newGame(now: number): GameState {
     incident: null,
     nextIncidentAt: now + INCIDENTS.firstDelayMs,
     streak: { lastDay: '', count: 0, days: [] },
-    unlocked: { sprints: false, todo: false, ship: false },
+    unlocked: { sprints: false, todo: false, ship: false, major: false },
     settings: defaultSettings(),
     savedAt: now,
   };

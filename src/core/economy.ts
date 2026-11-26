@@ -1,7 +1,8 @@
-import { ACHIEVEMENT_BONUS, BASE_TAP, COST_GROWTH, DOUBLING_STEP, PERK_VALUES, SHIP, UPGRADES, type UpgradeDef, type UpgradeKind } from './content';
+import { ACHIEVEMENT_BONUS, BASE_TAP, DOUBLING_STEP, PERK_VALUES, SHIP, UPGRADES, type UpgradeDef, type UpgradeKind } from './content';
+import { mods } from './mods';
 import { effectProduct, effectSum } from './effects';
 import { D, Decimal } from './num';
-import { perkLevel } from './perks';
+import { perkEffect } from './perks';
 import type { GameState } from './state';
 
 export const owned = (s: GameState, id: string): number => s.owned[id] ?? 0;
@@ -21,21 +22,24 @@ export const starMultiplier = (stars: number): number => 1 + SHIP.bonusPerStar *
 /** Stars, achievements and coffee: applies to everything the player writes. */
 export function globalMultiplier(s: GameState, now: number): Decimal {
   return D(starMultiplier(s.stars))
-    .mul(PERK_VALUES.zshrcMul ** perkLevel(s, 'zshrc'))
+    .mul(mods(s).allMul)
+    .mul(PERK_VALUES.zshrcMul ** perkEffect(s, 'zshrc'))
     .mul(1 + ACHIEVEMENT_BONUS * s.achievements.length)
     .mul(effectProduct(s, 'allMul', now));
 }
 
 export function tapMultiplier(s: GameState, now: number): Decimal {
   return globalMultiplier(s, now)
-    .mul(1 + PERK_VALUES.vimrcTap * perkLevel(s, 'vimrc'))
+    .mul(mods(s).tapMul)
+    .mul(1 + PERK_VALUES.vimrcTap * perkEffect(s, 'vimrc'))
     .mul(1 + s.questBonus.tap)
     .mul(effectProduct(s, 'tapMul', now));
 }
 
 export function autoMultiplier(s: GameState, now: number): Decimal {
   return globalMultiplier(s, now)
-    .mul(1 + PERK_VALUES.teamAuto * perkLevel(s, 'team'))
+    .mul(mods(s).autoMul)
+    .mul(1 + PERK_VALUES.teamAuto * perkEffect(s, 'team'))
     .mul(1 + s.questBonus.auto)
     .mul(effectProduct(s, 'autoMul', now));
 }
@@ -65,18 +69,32 @@ export const perSecond = (s: GameState, now: number): Decimal => baseTotal(s, 'a
 
 /** Chance (0–1) that a tap is critical. */
 export const critChance = (s: GameState, now: number): number =>
-  Math.min(0.9, PERK_VALUES.critPerLevel * perkLevel(s, 'keybindings') + effectSum(s, 'critChance', now));
+  Math.min(0.9, PERK_VALUES.critPerLevel * perkEffect(s, 'keybindings') + mods(s).critAdd + effectSum(s, 'critChance', now));
 
 /** Price multiplier from the cache.conf perk. */
-export const costMultiplier = (s: GameState): number => 1 - PERK_VALUES.cacheDiscount * perkLevel(s, 'cache');
+export const costMultiplier = (s: GameState): number => 1 - PERK_VALUES.cacheDiscount * perkEffect(s, 'cache');
+
+/** Price of the first copy of a package for this player, and how fast prices grow per copy. */
+function pricing(s: GameState, u: UpgradeDef): { base: number; growth: number } {
+  const m = mods(s);
+  return { base: u.baseCost * costMultiplier(s) * m.costMul * (u.kind === 'auto' ? m.autoCostMul : 1), growth: m.costGrowth };
+}
 
 export function costOf(s: GameState, u: UpgradeDef, count: number): Decimal {
-  return Decimal.sumGeometricSeries(count, u.baseCost * costMultiplier(s), COST_GROWTH, owned(s, u.id)).ceil();
+  const { base, growth } = pricing(s, u);
+  return Decimal.sumGeometricSeries(count, base, growth, owned(s, u.id)).ceil();
 }
 
 export function maxAffordable(s: GameState, u: UpgradeDef): number {
-  return Math.max(0, Decimal.affordGeometricSeries(s.lines, u.baseCost * costMultiplier(s), COST_GROWTH, owned(s, u.id)).toNumber());
+  const { base, growth } = pricing(s, u);
+  return Math.max(0, Decimal.affordGeometricSeries(s.lines, base, growth, owned(s, u.id)).toNumber());
 }
+
+/** Position of a package among those of its kind (0 for the first). */
+const tierOf = (u: UpgradeDef): number => UPGRADES.filter((x) => x.kind === u.kind).indexOf(u);
+
+/** False for packages a challenge rules out (Solo dev: only the first few of each kind). */
+export const canInstall = (s: GameState, u: UpgradeDef): boolean => tierOf(u) < mods(s).maxTier;
 
 /** How many copies the current buy setting would purchase (at least 1, for display). */
 export function quantityToBuy(s: GameState, u: UpgradeDef): number {
@@ -103,7 +121,7 @@ export interface Purchase {
 /** Buys `count` copies (by default, what the buy setting asks for) if the player can afford them. */
 export function buy(s: GameState, id: string, amount?: number): Purchase | null {
   const u = findUpgrade(id);
-  if (!u) return null;
+  if (!u || !canInstall(s, u)) return null;
   const count = amount ?? quantityToBuy(s, u);
   const cost = costOf(s, u, count);
   if (s.lines.lt(cost)) return null;
@@ -120,6 +138,7 @@ export function buy(s: GameState, id: string, amount?: number): Purchase | null 
 /** An upgrade shows once the previous one of its kind is owned, or the player is getting close to its price. */
 export function isUpgradeVisible(s: GameState, index: number): boolean {
   const u = UPGRADES[index];
+  if (!canInstall(s, u)) return false;
   const prev = UPGRADES.slice(0, index).filter((x) => x.kind === u.kind).at(-1);
   return !prev || owned(s, u.id) > 0 || owned(s, prev.id) > 0 || s.thisRelease.gte(u.baseCost * 0.4);
 }

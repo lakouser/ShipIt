@@ -1,7 +1,8 @@
 import { BUGS, PERK_VALUES } from './content';
 import { addLines, perSecond, perTap } from './economy';
 import { Decimal } from './num';
-import { perkLevel } from './perks';
+import { mods } from './mods';
+import { perkEffect } from './perks';
 import { workflowOn } from './workflows';
 import type { Rng } from './rng';
 import type { GameState } from './state';
@@ -19,7 +20,7 @@ export function updateBugs(s: GameState, now: number, rng: Rng, canSpawn: boolea
   if (!canSpawn || now < s.nextBugAt) return null;
   s.nextBugAt = now + BUGS.minGapMs + rng() * BUGS.extraGapMs;
   // triage.yml or oncall.yml: someone else got it.
-  if (workflowOn(s, 'triage') || rng() < PERK_VALUES.oncallChance * perkLevel(s, 'oncall')) {
+  if (workflowOn(s, 'triage') || rng() < PERK_VALUES.oncallChance * perkEffect(s, 'oncall')) {
     const reward = bugReward(s, now);
     addLines(s, reward);
     s.stats.bugs++;
@@ -31,7 +32,7 @@ export function updateBugs(s: GameState, now: number, rng: Rng, canSpawn: boolea
 
 export function bugReward(s: GameState, now: number): Decimal {
   const reward = perSecond(s, now).mul(BUGS.rewardAutoSeconds).add(perTap(s, now).mul(BUGS.rewardTaps));
-  return Decimal.max(BUGS.minReward, reward).mul(1 + s.questBonus.bug).floor();
+  return Decimal.max(BUGS.minReward, reward).mul(1 + s.questBonus.bug).mul(mods(s).bugReward).floor();
 }
 
 export function squashBug(s: GameState, now: number): Decimal | null {

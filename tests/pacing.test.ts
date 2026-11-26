@@ -34,10 +34,20 @@ describe('pacing', () => {
     }
   }, 120_000);
 
+  it('reaches the first major version after a few hours, then majors come faster', () => {
+    const r = simulate({ minutes: 480, tapsPerSecond: 4 });
+    expect(r.majors.length).toBeGreaterThanOrEqual(3);
+    const first = r.majors[0].minute;
+    expect(first).toBeGreaterThan(120);
+    expect(first).toBeLessThan(360);
+    // Each later major takes less time than the climb to the first one.
+    for (let i = 1; i < r.majors.length; i++) expect(r.majors[i].minute - r.majors[i - 1].minute).toBeLessThan(first);
+  }, 120_000);
+
   it('pays more for a meaningful release than for shipping constantly', () => {
     // The bounds above assume players wait for a real jump in stars. Check that the game agrees:
     // under the old per-release curve, a 5-minute timer earned ~9x more stars than this by hour 4.
-    const stars = (ship?: ShipPolicy) => simulate({ minutes: 240, tapsPerSecond: 4, ship }).finalStars;
+    const stars = (ship?: ShipPolicy) => simulate({ minutes: 240, tapsPerSecond: 4, ship, majors: false }).finalStars;
     const patient = stars();
     expect(stars({ kind: 'every', minutes: 5 })).toBeLessThan(patient / 2);
     expect(stars({ kind: 'asap' })).toBeLessThan(patient / 2);

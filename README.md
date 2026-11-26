@@ -37,13 +37,18 @@ npm run preview    # serve dist/ locally
 | **dotfiles** | 11 permanent perks in `editor/`, `team/` and `system/`, bought with stars. `.zshrc` has no cap (x1.1 all output per level, each level twice the price), so stars always have a use. |
 | **Workflows** | Automation earned by shipping, each switchable in the ship tab: `deps.yml` and `dev-deps.yml` install packages (after 2 and 4 releases), `scripts.yml` runs scripts (6), `triage.yml` squashes bugs and grabs coffee (10), `release.yml` ships once a release would grow stars by +50/75/100/200% (15). |
 | **Career** | A title by stars earned over the whole game, from intern to cto. |
+| **Versions** | Releases are numbered v{major}.{minor}: every ship is a minor release (v0.1, v0.2 …) until you cut a major version. |
+| **Major versions** | The second reset, in its own tab from 100 stars. Cutting one banks your stars (and the release in progress) for XP: floor(cbrt(stars banked in total / 1,000)), so 1 at 1,000, 2 at 8,000. Each XP earned adds 50% to stars from shipping, even after it is spent. Stars, dotfiles, lines and packages reset; XP, skills, achievements, workflows, challenge rewards, TODO bonuses and users stay. |
+| **Skills** | Bought with XP in `~/resume.md` and kept forever: 10x engineering (x2 all output per level, no cap), pair programming (+25% stars from shipping), head start (start each major with stars), muscle memory (keep dotfiles across majors). |
+| **Stacks** | Each major is written in a stack you pick before cutting it: rust (taps), python (automation), go (sprints), js (cheaper price growth) or plain. Each has a downside. |
+| **Challenge releases** | After the first major: restart a release under a restriction (Legacy codebase, CI is down, Broken keyboard, Solo dev, Clean install) and ship it with about twice the lines shipped so far this major for a permanent reward. |
 | **Achievements** | 65, each worth +1% output, including a few secrets. |
 | **Commit streak** | Play on consecutive days for a daily bonus (scripts every 3rd and 7th day). |
 | **Time away** | 25% of automation for up to 2 hours (raised by `crontab`), shown on a welcome-back screen. |
 
-New players see only the pkgs tab at first; sprints, TODO and ship appear as they progress.
+New players see only the pkgs tab at first; sprints, TODO, ship and major appear as they progress.
 
-Pacing (from `npm run simulate`): at 4 taps a second the first ship lands around 5½ minutes for 2 stars, then every 8–27 minutes; at 1 tap a second, around 11½ minutes. After two hours of active play the last tiers are still ahead. Waiting for a real jump pays: by hour 4, shipping on a 5-minute timer earns about a tenth of the stars and shipping at every star about a twentieth, and `tests/pacing.test.ts` fails if either catches up with the patient bot.
+Pacing (from `npm run simulate`): at 4 taps a second the first ship lands around 5½ minutes for 2 stars, then every 8–27 minutes; at 1 tap a second, around 11½ minutes. After two hours of active play the last tiers are still ahead. The first major version comes around hour 3 (hour 6 at 1 tap a second), then one every 35–90 minutes, each worth about half as much XP again. Waiting for a real jump pays: by hour 4, shipping on a 5-minute timer earns about a tenth of the stars and shipping at every star about a twentieth, and `tests/pacing.test.ts` fails if either catches up with the patient bot.
 
 ## How the code is organised
 
@@ -61,6 +66,8 @@ src/
     incidents.ts     Coffee, outages and merge conflicts.
     quests.ts        TODO.md tasks and the release milestone.
     workflows.ts     Automation earned by shipping (.github/workflows).
+    major.ts         Major versions, XP, skills, stacks and challenge releases.
+    mods.ts          Everything that bends the rules (stack, challenges, skills, XP), combined in one place.
     career.ts        Career titles.
     streak.ts        Daily commit streak.
     ship.ts          Prestige.

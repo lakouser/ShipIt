@@ -24,7 +24,7 @@ describe('saves', () => {
     s.shipped = D('4.2e40');
     s.releaseStartedAt = 777;
     s.releasePeak = 1.5;
-    s.releaseLog = [{ release: 3, lines: D('2e40'), stars: 3, seconds: 95.5, at: 600 }];
+    s.releaseLog = [{ release: 3, version: '0.2', lines: D('2e40'), stars: 3, seconds: 95.5, at: 600 }];
     const back = deserialize(serialize(s, 1234), 5000)!;
     expect(back.lines.eq(s.lines)).toBe(true);
     expect(back.lifetime.eq(s.lifetime)).toBe(true);

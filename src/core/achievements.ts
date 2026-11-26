@@ -1,4 +1,4 @@
-import { UPGRADES, WORKFLOWS } from './content';
+import { CHALLENGES, UPGRADES, WORKFLOWS } from './content';
 import { owned } from './economy';
 import { perSecond, perTap } from './economy';
 import { PERKS } from './content';
@@ -75,8 +75,7 @@ export const ACHIEVEMENTS: readonly AchievementDef[] = [
   { id: 'roadmap', name: 'On the roadmap', description: 'Complete a release milestone', unlocked: (s) => s.stats.milestones >= 1 },
   // releases and dotfiles
   { id: 'ship', name: 'Shipped', description: 'Ship your first release', unlocked: (s) => s.release > 1 },
-  { id: 'semver', name: 'Semantic versioning', description: 'Reach v5.0', unlocked: (s) => s.release >= 5 },
-  { id: 'lts', name: 'Long-term support', description: 'Reach v10.0', unlocked: (s) => s.release >= 10 },
+  { id: 'lts', name: 'Long-term support', description: 'Ship 10 releases', unlocked: (s) => s.release > 10 },
   { id: 'stars10', name: 'Trending', description: 'Earn 10 stars', unlocked: (s) => s.stars >= 10 },
   { id: 'stars50', name: 'Starred repo', description: 'Earn 50 stars', unlocked: (s) => s.stars >= 50 },
   { id: 'releases25', name: 'Release train', description: 'Ship 25 releases', unlocked: (s) => s.release > 25 },
@@ -87,6 +86,12 @@ export const ACHIEVEMENTS: readonly AchievementDef[] = [
   { id: 'roadmap10', name: 'Roadmap delivered', description: 'Complete 10 release milestones', unlocked: (s) => s.stats.milestones >= 10 },
   { id: 'pipeline', name: 'Everything is a pipeline', description: 'Unlock every workflow', unlocked: (s) => s.release > WORKFLOWS[WORKFLOWS.length - 1].releases },
   { id: 'autoship', name: 'Release on green', description: 'Let release.yml ship a release', unlocked: (s) => s.stats.autoShips >= 1 },
+  { id: 'semver', name: 'Semantic versioning', description: 'Cut v1.0, your first major version', unlocked: (s) => s.major >= 1 },
+  { id: 'breaking', name: 'Breaking changes', description: 'Reach v3.0', unlocked: (s) => s.major >= 3 },
+  { id: 'majorleague', name: 'Major league', description: 'Reach v10.0', unlocked: (s) => s.major >= 10 },
+  { id: 'resume', name: 'Resume-driven development', description: 'Learn a skill', unlocked: (s) => Object.keys(s.skills).length > 0 },
+  { id: 'flagged', name: 'Feature flagged', description: 'Complete a challenge release', unlocked: (s) => s.challengesDone.length >= 1 },
+  { id: 'hardmode', name: 'Hard mode', description: 'Complete every challenge release', unlocked: (s) => s.challengesDone.length >= CHALLENGES.length },
   { id: 'ricing', name: 'Ricing', description: 'Buy a dotfiles perk', unlocked: (s) => s.stats.perksBought >= 1 },
   { id: 'zsh', name: 'Oh my zsh', description: 'Buy a level of .zshrc', unlocked: (s) => (s.perks.zshrc ?? 0) >= 1 },
   { id: 'perfect', name: 'Dotfile perfectionist', description: 'Max out a dotfiles perk', unlocked: (s) => PERKS.some((p) => (s.perks[p.id] ?? 0) >= p.maxLevel) },

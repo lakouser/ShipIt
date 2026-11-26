@@ -1,7 +1,8 @@
-import { AUTOMATION, PERKS, UPGRADES, type EffectId } from '../src/core/content';
+import { AUTOMATION, PERKS, SKILLS, UPGRADES, type EffectId, type StackId } from '../src/core/content';
 import { costOf, isUpgradeVisible, owned, perSecond, perTap } from '../src/core/economy';
 import { Game } from '../src/core/game';
 import { D, fmt } from '../src/core/num';
+import { skillStatus, xpAvailable } from '../src/core/major';
 import { perkStatus } from '../src/core/perks';
 import { seededRng } from '../src/core/rng';
 import { starsAvailable } from '../src/core/ship';
@@ -22,10 +23,15 @@ export interface SimOptions {
   tapsPerSecond: number;
   seed?: number;
   ship?: ShipPolicy;
+  /** Cut major versions when they would grow XP by half (default true). */
+  majors?: boolean;
+  /** The stack the bot picks for every major (default: rust when tapping fast, python otherwise). */
+  stack?: StackId;
 }
 
 export interface SimReport {
   ships: { minute: number; release: number; stars: number }[];
+  majors: { minute: number; version: string; xp: number; starsBanked: number }[];
   unlocks: Record<string, number>;
   finalPerSecond: string;
   finalPerTap: string;
@@ -46,17 +52,18 @@ const topUpgrade = (s: Game['state']): string => [...UPGRADES].reverse().find((u
  * package, runs relaxed sprints, squashes most bugs, grabs incidents, runs scripts at once,
  * ships when the payoff is worth it (or by another policy) and spends stars on the cheapest perk.
  */
-export function simulate({ minutes, tapsPerSecond, seed = 7, ship = { kind: 'gain', fraction: 0.75 } }: SimOptions): SimReport {
+export function simulate({ minutes, tapsPerSecond, seed = 7, ship = { kind: 'gain', fraction: 0.75 }, majors = true, stack }: SimOptions): SimReport {
   let now = 0;
   const rng = seededRng(seed);
   const botRng = seededRng(seed + 1000);
   const game = new Game(newGame(now), { clock: () => now, rng });
   const s = game.state;
   let lastShipAt = 0;
-  const report: SimReport = { ships: [], unlocks: {}, finalPerSecond: '', finalPerTap: '', finalStars: 0, lifetime: '', achievements: 0, quests: 0, milestones: 0, topUpgrade: '', perks: {}, timeline: [] };
+  const report: SimReport = { ships: [], majors: [], unlocks: {}, finalPerSecond: '', finalPerTap: '', finalStars: 0, lifetime: '', achievements: 0, quests: 0, milestones: 0, topUpgrade: '', perks: {}, timeline: [] };
   game.on((e) => {
     if (e.type === 'unlocked') report.unlocks[e.tab] = Math.round(now / 600) / 100;
     if (e.type === 'shipped') report.ships.push({ minute: Math.round(now / 600) / 100, release: e.result.release, stars: e.totalStars });
+    if (e.type === 'majorCut') report.majors.push({ minute: Math.round(now / 600) / 100, version: e.result.version, xp: s.xp, starsBanked: e.result.starsBanked });
   });
   game.checkIn();
   // release.yml follows the bot's own policy, so it can't ship on a schedule the policy wouldn't.
@@ -106,6 +113,12 @@ export function simulate({ minutes, tapsPerSecond, seed = 7, ship = { kind: 'gai
       : available >= 1;
     if (due && game.ship()) lastShipAt = now;
     for (const p of [...PERKS].sort((a, b) => a.baseCost - b.baseCost)) if (perkStatus(s, p) === 'affordable') game.buyPerk(p.id);
+    for (const k of [...SKILLS].sort((a, b) => a.baseCost - b.baseCost)) if (skillStatus(s, k) === 'affordable') game.buySkill(k.id);
+    // A major version once it would grow XP by half: a stack that suits the bot's tapping, then cut.
+    if (majors && xpAvailable(s) >= Math.max(1, Math.ceil(s.xp * 0.5))) {
+      game.chooseStack(stack ?? (tapsPerSecond >= 3 ? 'rust' : 'python'));
+      game.cutMajor();
+    }
 
     if (step % (4 * 60 * 10) === 0) {
       report.timeline.push({ minute: Math.round(now / 60000), lines: fmt(s.lifetime), perSecond: fmt(perSecond(s, now)), perTap: fmt(perTap(s, now)), release: s.release, stars: s.stars, top: topUpgrade(s) });

@@ -1,4 +1,4 @@
-import { AUTOMATION, EFFECTS, PERKS, SHIP, WORKFLOWS, type EffectId, type WorkflowId } from './content';
+import { AUTOMATION, CHALLENGES, EFFECTS, PERKS, SHIP, SKILLS, STACKS, WORKFLOWS, type ChallengeId, type EffectId, type StackId, type WorkflowId } from './content';
 import { D, isFiniteDecimal, type Decimal } from './num';
 import { shippedForStars } from './ship';
 import {
@@ -18,7 +18,7 @@ import {
   type Ticket,
 } from './state';
 
-export const SAVE_VERSION = 4;
+export const SAVE_VERSION = 5;
 export const SAVE_KEY = 'shipit.save';
 /** Prefix for exported save strings, so pasted text is recognisable. */
 export const EXPORT_PREFIX = 'SHIPIT:';
@@ -41,6 +41,12 @@ const MIGRATIONS: Record<number, (save: Raw) => Raw> = {
   2: (save) => ({ ...save, v: 3, shipped: shippedForStars(Math.max(0, int(save.stars))).toString(), releaseStartedAt: -1 }),
   // v3 → v4: career titles count stars earned over the whole game; until now that was just the stars held.
   3: (save) => ({ ...save, v: 4, stats: { ...(isObj(save.stats) ? save.stats : {}), starsEarned: Math.max(0, int(save.stars)) } }),
+  // v4 → v5: versions became v{major}.{minor}. No major version has been cut yet, so v12.0 (11 releases shipped) is v0.11.
+  4: (save) => {
+    const minor = Math.max(0, int(save.release, 1) - 1);
+    const log = Array.isArray(save.releaseLog) ? save.releaseLog.map((r) => (isObj(r) ? { ...r, version: `0.${Math.max(0, int(r.release, 1) - 1)}` } : r)) : [];
+    return { ...save, v: 5, major: 0, minor, releaseLog: log };
+  },
 };
 
 export function serialize(s: GameState, now: number): string {
@@ -133,7 +139,18 @@ function milestone(x: unknown): Milestone | null {
 
 function releaseEntry(x: unknown): ReleaseEntry | null {
   if (!isObj(x)) return null;
-  return { release: Math.max(1, int(x.release, 1)), lines: dec(x.lines, D(0)), stars: Math.max(0, int(x.stars)), seconds: typeof x.seconds === 'number' && Number.isFinite(x.seconds) ? Math.max(0, x.seconds) : null, at: num(x.at) };
+  const release = Math.max(1, int(x.release, 1));
+  const entry: ReleaseEntry = { release, version: str(x.version, `0.${release - 1}`), lines: dec(x.lines, D(0)), stars: Math.max(0, int(x.stars)), seconds: typeof x.seconds === 'number' && Number.isFinite(x.seconds) ? Math.max(0, x.seconds) : null, at: num(x.at) };
+  if (typeof x.xp === 'number' && x.xp > 0) entry.xp = int(x.xp);
+  return entry;
+}
+
+const STACK_IDS = STACKS.map((x) => x.id);
+const CHALLENGE_IDS = CHALLENGES.map((c) => c.id);
+
+function challenge(x: unknown): { id: ChallengeId; goal: Decimal } | null {
+  if (!isObj(x) || !CHALLENGE_IDS.includes(x.id as ChallengeId)) return null;
+  return { id: x.id as ChallengeId, goal: dec(x.goal, D(SHIP.minRelease)) };
 }
 
 function workflowFlags(x: unknown): Partial<Record<WorkflowId, boolean>> {
@@ -161,7 +178,7 @@ function settings(x: unknown): Settings {
     skin: oneOf(x.skin, ['pine', 'phosphor', 'amber', 'paper'] as const, d.skin),
     welcome: x.welcome !== false,
     buyAmount: oneOf(x.buyAmount, [1, 10, 'max'] as const, 1),
-    tab: oneOf(x.tab, ['upgrades', 'sprints', 'todo', 'ship', 'settings'] as const, 'upgrades'),
+    tab: oneOf(x.tab, ['upgrades', 'sprints', 'todo', 'ship', 'major', 'settings'] as const, 'upgrades'),
     dev: x.dev === true,
   };
 }
@@ -204,6 +221,16 @@ export function deserialize(text: string, now: number): GameState | null {
     starsSpent: Math.max(0, int(raw.starsSpent)),
     perks: counts(raw.perks, (k) => PERKS.some((p) => p.id === k)),
     release: Math.max(1, int(raw.release, 1)),
+    major: Math.max(0, int(raw.major)),
+    minor: Math.max(0, int(raw.minor)),
+    xp: Math.max(0, int(raw.xp)),
+    xpSpent: Math.max(0, int(raw.xpSpent)),
+    banked: Math.max(0, num(raw.banked)),
+    skills: counts(raw.skills, (k) => SKILLS.some((x) => x.id === k)),
+    stack: oneOf<StackId>(raw.stack, STACK_IDS, 'plain'),
+    nextStack: oneOf<StackId>(raw.nextStack, STACK_IDS, 'rust'),
+    challenge: challenge(raw.challenge),
+    challengesDone: Array.isArray(raw.challengesDone) ? CHALLENGE_IDS.filter((id) => (raw.challengesDone as unknown[]).includes(id)) : [],
     achievements: Array.isArray(raw.achievements) ? raw.achievements.filter((a): a is string => typeof a === 'string') : [],
     flags: { crunch: flags.crunch === true, sudo: flags.sudo === true, rmrf: flags.rmrf === true, nightOwl: flags.nightOwl === true, exported: flags.exported === true, touchGrass: flags.touchGrass === true },
     editorLine: Math.max(1, int(raw.editorLine, 1)),
@@ -221,7 +248,7 @@ export function deserialize(text: string, now: number): GameState | null {
     lastSprint: sprintResult(raw.lastSprint),
     incident: null as Incident | null,
     streak: { lastDay: str(streak.lastDay), count: Math.max(0, int(streak.count)), days: Array.isArray(streak.days) ? streak.days.filter((d): d is string => typeof d === 'string') : [] },
-    unlocked: { sprints: unlocked.sprints === true, todo: unlocked.todo === true, ship: unlocked.ship === true },
+    unlocked: { sprints: unlocked.sprints === true, todo: unlocked.todo === true, ship: unlocked.ship === true, major: unlocked.major === true },
     settings: settings(raw.settings),
     savedAt: num(raw.savedAt, now),
   };

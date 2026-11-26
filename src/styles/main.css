@@ -278,6 +278,12 @@ b { font-weight: 700; }
 .wfs .opt:disabled { color: var(--dim); cursor: default; }
 .wfs .opt:disabled .box { color: var(--dim); }
 .wfopt { padding-left: 4ch; }
+.stackpick { padding: 6px 10px 8px; }
+.stackpick small { display: block; margin-top: 4px; font-size: 13px; }
+.chal { padding: 6px 0; border-bottom: 1px dashed var(--line); font-size: 13px; }
+.chal .row2 { justify-content: space-between; min-height: 36px; }
+.chal small { display: block; color: var(--mut); font-size: 13px; }
+.chal.done { color: var(--mut); }
 .rlog .sha { color: var(--butter); }
 .rlog .tg { color: var(--cyan); }
 .shipbtn:disabled { border-color: var(--line); color: var(--dim); cursor: default; }

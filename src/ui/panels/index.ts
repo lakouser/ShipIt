@@ -1,9 +1,10 @@
-import type { EffectId, IncidentKind, WorkflowId } from '../../core/content';
+import type { ChallengeId, EffectId, IncidentKind, StackId, WorkflowId } from '../../core/content';
 import { workflowOn } from '../../core/workflows';
 import type { DevAction } from '../../core/dev';
 import type { Game } from '../../core/game';
 import type { BuyAmount, KeySound, Notation, Skin, Tab } from '../../core/state';
 import { renderSettings, type SettingsView } from './settings';
+import { refreshMajor, renderMajor } from './major';
 import { renderShip, refreshShip } from './ship';
 import { renderSprints, refreshSprints } from './sprints';
 import { renderTodo, refreshTodo } from './todo';
@@ -35,6 +36,8 @@ export class Panels {
   private shownKey = '';
   private armed = false;
   private armTimer = 0;
+  /** A second confirm-tap action waiting in the major tab: 'major' or 'challenge:<id>'. */
+  private armedAction: string | null = null;
   private resetArmed = false;
   private exportText: string | null = null;
   private importOpen = false;
@@ -68,7 +71,7 @@ export class Panels {
   /** Shows or hides tabs according to what the player has unlocked; newly unlocked ones blink until visited. */
   syncTabs(newlyUnlocked?: Tab): void {
     const u = this.game.state.unlocked;
-    const visible: Record<string, boolean> = { upgrades: true, sprints: u.sprints, todo: u.todo, ship: u.ship, settings: true };
+    const visible: Record<string, boolean> = { upgrades: true, sprints: u.sprints, todo: u.todo, ship: u.ship, major: u.major, settings: true };
     this.tabs.querySelectorAll<HTMLButtonElement>('[data-tab]').forEach((b) => {
       b.hidden = !visible[b.dataset.tab!];
       if (b.dataset.tab === newlyUnlocked) b.classList.add('new');
@@ -94,6 +97,7 @@ export class Panels {
       : tab === 'sprints' ? renderSprints(this.game)
       : tab === 'todo' ? renderTodo(this.game)
       : tab === 'ship' ? renderShip(this.game)
+      : tab === 'major' ? renderMajor(this.game, this.armedAction)
       : renderSettings(this.game, view);
     this.shownKey = visibilityKey(this.game);
     this.refresh();
@@ -107,6 +111,7 @@ export class Panels {
     } else if (tab === 'sprints') refreshSprints(this.game, this.root);
     else if (tab === 'todo') refreshTodo(this.game, this.root);
     else if (tab === 'ship') refreshShip(this.game, this.root, this.armed);
+    else if (tab === 'major') refreshMajor(this.game, this.root, this.armedAction);
     else if (tab === 'settings') {
       const el = this.root.querySelector('[data-save-status]');
       const info = this.actions.saveInfo();
@@ -142,6 +147,23 @@ export class Panels {
         this.armTimer = window.setTimeout(() => this.disarm(), ARM_MS);
         this.refresh();
       }
+    } else if ('major' in d) {
+      if (this.armedAction === 'major') {
+        this.disarm();
+        this.game.cutMajor();
+      } else this.arm('major');
+    } else if (d.challenge) {
+      const key = `challenge:${d.challenge}`;
+      if (this.armedAction === key) {
+        this.disarm();
+        if (this.game.startChallenge(d.challenge as ChallengeId)) this.done();
+      } else this.arm(key);
+    } else if ('abandon' in d) {
+      this.game.abandonChallenge();
+    } else if (d.stack) {
+      if (this.game.chooseStack(d.stack as StackId)) this.done();
+    } else if (d.skill) {
+      if (this.game.buySkill(d.skill)) this.done();
     } else if (d.workflow) {
       const id = d.workflow as WorkflowId;
       this.game.setWorkflow(id, !workflowOn(s, id));
@@ -215,10 +237,21 @@ export class Panels {
     this.render();
   }
 
+  /** First tap of a two-tap action in the major tab; it disarms itself after ARM_MS. */
+  private arm(action: string): void {
+    window.clearTimeout(this.armTimer);
+    this.armedAction = action;
+    this.armTimer = window.setTimeout(() => this.disarm(), ARM_MS);
+    this.render();
+  }
+
   private disarm(): void {
     window.clearTimeout(this.armTimer);
-    if (!this.armed) return;
+    if (!this.armed && !this.armedAction) return;
+    const rerender = this.armedAction !== null;
     this.armed = false;
-    this.refresh();
+    this.armedAction = null;
+    if (rerender) this.render();
+    else this.refresh();
   }
 }

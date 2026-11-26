@@ -161,6 +161,109 @@ export const AUTOMATION = {
   shipAtDefault: 0.75,
 };
 
+/* ---------- major versions: the second reset ---------- */
+
+export const MAJOR = {
+  /** XP earned in total = floor(cbrt(stars banked across major versions / starsPerXp)): 1 at 1,000, 2 at 8,000, 3 at 27,000. */
+  starsPerXp: 1_000,
+  /** Each XP earned multiplies stars from shipping by 1 + this (spent or not). */
+  starGainPerXp: 0.5,
+  /** The major tab appears at this many stars, showing what the first major version needs. */
+  teaseAtStars: 100,
+};
+
+/** What a modifier can change. Multipliers default to 1; costGrowth replaces COST_GROWTH. */
+export interface Mods {
+  tapMul: number;
+  autoMul: number;
+  allMul: number;
+  /** Price growth per copy (1.15 normally). */
+  costGrowth: number;
+  costMul: number;
+  /** Extra price multiplier for automation packages only. */
+  autoCostMul: number;
+  critAdd: number;
+  sprintTime: number;
+  sprintReward: number;
+  bugReward: number;
+  /** Multiplies stars from shipping. */
+  starGain: number;
+  /** Only this many packages of each kind can be installed. */
+  maxTier: number;
+  /** False while dotfiles have no effect. */
+  dotfiles: boolean;
+}
+
+export interface SkillDef {
+  id: string;
+  /** Shown as a line of ~/resume.md. */
+  name: string;
+  summary: string;
+  maxLevel: number;
+  baseCost: number;
+  costStep: number;
+  costGrowth?: number;
+}
+
+/** Skills are bought with XP and kept forever. */
+export const SKILLS: readonly SkillDef[] = [
+  { id: 'tenx', name: '10x engineering', summary: 'x2 all output per level, no cap (each level costs twice the last)', maxLevel: Infinity, baseCost: 1, costStep: 0, costGrowth: 2 },
+  { id: 'pairing', name: 'pair programming', summary: '+25% stars from shipping per level', maxLevel: 4, baseCost: 1, costStep: 1 },
+  { id: 'headstart', name: 'head start', summary: 'start each major version with 25 stars per level', maxLevel: 4, baseCost: 1, costStep: 1 },
+  { id: 'muscle', name: 'muscle memory', summary: 'keep your dotfiles when you cut a major version', maxLevel: 1, baseCost: 3, costStep: 0 },
+];
+
+export const SKILL_VALUES = { tenxMul: 2, pairingGain: 0.25, headstartStars: 25 };
+
+export type StackId = 'plain' | 'rust' | 'python' | 'go' | 'js';
+
+export interface StackDef {
+  id: StackId;
+  summary: string;
+  mods: Partial<Mods>;
+}
+
+/** Each major version is written in one stack, picked before it starts. v0.x is plain. */
+export const STACKS: readonly StackDef[] = [
+  { id: 'plain', summary: 'no changes', mods: {} },
+  { id: 'rust', summary: 'x3 per tap and +5% critical tap chance, but automation x0.5', mods: { tapMul: 3, critAdd: 0.05, autoMul: 0.5 } },
+  { id: 'python', summary: 'automation x1.5 and automation packages cost half, but per tap x0.5', mods: { autoMul: 1.5, autoCostMul: 0.5, tapMul: 0.5 } },
+  { id: 'go', summary: 'sprints get 50% more time and pay x2, but automation x0.7', mods: { sprintTime: 1.5, sprintReward: 2, autoMul: 0.7 } },
+  { id: 'js', summary: 'package prices grow 13% per copy instead of 15%, but all output x0.8', mods: { costGrowth: 1.13, allMul: 0.8 } },
+];
+
+export type ChallengeId = 'legacy' | 'cidown' | 'keyboard' | 'solo' | 'clean';
+
+export interface ChallengeDef {
+  id: ChallengeId;
+  name: string;
+  /** Shown as the branch: challenge/<branch>. */
+  branch: string;
+  restriction: string;
+  reward: string;
+  mods: Partial<Mods>;
+  rewardMods: Partial<Mods>;
+}
+
+/**
+ * Challenge releases: restart the current release under a restriction. Ship it with at least the goal
+ * (a release that grows this major's star curve by CHALLENGE.goalGain) for a permanent reward. Unlocked by the first major version.
+ */
+export const CHALLENGES: readonly ChallengeDef[] = [
+  { id: 'legacy', name: 'Legacy codebase', branch: 'legacy', restriction: 'package prices grow 30% per copy', reward: 'packages cost 10% less, forever', mods: { costGrowth: 1.3 }, rewardMods: { costMul: 0.9 } },
+  { id: 'cidown', name: 'CI is down', branch: 'ci-down', restriction: 'automation x0.1', reward: 'automation x1.5, forever', mods: { autoMul: 0.1 }, rewardMods: { autoMul: 1.5 } },
+  { id: 'keyboard', name: 'Broken keyboard', branch: 'broken-keyboard', restriction: 'per tap x0.1', reward: 'per tap x1.5, forever', mods: { tapMul: 0.1 }, rewardMods: { tapMul: 1.5 } },
+  { id: 'solo', name: 'Solo dev', branch: 'solo-dev', restriction: 'only the first 4 packages of each kind', reward: 'sprints and bugs pay x2, forever', mods: { maxTier: 4 }, rewardMods: { sprintReward: 2, bugReward: 2 } },
+  { id: 'clean', name: 'Clean install', branch: 'clean-install', restriction: 'dotfiles do nothing', reward: '+25% stars from shipping, forever', mods: { dotfiles: false }, rewardMods: { starGain: 1.25 } },
+];
+
+export const CHALLENGE = {
+  /** The goal: a release that grows this major's star curve by this fraction, about twice the lines shipped so far this major. */
+  goalGain: 0.25,
+  /** Challenges can start once this major's star curve (before XP) reaches this, so they can't be done on an empty codebase. */
+  minCurve: 20,
+};
+
 /* ---------- career: titles by stars earned over the whole game ---------- */
 
 export const CAREER: readonly { title: string; stars: number }[] = [

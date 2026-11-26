@@ -2,7 +2,9 @@ import { EFFECTS, MILESTONE, packageName, type EffectId } from '../core/content'
 import { starMultiplier } from '../core/economy';
 import type { GameEvent } from '../core/game';
 import { clock, fmt, fmtDuration, fmtMul } from '../core/num';
+import { findChallenge } from '../core/major';
 import { questText } from '../core/quests';
+import type { ShipResult } from '../core/ship';
 import type { QuestReward, SprintResult } from '../core/state';
 
 export { packageName };
@@ -18,12 +20,18 @@ export const LOG_TAGS: Record<LogKind, string> = { ok: '[ ok ]', warn: '[warn]',
 
 export const scriptFile = (id: EffectId): string => EFFECTS[id].file ?? id;
 
-const TAB_NAMES = { sprints: '1:sprints', todo: '2:todo', ship: '3:ship' } as const;
+const TAB_NAMES = { sprints: '1:sprints', todo: '2:todo', ship: '3:ship', major: '4:major' } as const;
 
 export function rewardText(r: QuestReward): string {
   if (r.kind === 'script') return `+1 ${scriptFile(r.script)}`;
   const pct = Math.round(r.amount * 100);
   return { tap: `+${pct}% per tap`, auto: `+${pct}% automation`, bug: `+${pct}% bug rewards`, sprint: `+${pct}% sprint rewards` }[r.kind];
+}
+
+function challengeLines(c: ShipResult['challenge']): LogLine[] {
+  if (!c) return [];
+  const def = findChallenge(c.id);
+  return [c.done ? { kind: 'ok', text: `challenge complete: ${def.name}. ${def.reward}` } : { kind: 'info', text: `${def.name} shipped short of its goal: no reward this time` }];
 }
 
 /** Turns game events into log lines printed in the editor. */
@@ -37,6 +45,14 @@ export function describe(e: GameEvent): LogLine[] {
       if (doubledAt) lines.push({ kind: 'ok', text: `${packageName(upgrade.name)} output doubled at ${doubledAt} installed` });
       return lines;
     }
+    case 'majorCut':
+      return [{ kind: 'ok', text: `cut v${e.result.version} in ${e.result.stack}: ${fmt(e.result.starsBanked)} stars banked for +${fmt(e.result.xp)} xp` }];
+    case 'skill':
+      return [{ kind: 'cmd', text: `echo "${e.skill.name} (level ${e.level})" >> ~/resume.md` }];
+    case 'challengeStarted':
+      return [{ kind: 'cmd', text: `git switch -c challenge/${e.challenge.branch}` }, { kind: 'warn', text: `${e.challenge.name}: ${e.challenge.restriction}. ship with the goal met for ${e.challenge.reward}` }];
+    case 'challengeAbandoned':
+      return [{ kind: 'info', text: `challenge/${findChallenge(e.id).branch} abandoned` }];
     case 'autoInstalled':
       return e.doublings.map((p) => ({ kind: 'ok' as const, text: `${packageName(p.upgrade.name)} output doubled at ${p.doubledAt} installed` }));
     case 'promoted':
@@ -80,7 +96,7 @@ export function describe(e: GameEvent): LogLine[] {
     case 'checkIn':
       return [{ kind: 'ok', text: `day ${e.checkIn.count} streak: +${fmt(e.checkIn.lines)} lines${e.checkIn.script ? ` and ${scriptFile(e.checkIn.script)}` : ''}` }];
     case 'shipped':
-      return [{ kind: 'ok', text: `${e.auto ? 'release.yml ' : ''}shipped v${e.result.release}.0${e.result.seconds !== null ? ` after ${fmtDuration(e.result.seconds)}` : ''}, +${fmt(e.result.stars)} star${e.result.stars > 1 ? 's' : ''}, output x${fmtMul(starMultiplier(e.totalStars))}` }];
+      return [...challengeLines(e.result.challenge), { kind: 'ok', text: `${e.auto ? 'release.yml ' : ''}shipped v${e.result.version}${e.result.seconds !== null ? ` after ${fmtDuration(e.result.seconds)}` : ''}, +${fmt(e.result.stars)} star${e.result.stars > 1 ? 's' : ''}, output x${fmtMul(starMultiplier(e.totalStars))}` }];
     case 'offline':
       return [{ kind: 'info', text: `while you were away your team wrote ${fmt(e.lines)} lines` }];
     default:

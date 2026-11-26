@@ -1,6 +1,7 @@
 import { hl } from './hl';
 import { starMultiplier } from '../core/economy';
-import { fmt, fmtMul } from '../core/num';
+import type { MajorResult } from '../core/major';
+import { fmt, fmtMul, type Decimal } from '../core/num';
 import type { ShipResult } from '../core/ship';
 import { prefersReducedMotion } from './dom';
 import { LOG_TAGS, textBar } from './messages';
@@ -23,36 +24,69 @@ export interface MergeSplashOptions {
   onStars?: () => void;
 }
 
+/** What the splash shows: the same animation celebrates a release and a major version. */
+export interface SplashView {
+  title: string;
+  subtitle: string;
+  command: string;
+  intro: string;
+  /** Lines that count down to zero. */
+  lines: Decimal;
+  /** Three log lines printed after the count. */
+  logs: [string, string, string];
+  before: string;
+  plus: string;
+  after: string;
+  label: string;
+  aria: string;
+}
+
+export function shipSplash(r: ShipResult): SplashView {
+  const branch = `release/v${r.version}`;
+  const starsAfter = r.starsBefore + r.stars;
+  return {
+    title: 'git merge', subtitle: `${branch} → main`, command: `git merge --no-ff ${branch}`, intro: `Merging ${branch} into main...`,
+    lines: r.linesBefore, logs: [`${fmt(r.releaseLines)} lines merged`, 'upgrades reset', `tagged v${r.version}${r.bonus ? `, milestone +${fmt(r.bonus)} stars` : ''}`],
+    before: fmt(r.starsBefore), plus: `+${fmt(r.stars)}`, after: fmt(starsAfter), label: `stars · output x${fmtMul(starMultiplier(starsAfter))}`, aria: `Release v${r.version} merged`,
+  };
+}
+
+export function majorSplash(r: MajorResult, xpAfter: number): SplashView {
+  return {
+    title: 'git tag', subtitle: `v${r.version} · ${r.stack}`, command: `git tag -a v${r.version} -m "major version"`, intro: `Cutting v${r.version}, rewritten in ${r.stack}...`,
+    lines: r.linesBefore, logs: [`${fmt(r.starsBanked)} stars banked`, 'stars, dotfiles and packages reset', `tagged v${r.version}`],
+    before: fmt(xpAfter - r.xp), plus: `+${fmt(r.xp)}`, after: fmt(xpAfter), label: 'xp · stars from shipping grow with every point', aria: `Major version v${r.version} cut`,
+  };
+}
+
 /**
- * Full-screen "git merge" splash shown after shipping: the line count ticks down
- * to zero, the merge log prints, then the star count bounces up.
+ * Full-screen "git merge" splash shown after shipping (or cutting a major): the line count ticks down
+ * to zero, the log prints, then the star (or XP) count bounces up.
  * Tap or press a key to skip to the end; again to close. Resolves when closed.
  */
-export function playMergeSplash(r: ShipResult, options: MergeSplashOptions = {}): Promise<void> {
+export function playMergeSplash(v: SplashView, options: MergeSplashOptions = {}): Promise<void> {
   return new Promise((resolve) => {
     const reduced = prefersReducedMotion();
-    const starsAfter = r.starsBefore + r.stars;
-    const branch = `release/v${r.release}`;
 
     const root = document.createElement('div');
     root.className = 'merge';
     root.setAttribute('role', 'dialog');
     root.setAttribute('aria-modal', 'true');
-    root.setAttribute('aria-label', `Release v${r.release}.0 merged`);
+    root.setAttribute('aria-label', v.aria);
     root.tabIndex = -1;
     root.innerHTML = `<div class="mwin">
-      <div class="mt"><span>git merge</span><span>${branch} → main</span></div>
+      <div class="mt"><span>${v.title}</span><span>${v.subtitle}</span></div>
       <div class="mbody">
-        <div class="mline"><span class="tag tag-cmd">${LOG_TAGS.cmd}</span> git merge --no-ff ${branch}</div>
-        <div class="mline">Merging ${branch} into main...</div>
-        <div class="mcount" data-count>${fmt(r.linesBefore)}</div>
+        <div class="mline"><span class="tag tag-cmd">${LOG_TAGS.cmd}</span> ${v.command}</div>
+        <div class="mline">${v.intro}</div>
+        <div class="mcount" data-count>${fmt(v.lines)}</div>
         <div class="mlabel">lines of code</div>
         <div class="tbar mbar" data-bar></div>
         <div class="mlog" data-log></div>
         <div class="mstars" data-stars hidden>
           ${STAR_SVG}
-          <div><div class="mnum" data-mnum><span data-num>${fmt(r.starsBefore)}</span><span class="mplus">+${fmt(r.stars)}</span></div>
-          <div class="mlabel">stars · output x${fmtMul(starMultiplier(starsAfter))}</div></div>
+          <div><div class="mnum" data-mnum><span data-num>${v.before}</span><span class="mplus">${v.plus}</span></div>
+          <div class="mlabel">${v.label}</div></div>
         </div>
         <div class="mhint" data-hint>tap to skip</div>
       </div>
@@ -80,9 +114,7 @@ export function playMergeSplash(r: ShipResult, options: MergeSplashOptions = {})
       log.appendChild(row);
     };
     const steps = [
-      () => addLog(`${fmt(r.releaseLines)} lines merged`),
-      () => addLog('upgrades reset'),
-      () => addLog(`tagged v${r.release}.0`),
+      ...v.logs.map((text) => () => addLog(text)),
       // The star appears showing the old count…
       () => {
         stars.hidden = false;
@@ -90,7 +122,7 @@ export function playMergeSplash(r: ShipResult, options: MergeSplashOptions = {})
       },
       // …then the count jumps to the new total with a bounce.
       () => {
-        starNum.textContent = fmt(starsAfter);
+        starNum.textContent = v.after;
         starRow.classList.add('pop');
         options.onStars?.();
       },
@@ -150,7 +182,7 @@ export function playMergeSplash(r: ShipResult, options: MergeSplashOptions = {})
     const frame = (t: number) => {
       const p = Math.min(1, Math.max(0, (t - start) / COUNT_MS));
       const left = 1 - ease(p);
-      count.textContent = fmt(r.linesBefore.mul(left));
+      count.textContent = fmt(v.lines.mul(left));
       setBar(left);
       if (p < 1) {
         raf = requestAnimationFrame(frame);

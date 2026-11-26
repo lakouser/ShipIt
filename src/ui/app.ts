@@ -1,7 +1,7 @@
 import type { Game, GameEvent } from '../core/game';
 import { clock, D, fmt, setNotation, type Decimal } from '../core/num';
 import { deserialize, exportSave, importSave, serialize } from '../core/save';
-import { shipReady } from '../core/ship';
+import { currentVersion, shipReady } from '../core/ship';
 import type { Platform } from '../platform';
 import type { SaveStore } from '../platform/saves';
 import { BugView } from './bug';
@@ -10,7 +10,7 @@ import { Editor } from './editor';
 import { Header } from './header';
 import { IncidentView } from './incidents';
 import { Keycap } from './keycap';
-import { playMergeSplash } from './merge';
+import { majorSplash, playMergeSplash, shipSplash } from './merge';
 import { describe, scriptFile, type LogKind } from './messages';
 import { Panels } from './panels';
 import { createClicker } from './sound';
@@ -118,7 +118,7 @@ export class App {
     g.on((e) => this.onEvent(e));
 
     this.editor.prefill(16);
-    if (returning) this.editor.log(from === 'cloud' ? `save loaded from your claude account, v${s.release}.0` : `session restored on v${s.release}.0`, 'ok');
+    if (returning) this.editor.log(from === 'cloud' ? `save loaded from your claude account, v${currentVersion(s)}` : `session restored on v${currentVersion(s)}`, 'ok');
     else for (const [kind, text] of BOOT_LOG) this.editor.log(text, kind);
     this.watchSaves();
     if (returning) g.creditTimeAway((g.now() - s.savedAt) / 1000);
@@ -190,6 +190,21 @@ export class App {
       case 'perk':
         if (tab === 'ship') this.panels.render();
         break;
+      case 'skill':
+      case 'challengeStarted':
+      case 'challengeAbandoned':
+        this.panels.render();
+        break;
+      case 'majorCut':
+        this.save();
+        void this.saves.flush();
+        this.panels.render();
+        this.dialogOpen = true;
+        void playMergeSplash(majorSplash(e.result, this.game.state.xp), { onStars: () => this.feedback(true) }).then(() => {
+          this.dialogOpen = false;
+          this.header.bounceStars();
+        });
+        break;
       case 'unlocked':
         this.panels.syncTabs(e.tab);
         break;
@@ -219,7 +234,7 @@ export class App {
           break;
         }
         this.dialogOpen = true;
-        void playMergeSplash(e.result, { onStars: () => this.feedback(true) }).then(() => {
+        void playMergeSplash(shipSplash(e.result), { onStars: () => this.feedback(true) }).then(() => {
           this.dialogOpen = false;
           this.header.bounceStars();
         });
@@ -325,7 +340,7 @@ export class App {
       : "not saving: export your save to keep it";
     const ok = st.device || st.cloud === 'synced' || st.cloud === 'saving';
     const b = this.saves.backup();
-    const backup = b && D(b.meta.lifetime).gt(this.game.state.lifetime) ? `v${b.meta.release}.0 · ${fmt(D(b.meta.lifetime))} lines · ${b.meta.savedAt ? `${ageText(Date.now() - b.meta.savedAt)} ago` : 'older'}` : null;
+    const backup = b && D(b.meta.lifetime).gt(this.game.state.lifetime) ? `${b.meta.release - 1} releases · ${fmt(D(b.meta.lifetime))} lines · ${b.meta.savedAt ? `${ageText(Date.now() - b.meta.savedAt)} ago` : 'older'}` : null;
     return { status, ok, backup };
   }
 }

@@ -1,13 +1,14 @@
 import { checkAchievements, type AchievementDef } from './achievements';
 import { squashBug, updateBugs } from './bugs';
 import { careerLevel } from './career';
-import { AUTOMATION, BUGS, CAREER, CRIT, FLOW, OFFLINE, PERK_VALUES, UNLOCKS, type EffectDef, type EffectId, type IncidentKind, type PerkDef, type WorkflowDef, type WorkflowId } from './content';
+import { AUTOMATION, BUGS, CAREER, CRIT, FLOW, MAJOR, OFFLINE, PERK_VALUES, UNLOCKS, type ChallengeDef, type ChallengeId, type EffectDef, type EffectId, type IncidentKind, type PerkDef, type SkillDef, type StackId, type WorkflowDef, type WorkflowId } from './content';
+import { abandonChallenge, buySkill, chooseStack, cutMajor, startChallenge, type MajorResult } from './major';
 import { applyDev, type DevAction } from './dev';
 import { addLines, buy, critChance, perSecond, perTap, type Purchase } from './economy';
 import { effectSum, pruneEffects, runScript } from './effects';
 import { catchCoffee, chooseConflict, outageTap, updateIncident } from './incidents';
 import type { Decimal } from './num';
-import { buyPerk, perkLevel } from './perks';
+import { buyPerk, perkEffect } from './perks';
 import { makeMilestone, updateMilestone, updateQuests } from './quests';
 import type { Rng } from './rng';
 import { ship, shipGain, starsPerMinute, type ShipResult } from './ship';
@@ -16,7 +17,7 @@ import type { ActiveSprint, GameState, Incident, Milestone, Quest, SprintResult 
 import { checkIn, type CheckIn } from './streak';
 import { autoInstall, autoRunScripts, releasesShipped, workflowOn, workflowsUnlockedBetween } from './workflows';
 
-export type UnlockTab = 'sprints' | 'todo' | 'ship';
+export type UnlockTab = 'sprints' | 'todo' | 'ship' | 'major';
 export type IncidentOutcome = 'caught' | 'fixed' | 'resolved' | 'wrong' | 'missed';
 
 export type GameEvent =
@@ -43,6 +44,10 @@ export type GameEvent =
   | { type: 'promoted'; title: string }
   | { type: 'workflowUnlocked'; workflow: WorkflowDef }
   | { type: 'autoInstalled'; count: number; doublings: Purchase[] }
+  | { type: 'majorCut'; result: MajorResult }
+  | { type: 'skill'; skill: SkillDef; level: number }
+  | { type: 'challengeStarted'; challenge: ChallengeDef }
+  | { type: 'challengeAbandoned'; id: ChallengeId }
   | { type: 'offline'; lines: Decimal; seconds: number; awaySeconds: number; rate: number };
 
 export interface GameOptions {
@@ -110,7 +115,7 @@ export class Game {
 
   /** Multiplier the flow meter currently gives taps. */
   flowMultiplier(): number {
-    return 1 + this.flow * (FLOW.maxBonus + PERK_VALUES.flowPerLevel * perkLevel(this.state, 'flow'));
+    return 1 + this.flow * (FLOW.maxBonus + PERK_VALUES.flowPerLevel * perkEffect(this.state, 'flow'));
   }
 
   /** Taps per second over the last windowMs (player taps only). */
@@ -218,6 +223,39 @@ export class Game {
     return result;
   }
 
+  /** The second reset: bank stars for XP and start the next major version. */
+  cutMajor(): MajorResult | null {
+    const s = this.state;
+    const shippedBefore = releasesShipped(s);
+    const result = cutMajor(s, this.clock(), this.rng);
+    if (!result) return null;
+    this.emit({ type: 'majorCut', result });
+    for (const workflow of workflowsUnlockedBetween(shippedBefore, releasesShipped(s))) this.emit({ type: 'workflowUnlocked', workflow });
+    return result;
+  }
+
+  buySkill(id: string): boolean {
+    const result = buySkill(this.state, id);
+    if (result) this.emit({ type: 'skill', skill: result.skill, level: result.level });
+    return !!result;
+  }
+
+  chooseStack(id: StackId): boolean {
+    return chooseStack(this.state, id);
+  }
+
+  startChallenge(id: ChallengeId): boolean {
+    const challenge = startChallenge(this.state, id, this.clock(), this.rng);
+    if (challenge) this.emit({ type: 'challengeStarted', challenge });
+    return !!challenge;
+  }
+
+  abandonChallenge(): boolean {
+    const id = abandonChallenge(this.state);
+    if (id) this.emit({ type: 'challengeAbandoned', id });
+    return !!id;
+  }
+
   /** Switches an unlocked workflow on or off. */
   setWorkflow(id: WorkflowId, on: boolean): void {
     this.state.workflows[id] = on;
@@ -242,7 +280,7 @@ export class Game {
   /** Credits time away (closed app, sleeping tab) at the offline rate, capped. The crontab perk raises both. */
   creditTimeAway(awaySeconds: number): void {
     const s = this.state;
-    const level = perkLevel(s, 'cron');
+    const level = perkEffect(s, 'cron');
     const rate = OFFLINE.rate + PERK_VALUES.cronRate * level;
     const cap = OFFLINE.maxSeconds + PERK_VALUES.cronHours * 3600 * level;
     const seconds = Math.min(cap, Math.max(0, awaySeconds));
@@ -330,5 +368,6 @@ export class Game {
     if (!u.sprints && s.lifetime.gte(UNLOCKS.sprintsAtLifetime)) unlock('sprints');
     if (!u.todo && s.lifetime.gte(UNLOCKS.todoAtLifetime)) unlock('todo');
     if (!u.ship && (s.thisRelease.gte(UNLOCKS.shipAtRelease) || s.stars > 0)) unlock('ship');
+    if (!u.major && (s.stars >= MAJOR.teaseAtStars || s.major > 0)) unlock('major');
   }
 }
