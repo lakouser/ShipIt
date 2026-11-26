@@ -16,6 +16,7 @@
 <body>
   <div class="app">
     <header class="top">
+      <div class="tline" id="tline" hidden></div>
       <div class="readout">
         <div class="count"><b id="loc">0</b><span class="unit">loc</span></div>
         <div class="sub" id="sub"></div>
@@ -23,22 +24,25 @@
       <div class="rates">
         <span><b id="rTap"></b> /tap</span>
         <span><b id="rAuto"></b> /s</span>
-        <span class="spark" id="spark" aria-hidden="true"></span>
-        <span class="fx" id="fx" hidden></span>
       </div>
     </header>
 
+    <div class="goal" id="goal" aria-label="Next goal">
+      <div class="g1"><span class="gk" id="goalKey">next ★</span><span class="gbar"><i id="goalBar"></i></span><span class="gpct" id="goalPct"></span><span class="geta" id="goalEta"></span></div>
+      <div class="g2"><span id="goalReady"></span><span id="goalNext"></span></div>
+    </div>
+
     <section class="ide" aria-label="Code editor">
-      <div class="tabline"><span class="tab on" id="mainTab">main.ts</span><span class="tab sp" id="sTab" hidden></span><span class="xtabs" id="xTabs" aria-hidden="true"></span><span class="fill"></span><span class="path" id="path">~/web-app/src</span></div>
+      <div class="tabline"><span class="tab on" id="mainTab">main.ts</span><span class="tab sp" id="sTab" hidden></span><span class="ptabs" id="pTabs"></span><span class="fill"></span><span class="path" id="path">~/web-app/src</span></div>
       <div class="sbar"><i id="sBar"></i></div>
       <div class="code" id="code">
         <div class="lines" id="lines" aria-hidden="true"><div class="ln live" id="live"></div></div>
         <div class="mini" id="mini" aria-hidden="true"></div>
-        <div class="toasts" id="toasts" aria-live="polite"></div>
         <div class="saver" id="saver" hidden aria-hidden="true"><canvas></canvas><div class="savertag" id="saverTag"></div></div>
       </div>
-      <div class="pane" id="pane" hidden aria-hidden="true">
-        <div class="ptitle"><span class="pname" id="paneName">1:ci</span><span class="fill"></span><span id="paneStat"></span></div>
+      <div class="desks" id="desks" hidden aria-label="Team"></div>
+      <div class="pane" id="pane" hidden>
+        <div class="ptitle"><span class="pname" id="paneName">1:top</span><span class="fill"></span><span id="paneStat"></span></div>
         <div class="plog" id="paneLog"></div>
       </div>
       <div class="status">
@@ -53,27 +57,30 @@
       </div>
     </section>
 
+    <div class="event" id="event" aria-live="polite"></div>
+
     <div class="keywrap">
       <button class="key" id="key" aria-label="Write code">
         <span class="prompt">❯</span><span class="leg">write_code()</span><i class="kcur"></i>
+        <span class="kval"><b id="kTap"></b><small id="kSub"></small></span>
         <span class="hint">[enter] or any key</span>
       </button>
     </div>
 
-    <section class="panel" id="panel" role="tabpanel" aria-live="off"></section>
+    <div class="scripts" id="scripts" hidden role="group" aria-label="Scripts in ~/bin"></div>
+
+    <section class="panel">
+      <div class="subtabs" id="subtabs" role="tablist" aria-label="Sections" hidden></div>
+      <div class="pbody" id="panel" role="tabpanel" aria-live="off"></div>
+    </section>
 
     <nav class="bar" role="tablist" aria-label="Panels">
       <span class="sess" id="sess">ship-it</span>
-      <button role="tab" data-tab="upgrades"><span class="ix">0:</span><span class="tl">pkgs</span></button>
-      <button role="tab" data-tab="sprints" hidden><span class="ix">1:</span><span class="tl">sprints</span></button>
-      <button role="tab" data-tab="todo" hidden><span class="ix">2:</span><span class="tl">todo</span></button>
-      <button role="tab" data-tab="ship" hidden><span class="ix">3:</span><span class="tl">ship</span></button>
-      <button role="tab" data-tab="team" hidden><span class="ix">4:</span><span class="tl">team</span></button>
-      <button role="tab" data-tab="mail" hidden><span class="ix">5:</span><span class="tl">mail</span></button>
-      <button role="tab" data-tab="major" hidden><span class="ix">6:</span><span class="tl">major</span></button>
-      <button role="tab" data-tab="market" hidden><span class="ix">7:</span><span class="tl">market</span></button>
-      <span class="fill"></span>
-      <button role="tab" data-tab="settings" class="cfg" aria-label="Settings">cfg</button>
+      <button role="tab" data-group="pkgs"><span class="tl">pkgs</span><span class="bd"></span></button>
+      <button role="tab" data-group="work" hidden><span class="tl">work</span><span class="bd"></span></button>
+      <button role="tab" data-group="ship" hidden><span class="tl">ship</span><span class="bd"></span></button>
+      <button role="tab" data-group="co" hidden><span class="tl">co</span><span class="bd"></span></button>
+      <button role="tab" data-group="more"><span class="tl">more</span><span class="bd"></span></button>
       <span class="clock" id="clock"></span>
     </nav>
   </div>

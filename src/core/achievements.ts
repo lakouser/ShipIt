@@ -129,6 +129,37 @@ export const ACHIEVEMENTS: readonly AchievementDef[] = [
   { id: 'grass', name: 'Touch grass', description: 'Come back after 2 hours away', secret: true, unlocked: (s) => !!s.flags.touchGrass },
 ];
 
+/** How far along a countable achievement is, as [done, needed], for the trophies list. */
+type Progress = (s: GameState) => [number, number];
+const stat = (key: keyof GameState['stats'], n: number): Progress => (s) => [Number(s.stats[key]) || 0, n];
+const lines = (n: number): Progress => (s) => [s.lifetime.toNumber(), n];
+
+export const ACHIEVEMENT_PROGRESS: Record<string, Progress> = {
+  hello: lines(100), commit: lines(1e3), wom: lines(1e4), kloc: lines(1e5), bigo: lines(1e6), legacy: lines(1e8), monorepo: lines(1e10), heat: lines(1e12),
+  taps1k: stat('taps', 1e3), taps10k: stat('taps', 1e4), taps100k: stat('taps', 1e5),
+  crit100: stat('crits', 100),
+  install: stat('purchases', 100), double: stat('maxOfOne', 25), lockin: stat('maxOfOne', 100),
+  ext: stat('bugs', 5), zero: stat('bugs', 25), ento: stat('bugs', 100),
+  beans: stat('coffees', 10), rebase: stat('conflictsResolved', 10),
+  velocity: stat('sprints', 10), scrum: stat('sprints', 50),
+  kiddie: stat('scriptsRun', 25), inbox: stat('quests', 10), roadmap10: stat('milestones', 10),
+  lts: stat('ships', 10), releases25: stat('ships', 25), releases100: stat('ships', 100),
+  pipeline: stat('ships', WORKFLOWS[WORKFLOWS.length - 1].releases),
+  stars500: stat('starsEarned', 500), stars10k: stat('starsEarned', 1e4), stars1m: stat('starsEarned', 1e6),
+  stars10: (s) => [s.stars, 10], stars50: (s) => [s.stars, 50],
+  breaking: (s) => [s.major, 3], majorleague: (s) => [s.major, 10],
+  hardmode: (s) => [s.challengesDone.length, CHALLENGES.length],
+  users1k: (s) => [s.market.peak, 1e3], users1m: (s) => [s.market.peak, 1e6], users1b: (s) => [s.market.peak, 1e9],
+  top3: (s) => [s.market.passed.length, RIVALS.length - 2], number1: (s) => [s.market.passed.length, RIVALS.length],
+  standup: (s) => [s.streak.count, 3], green: (s) => [s.streak.count, 7],
+  forks25: stat('forksChosen', 25),
+  fullteam: (s) => [s.team.length, teamSlots(s)],
+  boss10: stat('bossesBeaten', 10), bossall: (s) => [BOSS_KINDS.filter((k) => s.bossKinds.includes(k)).length, BOSS_KINDS.length],
+  portfolio: (s) => [PROJECTS.filter((p) => s.projectsShipped.includes(p.id)).length, PROJECTS.length],
+  ipo: (s) => [s.round, FUNDING.maxRounds],
+  replyall: stat('mailAnswered', 10), rtfm: (s) => [s.manRead.length, 5],
+};
+
 /** Marks newly earned achievements on the state and returns them. */
 export function checkAchievements(s: GameState, ctx: AchievementContext): AchievementDef[] {
   const earned = ACHIEVEMENTS.filter((a) => !s.achievements.includes(a.id) && a.unlocked(s, ctx));

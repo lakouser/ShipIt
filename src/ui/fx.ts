@@ -2,15 +2,10 @@ import { prefersReducedMotion } from './dom';
 
 const PARTICLES = ['*', '+', '.', 'x', "'", '*', '+'];
 const SCRAMBLE = '!<>-_\\/[]{}=+*^?#%&';
-/** Toasts on screen at once: fewer on phones. */
-const maxToasts = (): number => (window.innerWidth <= 520 ? 2 : 3);
 
-/** Juice: screen shake, particle bursts, scrambled text and toasts. All of it skipped with reduced motion. */
+/** Juice: screen shake, particle bursts and scrambled text. All of it skipped with reduced motion. */
 export class Fx {
-  constructor(
-    private readonly ide: HTMLElement,
-    private readonly toastHost: HTMLElement,
-  ) {}
+  constructor(private readonly ide: HTMLElement) {}
 
   shake(): void {
     if (prefersReducedMotion()) return;
@@ -53,29 +48,5 @@ export class Fx {
       else el.textContent = text;
     };
     step();
-  }
-
-  /** A short notice in the corner of the editor: a title, a headline and optional detail lines. */
-  toast(title: string, lines: string[], kind: 'ok' | 'warn' | 'err' | 'star' = 'ok', ms = 3400): void {
-    while (this.toastHost.children.length >= maxToasts()) this.toastHost.firstElementChild!.remove();
-    const el = document.createElement('div');
-    el.className = `toast t-${kind}`;
-    const head = document.createElement('span');
-    head.className = 'tt';
-    head.textContent = title;
-    el.appendChild(head);
-    lines.forEach((line, i) => {
-      const row = document.createElement('div');
-      row.className = i === 0 ? 'tb' : 'ts';
-      row.textContent = line;
-      el.appendChild(row);
-    });
-    this.toastHost.appendChild(el);
-    const headline = el.querySelector<HTMLElement>('.tb');
-    if (headline) this.scramble(headline, 450);
-    window.setTimeout(() => {
-      el.classList.add('out');
-      window.setTimeout(() => el.remove(), prefersReducedMotion() ? 0 : 220);
-    }, ms);
   }
 }

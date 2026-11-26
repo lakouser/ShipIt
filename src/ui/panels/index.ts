@@ -1,21 +1,37 @@
 import type { ChallengeId, EffectId, ForkId, IncidentKind, ProjectId, RoleId, WorkflowId } from '../../core/content';
 import type { DevAction } from '../../core/dev';
-import { upgradesWithForks } from '../../core/economy';
-import type { Game } from '../../core/game';
-import { unreadCount } from '../../core/mail';
-import { manUnreadCount } from '../../core/man';
+import type { Game, UnlockTab } from '../../core/game';
 import { challengeReady } from '../../core/major';
 import { nextProjects } from '../../core/ship';
 import { workflowOn } from '../../core/workflows';
 import type { BuyAmount, Notation, Skin, Tab } from '../../core/state';
+import { esc, setText } from '../dom';
+import { GROUPS, TAB_LABEL, groupBadge, groupOf, groupVisible, questKey, tabBadge, tabState, type Badge, type Group, type Seen } from '../nav';
+import { OWN_HELP_LINK, helpFor } from './help';
 import { mailKey, renderMail, type MailView } from './mail';
 import { refreshMajor, renderMajor } from './major';
-import { refreshMarket, renderMarket } from './market';
+import { manKey, renderMan } from './man';
+import { marketKey, refreshMarket, renderMarket } from './market';
 import { renderSettings, type SettingsView } from './settings';
-import { refreshShip, renderShip, shipKey, type ShipView } from './ship';
-import { refreshSprints, renderSprints } from './sprints';
+import {
+  autoKey,
+  dotfilesKey,
+  refreshDotfiles,
+  refreshRound,
+  refreshShip,
+  renderAuto,
+  renderDotfiles,
+  renderRound,
+  renderShip,
+  roundKey,
+  shipKey,
+  type ShipView,
+} from './ship';
+import { refreshSprints, renderSprints, sprintsKey } from './sprints';
+import { refreshStats, renderStats } from './stats';
 import { refreshTeam, renderTeam, teamKey } from './team';
-import { refreshTodo, renderTodo } from './todo';
+import { refreshTodo, renderTodo, todoKey } from './todo';
+import { renderTrophies, trophiesKey } from './trophies';
 import { refreshUpgrades, renderUpgrades, visibilityKey } from './upgrades';
 
 /** How long a destructive button stays armed for its second tap. */
@@ -35,31 +51,33 @@ export interface PanelActions {
   restoreBackup(): void;
   saveInfo(): { status: string; ok: boolean; backup: string | null };
   copy(text: string): void;
-  /** Lines per second over the last minute, scaled 0–1, for the output graph. */
-  history(): number[];
   /** What the rubber duck says when tapped. */
   duck(): string;
   hapticsSupported: boolean;
   version: string;
 }
 
+const badgeClass = (b: Badge | null): string => (b ? `bd b-${b.kind}` : 'bd');
+
 /**
- * The tool pane: pkgs, sprints, todo, ship, team, mail and settings. render() rebuilds the active tab
- * (after purchases, sprint changes, tab switches, or when its structure key changes); refresh()
- * updates numbers in place every tick.
+ * The tool pane. The tmux bar picks one of five windows (pkgs, work, ship, co, more); the sub-tab
+ * row picks a panel inside it. render() rebuilds the active panel (after purchases, tab switches, or
+ * when its structure key changes); refresh() updates numbers and badges in place every tick.
  */
 export class Panels {
   private shownKey = '';
+  private subKey = '';
   private armed = false;
   private armTimer = 0;
   private raiseArmed = false;
   private raiseTimer = 0;
   private letGoArmed: number | null = null;
-  /** A second confirm-tap action waiting in the major tab: 'major' or 'challenge:<id>'. */
+  /** A second confirm-tap action in the major panel: 'major' or 'challenge:<id>'. */
   private armedAction: string | null = null;
   private actionTimer = 0;
   private project: ProjectId = 'webapp';
-  private readonly mailView: MailView = { openMail: null, openMan: null };
+  private readonly mailView: MailView = { openMail: null };
+  private openMan: string | null = null;
   private duckLine = '';
   private duckTimer = 0;
   private resetArmed = false;
@@ -67,59 +85,128 @@ export class Panels {
   private importOpen = false;
   private importError = false;
   private versionTaps = 0;
+  /** Panels with their `?` help open. */
+  private readonly help = new Set<Tab>();
+  /** The package whose upgrade picker is open. */
+  private openFork: string | null = null;
+  private allProjects = false;
+  private fullChart = false;
+  private hideEarned = true;
+  /** The panel last shown in each window, so switching windows comes back to it. */
+  private readonly lastInGroup: Partial<Record<Group, Tab>> = {};
+  /** Unlocked but not visited yet: shown "new" until opened. */
+  private readonly fresh = new Set<Tab>();
+  private readonly seen: Seen;
 
   constructor(
     private readonly game: Game,
     private readonly root: HTMLElement,
-    private readonly tabs: HTMLElement,
+    private readonly subtabs: HTMLElement,
+    private readonly bar: HTMLElement,
     private readonly actions: PanelActions,
   ) {
-    this.project = game.state.project;
-    tabs.addEventListener('click', (e) => {
-      const btn = (e.target as Element).closest<HTMLButtonElement>('[data-tab]');
+    const s = game.state;
+    this.project = s.project;
+    this.seen = { quests: new Set(s.quests.map(questKey)), trophies: s.achievements.length };
+    bar.addEventListener('click', (e) => {
+      const btn = (e.target as Element).closest<HTMLButtonElement>('[data-group]');
+      if (btn) this.showGroup(btn.dataset.group as Group);
+    });
+    subtabs.addEventListener('click', (e) => {
+      const btn = (e.target as Element).closest<HTMLButtonElement>('button');
       if (!btn) return;
-      this.show(btn.dataset.tab as Tab);
+      if (btn.dataset.tab) this.show(btn.dataset.tab as Tab);
+      else if ('help' in btn.dataset) this.toggleHelp();
     });
     root.addEventListener('click', (e) => this.handleClick(e));
-    // The app name field in the market tab: saved when it loses focus or on enter.
     root.addEventListener('change', (e) => {
-      const input = e.target as HTMLInputElement;
-      if (!input.matches('[data-appname]')) return;
-      input.value = this.game.renameApp(input.value);
+      const el = e.target as HTMLInputElement | HTMLSelectElement;
+      // The app name field in the market panel: saved when it loses focus or on enter.
+      if (el.matches('[data-appname]')) el.value = this.game.renameApp(el.value);
+      // A teammate's role (or letting them go) from their dropdown.
+      if (el.matches('[data-role-of]')) this.roleChanged(Number(el.dataset.roleOf), el.value);
     });
     root.addEventListener('keydown', (e) => {
       if (e.key === 'Enter' && (e.target as Element).matches('[data-appname]')) (e.target as HTMLInputElement).blur();
     });
   }
 
-  show(tab: Tab): void {
-    this.game.state.settings.tab = tab;
-    this.tabs.querySelector(`[data-tab="${tab}"]`)?.classList.remove('new');
+  /** Opens a panel; the man page `page` too, when given. */
+  show(tab: Tab, page?: string): void {
+    const s = this.game.state;
+    if (tabState(s, tab) === 'hidden') return;
+    s.settings.tab = tab;
+    this.lastInGroup[groupOf(tab)] = tab;
+    this.fresh.delete(tab);
+    if (page) this.openMan = page;
+    if (tab === 'todo') this.seen.quests = new Set(s.quests.map(questKey));
+    if (tab === 'trophies') this.seen.trophies = s.achievements.length;
     this.disarm();
     this.disarmRaise();
     this.disarmAction(false);
     this.letGoArmed = null;
     this.exportText = null;
     this.importOpen = false;
+    this.openFork = null;
     this.render();
     this.root.scrollTop = 0;
   }
 
-  /** Shows or hides tabs according to what the player has unlocked; newly unlocked ones blink until visited. */
-  syncTabs(newlyUnlocked?: Tab): void {
-    const u = this.game.state.unlocked;
-    const visible: Record<string, boolean> = { upgrades: true, sprints: u.sprints, todo: u.todo, ship: u.ship, team: u.team, mail: u.mail, major: u.major, market: u.market, settings: true };
-    this.tabs.querySelectorAll<HTMLButtonElement>('[data-tab]').forEach((b) => {
-      b.hidden = !visible[b.dataset.tab!];
-      if (b.dataset.tab === newlyUnlocked) b.classList.add('new');
+  /** Opens a window at the panel last used there (or its first open one). */
+  showGroup(group: Group): void {
+    const s = this.game.state;
+    const tabs = GROUPS.find((g) => g.id === group)!.tabs;
+    const last = this.lastInGroup[group];
+    const tab = last && tabState(s, last) !== 'hidden' ? last : (tabs.find((t) => tabState(s, t) === 'open') ?? tabs[0]);
+    this.show(tab);
+  }
+
+  /** Shows or hides windows by what the player has unlocked; a newly unlocked panel is marked "new" until visited. */
+  syncTabs(newlyUnlocked?: UnlockTab): void {
+    const s = this.game.state;
+    if (newlyUnlocked) this.fresh.add(newlyUnlocked);
+    this.bar.querySelectorAll<HTMLButtonElement>('[data-group]').forEach((b) => {
+      const group = b.dataset.group as Group;
+      b.hidden = !groupVisible(s, group);
+      b.classList.toggle('new', GROUPS.find((g) => g.id === group)!.tabs.some((t) => this.fresh.has(t)));
     });
-    if (!visible[this.game.state.settings.tab]) this.game.state.settings.tab = 'upgrades';
+    if (tabState(s, s.settings.tab) === 'hidden') s.settings.tab = 'upgrades';
+    this.subKey = '';
   }
 
   render(): void {
     const tab = this.game.state.settings.tab;
-    this.tabs.querySelectorAll<HTMLButtonElement>('[data-tab]').forEach((b) => b.setAttribute('aria-selected', String(b.dataset.tab === tab)));
-    const view: SettingsView = {
+    const group = groupOf(tab);
+    this.bar.querySelectorAll<HTMLButtonElement>('[data-group]').forEach((b) => b.setAttribute('aria-selected', String(b.dataset.group === group)));
+    this.syncTabs();
+    this.renderSubtabs();
+    const help = this.help.has(tab) ? helpFor(this.game, tab) : null;
+    const helpHtml = help ? `<div class="help" role="note">${help}</div>` : '';
+    const g = this.game;
+    const body =
+      tab === 'upgrades' ? renderUpgrades(g, { openFork: this.openFork, help: this.help.has('upgrades') })
+      : tab === 'sprints' ? renderSprints(g)
+      : tab === 'todo' ? renderTodo(g)
+      : tab === 'ship' ? renderShip(g, this.shipView())
+      : tab === 'dotfiles' ? renderDotfiles(g)
+      : tab === 'auto' ? renderAuto(g)
+      : tab === 'major' ? renderMajor(g, this.armedAction)
+      : tab === 'round' ? renderRound(g)
+      : tab === 'team' ? renderTeam(g, this.letGoArmed)
+      : tab === 'mail' ? renderMail(g, this.mailView)
+      : tab === 'market' ? renderMarket(g, this.fullChart)
+      : tab === 'man' ? renderMan(g, this.openMan)
+      : tab === 'trophies' ? renderTrophies(g, this.hideEarned)
+      : tab === 'stats' ? renderStats(g)
+      : renderSettings(g, this.settingsView());
+    // A panel can say where its help goes (after its command line); otherwise it goes on top.
+    this.root.innerHTML = body.includes('<!--help-->') ? body.replace('<!--help-->', helpHtml) : helpHtml + body;
+    this.shownKey = this.structureKey(tab);
+    this.refresh();
+  }
+
+  private settingsView(): SettingsView {
+    return {
       exportText: this.exportText,
       importOpen: this.importOpen,
       importError: this.importError,
@@ -128,56 +215,122 @@ export class Panels {
       version: this.actions.version,
       save: this.actions.saveInfo(),
     };
-    this.root.innerHTML =
-      tab === 'upgrades' ? renderUpgrades(this.game)
-      : tab === 'sprints' ? renderSprints(this.game)
-      : tab === 'todo' ? renderTodo(this.game)
-      : tab === 'ship' ? renderShip(this.game, this.shipView())
-      : tab === 'team' ? renderTeam(this.game, this.letGoArmed)
-      : tab === 'mail' ? renderMail(this.game, this.mailView)
-      : tab === 'major' ? renderMajor(this.game, this.armedAction)
-      : tab === 'market' ? renderMarket(this.game)
-      : renderSettings(this.game, view);
-    this.shownKey = this.structureKey(tab);
-    this.refresh();
   }
 
-  /** Changes when a tab needs re-rendering rather than refreshing in place. */
+  /** The sub-tab row: rebuilt only when its buttons change, so a tap on one is never lost to a re-render. */
+  private renderSubtabs(): void {
+    const s = this.game.state;
+    const tab = s.settings.tab;
+    const tabs = GROUPS.find((g) => g.id === groupOf(tab))!.tabs.filter((t) => tabState(s, t) !== 'hidden');
+    const hasHelp = helpFor(this.game, tab) !== null && !OWN_HELP_LINK.has(tab);
+    const key = `${tabs.map((t) => `${t}${tabState(s, t)}${+this.fresh.has(t)}`).join(',')}|${tab}|${hasHelp}|${this.help.has(tab)}`;
+    if (key === this.subKey) return;
+    this.subKey = key;
+    // A window with one panel and nothing to explain (pkgs keeps its `?` in the npm install line) has no row.
+    this.subtabs.hidden = tabs.length < 2 && !hasHelp;
+    if (this.subtabs.hidden) return void (this.subtabs.innerHTML = '');
+    this.subtabs.innerHTML =
+      tabs
+        .map((t) => {
+          const cls = [tabState(s, t) === 'locked' ? 'lk' : '', this.fresh.has(t) ? 'new' : ''].filter(Boolean).join(' ');
+          return `<button role="tab" data-tab="${t}" aria-selected="${t === tab}"${cls ? ` class="${cls}"` : ''}>${esc(TAB_LABEL[t])}<span class="bd" data-bd="${t}"></span></button>`;
+        })
+        .join('') +
+      '<span class="fill"></span>' +
+      (hasHelp ? `<button class="qm" data-help aria-pressed="${this.help.has(tab)}" aria-label="How this works">?</button>` : '');
+  }
+
+  private toggleHelp(): void {
+    const tab = this.game.state.settings.tab;
+    if (this.help.has(tab)) this.help.delete(tab);
+    else this.help.add(tab);
+    this.subKey = '';
+    this.render();
+  }
+
+  /** Badges on the bar and the sub-tabs, updated in place. */
+  private syncBadges(): void {
+    for (const g of GROUPS) {
+      const badges = g.tabs.map((t) => {
+        const b = tabState(this.game.state, t) === 'open' ? tabBadge(this.game, t, this.seen) : null;
+        const el = this.subtabs.querySelector(`[data-bd="${t}"]`);
+        if (el) {
+          // The release's progress shows on the bar; on its own sub-tab it only crowds the row.
+          const sub = t === 'ship' && b?.kind === 'prog' ? null : b;
+          setText(el, sub?.text ?? '');
+          el.className = badgeClass(sub);
+        }
+        return b;
+      });
+      const el = this.bar.querySelector(`[data-group="${g.id}"] .bd`);
+      if (!el) continue;
+      const b = groupBadge(badges);
+      setText(el, b?.text ?? '');
+      el.className = badgeClass(b);
+    }
+  }
+
+  /** Changes when a panel needs re-rendering rather than refreshing in place. */
   private structureKey(tab: Tab): string {
-    return tab === 'upgrades' ? visibilityKey(this.game)
-      : tab === 'ship' ? shipKey(this.game)
-      : tab === 'team' ? teamKey(this.game)
-      : tab === 'mail' ? mailKey(this.game)
-      : tab === 'major' ? `${this.game.state.major}|${!!this.game.state.challenge}|${this.game.state.challengesDone.length}|${challengeReady(this.game.state)}|${this.game.state.round}`
-      : '';
+    const g = this.game;
+    const s = g.state;
+    switch (tab) {
+      case 'upgrades':
+        return visibilityKey(g);
+      case 'sprints':
+        return sprintsKey(g);
+      case 'todo':
+        return todoKey(g);
+      case 'ship':
+        return shipKey(g);
+      case 'dotfiles':
+        return dotfilesKey(g);
+      case 'auto':
+        return autoKey(g);
+      case 'round':
+        return roundKey(g);
+      case 'team':
+        return teamKey(g);
+      case 'mail':
+        return mailKey(g);
+      case 'market':
+        return marketKey(g);
+      case 'man':
+        return manKey(g);
+      case 'trophies':
+        return trophiesKey(g);
+      case 'major':
+        return `${s.major}|${!!s.challenge}|${s.challengesDone.length}|${challengeReady(s)}|${s.round}|${s.unlocked.major}`;
+      default:
+        return '';
+    }
   }
 
   private shipView(): ShipView {
     // The chosen next project can stop being offered (after shipping); fall back to the web app.
     if (!nextProjects(this.game.state).some((p) => p.id === this.project)) this.project = 'webapp';
-    return { project: this.project, shipArmed: this.armed, raiseArmed: this.raiseArmed };
-  }
-
-  /** Bells on tabs that are waiting for the player: a fork to pick, an applicant, unread mail or man pages. */
-  private syncFlags(): void {
-    const s = this.game.state;
-    const flag = (tab: Tab, cls: string, on: boolean) => this.tabs.querySelector(`[data-tab="${tab}"]`)?.classList.toggle(cls, on);
-    flag('upgrades', 'bell', upgradesWithForks(s).length > 0);
-    flag('team', 'bell', !!s.applicant && s.settings.tab !== 'team');
-    flag('mail', 'bell', unreadCount(s) + manUnreadCount(s) > 0);
+    return { project: this.project, shipArmed: this.armed, allProjects: this.allProjects };
   }
 
   refresh(): void {
-    const tab = this.game.state.settings.tab;
-    this.syncFlags();
+    const g = this.game;
+    const tab = g.state.settings.tab;
+    // What arrives while its panel is open has been seen.
+    if (tab === 'todo') this.seen.quests = new Set(g.state.quests.map(questKey));
+    if (tab === 'trophies') this.seen.trophies = g.state.achievements.length;
+    this.renderSubtabs();
+    this.syncBadges();
     if (this.structureKey(tab) !== this.shownKey) return this.render();
-    if (tab === 'upgrades') refreshUpgrades(this.game, this.root, this.actions.history(), this.duckLine);
-    else if (tab === 'sprints') refreshSprints(this.game, this.root);
-    else if (tab === 'todo') refreshTodo(this.game, this.root);
-    else if (tab === 'ship') refreshShip(this.game, this.root, this.shipView());
-    else if (tab === 'team') refreshTeam(this.game, this.root);
-    else if (tab === 'major') refreshMajor(this.game, this.root, this.armedAction);
-    else if (tab === 'market') refreshMarket(this.game, this.root);
+    if (tab === 'upgrades') refreshUpgrades(g, this.root, this.duckLine);
+    else if (tab === 'sprints') refreshSprints(g, this.root);
+    else if (tab === 'todo') refreshTodo(g, this.root);
+    else if (tab === 'ship') refreshShip(g, this.root, this.shipView());
+    else if (tab === 'dotfiles') refreshDotfiles(g, this.root);
+    else if (tab === 'round') refreshRound(g, this.root, this.raiseArmed);
+    else if (tab === 'team') refreshTeam(g, this.root);
+    else if (tab === 'major') refreshMajor(g, this.root, this.armedAction);
+    else if (tab === 'market') refreshMarket(g, this.root, this.fullChart);
+    else if (tab === 'stats') refreshStats(g, this.root);
     else if (tab === 'settings') {
       const el = this.root.querySelector('[data-save-status]');
       const info = this.actions.saveInfo();
@@ -186,6 +339,18 @@ export class Panels {
         el.classList.toggle('bad', !info.ok);
       }
     }
+  }
+
+  private roleChanged(id: number, value: string): void {
+    if (value === 'letgo') {
+      this.letGoArmed = id;
+      window.setTimeout(() => {
+        if (this.letGoArmed !== id) return;
+        this.letGoArmed = null;
+        if (this.game.state.settings.tab === 'team') this.render();
+      }, ARM_MS * 2);
+      this.render();
+    } else if (this.game.assign(id, value as RoleId)) this.done();
   }
 
   private handleClick(e: MouseEvent): void {
@@ -202,13 +367,26 @@ export class Panels {
       window.clearTimeout(this.duckTimer);
       this.duckTimer = window.setTimeout(() => (this.duckLine = ''), DUCK_MS);
       this.refresh();
+    } else if (d.openfork) {
+      this.openFork = this.openFork === d.openfork ? null : d.openfork;
+      this.render();
     } else if (d.fork) {
-      if (this.game.chooseFork(d.fork, d.opt as ForkId)) this.done();
+      if (this.game.chooseFork(d.fork, d.opt as ForkId)) {
+        this.openFork = null;
+        this.done();
+      }
     } else if ('refactor' in d) {
       if (this.game.refactor()) this.done();
     } else if (d.project) {
       this.project = d.project as ProjectId;
       this.render();
+    } else if ('moreprojects' in d) {
+      this.allProjects = !this.allProjects;
+      this.render();
+    } else if (d.goto) {
+      this.show(d.goto as Tab, d.page);
+    } else if ('help' in d) {
+      this.toggleHelp();
     } else if ('raise' in d) {
       if (this.raiseArmed) {
         this.disarmRaise();
@@ -246,21 +424,13 @@ export class Panels {
       if (this.game.hire()) this.done();
     } else if ('pass' in d) {
       if (this.game.passApplicant()) this.render();
-    } else if (d.assign) {
-      if (this.game.assign(Number(d.assign), d.role as RoleId)) this.done();
     } else if (d.letgo) {
       const id = Number(d.letgo);
-      if (this.letGoArmed === id) {
-        this.letGoArmed = null;
-        this.game.letGo(id);
-      } else {
-        this.letGoArmed = id;
-        window.setTimeout(() => {
-          if (this.letGoArmed !== id) return;
-          this.letGoArmed = null;
-          if (s.settings.tab === 'team') this.render();
-        }, ARM_MS);
-      }
+      this.letGoArmed = null;
+      this.game.letGo(id);
+      this.render();
+    } else if ('keep' in d) {
+      this.letGoArmed = null;
       this.render();
     } else if (d.mail) {
       this.mailView.openMail = this.mailView.openMail === d.mail ? null : d.mail;
@@ -269,8 +439,14 @@ export class Panels {
     } else if (d.answer) {
       if (this.game.answerMail(d.answer, Number(d.opt))) this.done();
     } else if (d.man) {
-      this.mailView.openMan = this.mailView.openMan === d.man ? null : d.man;
+      this.openMan = this.openMan === d.man ? null : d.man;
       this.game.readMan(d.man);
+      this.render();
+    } else if ('fullchart' in d) {
+      this.fullChart = !this.fullChart;
+      this.render();
+    } else if ('hideearned' in d) {
+      this.hideEarned = !this.hideEarned;
       this.render();
     } else if (d.run) {
       if (this.game.runScript(d.run as EffectId)) this.done();
@@ -361,7 +537,7 @@ export class Panels {
     this.refresh();
   }
 
-  /** First tap of a two-tap action in the major tab; it disarms itself after ARM_MS. */
+  /** First tap of a two-tap action in the major panel; it disarms itself after ARM_MS. */
   private armAction(action: string): void {
     window.clearTimeout(this.actionTimer);
     this.armedAction = action;

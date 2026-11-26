@@ -1,5 +1,4 @@
 import { EFFECTS, SCRIPT_IDS } from '../../core/content';
-import { effectActive, effectSecondsLeft } from '../../core/effects';
 import type { Game } from '../../core/game';
 import { clock, fmt } from '../../core/num';
 import { difficultyOf, requiredTapRate } from '../../core/sprints';
@@ -7,74 +6,65 @@ import { esc, setHtml, setText } from '../dom';
 import { hl, tint } from '../hl';
 import { barHtml, sprintResultText } from '../messages';
 
+/** Changes when the backlog needs re-rendering: a sprint starting or ending, a slot coming back. */
+export const sprintsKey = (game: Game): string => {
+  const s = game.state;
+  const now = game.now();
+  return `${s.sprint?.slot ?? '-'}|${s.backlog.map((t) => `${t.id}${+(t.readyAt > now)}`).join(',')}|${s.lastSprint ? `${s.lastSprint.ok}${s.lastSprint.ticketId}` : ''}`;
+};
+
 export function renderSprints(game: Game): string {
   const s = game.state;
   const now = game.now();
-  let html = '<div class="cmd"><span><span class="ps">$</span> ls ~/bin</span><span class="aside">scripts you can run any time</span></div><div class="bin">';
-  for (const id of SCRIPT_IDS) {
-    const e = EFFECTS[id];
-    const count = s.scripts[id] ?? 0;
-    html += `<div class="script${count ? '' : ' none'}">
-      <div><span class="nm">${e.file}</span> <span class="qty">[${count}]</span><small>${hl(`${e.description} · ${e.durationS}s`)}</small></div>
-      <button class="run" data-run="${id}"${count ? '' : ' disabled'}><span data-fx="${id}">./run</span></button>
-    </div>`;
-  }
-  html += '</div>';
-
-  html += '<div class="cmd gap"><span><span class="ps">$</span> backlog ls</span><span class="aside" data-pace></span></div>';
+  let html = '<div class="cmd"><span><span class="ps">$</span> backlog ls</span><span class="aside" data-pace></span></div>';
   if (s.lastSprint) {
     html += `<div class="note ${s.lastSprint.ok ? 'ok' : 'bad'}"><span class="tag">${s.lastSprint.ok ? '[ ok ]' : '[fail]'}</span> ${hl(sprintResultText(s.lastSprint))}</div>`;
   }
   if (s.sprint) {
     html += `<article class="tk live">
-      <div class="tkh"><span class="id">${esc(s.sprint.id)} · running</span><span class="df tight" data-sp-time></span></div>
-      <h3>${esc(s.sprint.title)}</h3>
+      <div class="tkr"><h3>${esc(s.sprint.title)}</h3><span class="df tight" data-sp-time></span></div>
       <div class="tbar" data-sp-bar></div>
-      <p class="need" data-sp-text></p>
+      <small class="need" data-sp-text></small>
     </article>`;
   }
   s.backlog.forEach((t, i) => {
     if (s.sprint?.slot === i) return;
     const waiting = t.readyAt > now;
-    html += `<article class="tk${waiting ? ' wait' : ''}">
-      <div class="tkh"><span class="id">${waiting ? 'next standup' : esc(t.id)}</span><span class="df" data-tier="${i}"></span></div>
-      ${
-        waiting
-          ? `<h3 class="dimh">new ticket in <span class="h h-time" data-ready="${i}"></span></h3>`
-          : `<h3>${esc(t.title)}</h3>
-      <div class="kv"><span>target ${tint('loc', `${fmt(t.target)} lines`)}</span><span>time ${tint('time', clock(t.durationS))}</span><span>reward ${tint('loc', `+${fmt(t.reward)}`)}</span></div>
-      <p class="need" data-need="${i}"></p>
-      ${t.tier === 2 ? '<p class="need">always drops a script</p>' : ''}
-      <button class="go" data-start="${i}"${s.sprint ? ' disabled' : ''}>start sprint</button>`
-      }
-    </article>`;
+    html += waiting
+      ? `<article class="tk wait">
+        <div class="tki"><h3 class="dimh">${esc(t.title)}</h3><small>${tint('time', clock(t.durationS))}${t.tier === 2 ? ' · always drops a script' : ''}</small></div>
+        <div class="tkw">standup<br>in <span data-ready="${i}"></span></div>
+      </article>`
+      : `<article class="tk">
+        <div class="tki"><h3>${esc(t.title)}</h3><small>${tint('time', clock(t.durationS))} · <span data-need="${i}"></span>${t.tier === 2 ? ' · drops a script' : ''}</small></div>
+        <button class="go" data-start="${i}"${s.sprint ? ' disabled' : ''}><span>start</span><b>+${fmt(t.reward)}</b></button>
+      </article>`;
   });
   return html;
 }
 
+/** What the `?` in backlog explains. */
+export const sprintsHelp = (): string =>
+  hl(
+    `a sprint asks for a number of lines before its timer runs out; each ticket shows the taps per second it needs at your current output. missing a deadline only loses the reward. a used slot waits for the next standup. the long ticket always drops a script for ~/bin: ${SCRIPT_IDS.map((id) => `${EFFECTS[id].file} (${EFFECTS[id].description})`).join(', ')}. run them from the row under the key.`,
+  );
+
 export function refreshSprints(game: Game, root: HTMLElement): void {
   const s = game.state;
   const now = game.now();
+  const waits = s.backlog.filter((t) => t.readyAt > now).map((t) => t.readyAt - now);
   const pace = game.tapRate(5000);
-  setHtml(root.querySelector('[data-pace]'), pace > 0 ? hl(`pace ${pace.toFixed(1)} taps/s`) : 'tap to measure pace');
-
-  for (const id of SCRIPT_IDS) {
-    const label = root.querySelector(`[data-fx="${id}"]`);
-    setText(label, effectActive(s, id, now) ? `${clock(effectSecondsLeft(s, id, now))} +` : './run');
-  }
+  setHtml(
+    root.querySelector('[data-pace]'),
+    waits.length ? `next standup ${tint('time', clock(Math.min(...waits) / 1000))}` : pace > 0 ? hl(`pace ${pace.toFixed(1)} taps/s`) : 'tap to measure your pace',
+  );
 
   root.querySelectorAll<HTMLElement>('[data-need]').forEach((el) => {
-    const slot = Number(el.dataset.need);
-    const t = s.backlog[slot];
+    const t = s.backlog[Number(el.dataset.need)];
     if (!t) return;
     const rate = requiredTapRate(s, t, now);
-    setHtml(el, hl(rate <= 0 ? 'automation covers this one on its own' : `needs ~${rate.toFixed(1)} taps/s at current output`));
-    const tag = root.querySelector(`[data-tier="${slot}"]`);
-    if (tag) {
-      const level = difficultyOf(rate);
-      tag.className = `df ${level}`;
-      setText(tag, `[${level}]`);
-    }
+    const level = difficultyOf(rate);
+    setHtml(el, rate <= 0 ? '<span class="df relaxed">automation covers it</span>' : `${tint('num', rate.toFixed(1))} taps/s · <span class="df ${level}">${level}</span>`);
   });
   root.querySelectorAll<HTMLElement>('[data-ready]').forEach((el) => {
     const t = s.backlog[Number(el.dataset.ready)];
@@ -83,9 +73,7 @@ export function refreshSprints(game: Game, root: HTMLElement): void {
 
   if (s.sprint) {
     setText(root.querySelector('[data-sp-time]'), `${clock((s.sprint.endsAt - now) / 1000)} left`);
-    const bar = root.querySelector<HTMLElement>('[data-sp-bar]');
-    const html = barHtml(s.sprint.progress.div(s.sprint.target).toNumber(), 22);
-    if (bar && bar.innerHTML !== html) bar.innerHTML = html;
-    setHtml(root.querySelector('[data-sp-text]'), `${tint('loc', fmt(s.sprint.progress))} of ${tint('loc', `${fmt(s.sprint.target)} lines`)}`);
+    setHtml(root.querySelector('[data-sp-bar]'), barHtml(s.sprint.progress.div(s.sprint.target).toNumber(), 22));
+    setHtml(root.querySelector('[data-sp-text]'), `${tint('loc', fmt(s.sprint.progress))} of ${tint('loc', `${fmt(s.sprint.target)} lines`)} · reward ${tint('loc', `+${fmt(s.sprint.reward)}`)}`);
   }
 }

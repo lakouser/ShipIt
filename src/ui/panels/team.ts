@@ -8,7 +8,7 @@ import { esc, setText } from '../dom';
 import { hl, tint } from '../hl';
 
 /** ASCII portraits, three lines each. */
-const FACES: readonly string[][] = [
+export const FACES: readonly string[][] = [
   [String.raw` .---. `, String.raw`( o.o )`, String.raw` '-^-' `],
   [String.raw` /^^^\ `, String.raw`( -_- )`, String.raw` \_~_/ `],
   [String.raw` _____ `, String.raw`[ o_o ]`, String.raw` |_=_| `],
@@ -19,7 +19,7 @@ const FACES: readonly string[][] = [
   [String.raw` /"""\ `, String.raw`( o_O )`, String.raw` \_-_/ `],
 ];
 
-const face = (d: Developer): string => FACES[d.face % FACES.length].join('\n');
+export const face = (d: Developer): string => FACES[d.face % FACES.length].join('\n');
 const pct = (x: number): string => `${Math.round(x * 100)}%`;
 
 /** What a developer does in a role, with their trait. */
@@ -39,48 +39,46 @@ function roleEffect(d: Developer, role: RoleId = d.role): string {
   }
 }
 
-function devCard(d: Developer, letGoArmed: boolean): string {
+/** A teammate: what they do, and a dropdown for their role (letting them go is in it too, with a confirm). */
+function devRow(d: Developer, letGoArmed: boolean): string {
   const trait = TRAITS[d.trait];
-  return `<article class="dev" data-dev-card="${d.id}">
-    <pre class="face" aria-hidden="true">${esc(face(d))}</pre>
-    <div class="dinfo">
-      <div><span class="nm">${esc(d.name)}</span> <span class="trait">${trait.label}</span></div>
-      <small>${hl(trait.blurb)}</small>
-      <small class="doing">→ ${hl(roleEffect(d))}</small>
-    </div>
-    <div class="roles" role="radiogroup" aria-label="Role for ${esc(d.name)}">
-      ${ROLE_IDS.map((r) => `<button class="chip2" role="radio" data-assign="${d.id}" data-role="${r}" aria-checked="${d.role === r}" aria-pressed="${d.role === r}">${d.role === r ? '(•)' : '( )'} ${ROLES[r].label}</button>`).join('')}
-      <button class="chip2 lg" data-letgo="${d.id}">${letGoArmed ? 'really? tap again' : 'let go'}</button>
-    </div>
-  </article>`;
+  if (letGoArmed)
+    return `<div class="mem arm">
+      <div><span class="nm">${esc(d.name)}</span> · let ${esc(d.name)} go?<small>${hl('they leave the team for good')}</small></div>
+      <div class="memb"><button class="act danger" data-letgo="${d.id}">let go</button><button class="act" data-keep>keep</button></div>
+    </div>`;
+  return `<div class="mem">
+    <div><span class="nm">${esc(d.name)}</span> · ${trait.label.toLowerCase()}<small>${hl(roleEffect(d))}</small></div>
+    <label class="sel"><span class="vh">Role for ${esc(d.name)}</span><select data-role-of="${d.id}">
+      ${ROLE_IDS.map((r) => `<option value="${r}"${d.role === r ? ' selected' : ''}>${ROLES[r].label}</option>`).join('')}
+      <option value="letgo">let go…</option>
+    </select></label>
+  </div>`;
 }
 
-/** The applicant (if any), the team with their roles, and what each role does. `letGoArmed`: the developer whose "let go" waits for a second tap. */
+/** The applicant (if any) and the team with their roles. `letGoArmed`: the developer waiting for a confirm to leave. */
 export function renderTeam(game: Game, letGoArmed: number | null): string {
   const s = game.state;
-  let html = `<div class="cmd"><span><span class="ps">$</span> who</span><span class="aside">${tint('num', s.team.length)}/${tint('num', teamSlots(s))} seats · the team stays through every release</span></div>`;
+  let html = `<div class="cmd"><span><span class="ps">$</span> who</span><span class="aside">${tint('num', s.team.length)} of ${tint('num', teamSlots(s))} desks</span></div>`;
   const a = s.applicant;
   if (a) {
     const trait = TRAITS[a.trait];
-    html += `<article class="dev apply">
-      <pre class="face" aria-hidden="true">${esc(face(a))}</pre>
-      <div class="dinfo">
-        <div><span class="tag tag-info">[new]</span> <span class="nm">${esc(a.name)}</span> <span class="trait">${trait.label}</span> wants to join</div>
-        <small>${hl(trait.blurb)}</small>
-      </div>
-      <div class="roles">
-        <button class="act hire" data-hire><span>hire</span> <b data-hire-cost></b></button>
-        <button class="act" data-pass>pass</button>
-        <small class="dim" data-hire-note></small>
-      </div>
+    html += `<article class="appl">
+      <div class="tag-a">applicant</div>
+      <div><span class="nm">${esc(a.name)}</span> · ${trait.label.toLowerCase()}</div>
+      <small>${hl(trait.blurb)}</small>
+      <div class="memb"><button class="go hire" data-hire><span>hire</span><b data-hire-cost></b></button><button class="act" data-pass>pass</button></div>
+      <small class="dim" data-hire-note></small>
     </article>`;
   } else html += '<div class="ck dim" data-next-applicant></div>';
   if (s.team.length === 0) html += '<div class="ck dim">nobody yet. hire the first applicant, then give them a role.</div>';
-  for (const d of s.team) html += devCard(d, letGoArmed === d.id);
-  html += '<div class="grp"># roles</div><ul class="ach roles2">';
-  for (const r of ROLE_IDS) html += `<li><span class="h h-name">${ROLES[r].label}</span> <small>· ${hl(ROLES[r].summary)} per developer</small></li>`;
-  return html + '</ul>';
+  for (const d of s.team) html += devRow(d, letGoArmed === d.id);
+  return html;
 }
+
+/** What the `?` in team explains. */
+export const teamHelp = (): string =>
+  `<ul class="ach roles2">${ROLE_IDS.map((r) => `<li><span class="h h-name">${ROLES[r].label}</span> <small>· ${hl(ROLES[r].summary)} per developer</small></li>`).join('')}</ul><p>${hl('the team stays through every release, round and major version. traits multiply what a developer does in their role.')}</p>`;
 
 export function refreshTeam(game: Game, root: HTMLElement): void {
   const s = game.state;
@@ -92,7 +90,7 @@ export function refreshTeam(game: Game, root: HTMLElement): void {
     const ok = !full && s.lines.gte(cost);
     hire.disabled = !ok;
     hire.classList.toggle('ok', ok);
-    setText(hire.querySelector('[data-hire-cost]'), `-${fmt(cost)}`);
+    setText(hire.querySelector('[data-hire-cost]'), fmt(cost));
     setText(root.querySelector('[data-hire-note]'), full ? 'every seat is taken: let someone go first' : '');
   }
   const next = root.querySelector('[data-next-applicant]');

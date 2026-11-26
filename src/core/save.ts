@@ -5,6 +5,7 @@ import { D, isFiniteDecimal, type Decimal } from './num';
 import { shippedForStars } from './ship';
 import {
   defaultSettings,
+  TABS,
   newGame,
   newMarket,
   newStats,
@@ -220,7 +221,7 @@ function settings(x: unknown): Settings {
     welcome: x.welcome !== false,
     screensaver: x.screensaver !== false,
     buyAmount: oneOf(x.buyAmount, [1, 10, 'max'] as const, 1),
-    tab: oneOf(x.tab, ['upgrades', 'sprints', 'todo', 'ship', 'team', 'mail', 'major', 'market', 'settings'] as const, 'upgrades'),
+    tab: oneOf(x.tab, TABS, 'upgrades'),
     dev: x.dev === true,
   };
 }

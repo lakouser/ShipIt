@@ -2,7 +2,15 @@ import { AUTOMATION, BUGS, INCIDENTS, MARKET, type BossKind, type ChallengeId, t
 import { D, type Decimal } from './num';
 
 export type BuyAmount = 1 | 10 | 'max';
-export type Tab = 'upgrades' | 'sprints' | 'todo' | 'ship' | 'team' | 'mail' | 'major' | 'market' | 'settings';
+/**
+ * The panel being shown. The tmux bar groups them into five windows (see src/ui/nav.ts): pkgs; work
+ * (sprints, todo); ship (ship, dotfiles, auto, major, round); co (team, mail, market); more (man,
+ * trophies, stats, settings).
+ */
+export type Tab =
+  | 'upgrades' | 'sprints' | 'todo' | 'ship' | 'dotfiles' | 'auto' | 'major' | 'round'
+  | 'team' | 'mail' | 'market' | 'man' | 'trophies' | 'stats' | 'settings';
+export const TABS: readonly Tab[] = ['upgrades', 'sprints', 'todo', 'ship', 'dotfiles', 'auto', 'major', 'round', 'team', 'mail', 'market', 'man', 'trophies', 'stats', 'settings'];
 export type Notation = 'suffix' | 'sci';
 export type Skin = 'pine' | 'phosphor' | 'amber' | 'paper';
 

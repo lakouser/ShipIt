@@ -1,4 +1,3 @@
-import { ACHIEVEMENTS } from '../../core/achievements';
 import { MILESTONE, STREAK } from '../../core/content';
 import type { Game } from '../../core/game';
 import { D, clock, fmt } from '../../core/num';
@@ -15,7 +14,7 @@ const progressText = (p: ReturnType<typeof D>, target: string): string => `${fmt
 const QUEST_HUE: Record<string, Hue> = { lines: 'loc', taps: 'tap', crits: 'tap', flow: 'tap', bugs: 'bug', scripts: 'name' };
 const MILESTONE_HUE: Record<string, Hue> = { lines: 'loc' };
 
-function streakGrid(game: Game): string {
+export function streakGrid(game: Game): string {
   const s = game.state;
   const played = new Set(s.streak.days);
   const today = new Date(game.now());
@@ -43,7 +42,7 @@ function streakGrid(game: Game): string {
 
 export function renderTodo(game: Game): string {
   const s = game.state;
-  let html = `<div class="cmd"><span><span class="ps">$</span> cat TODO.md</span><span class="aside">tasks pay permanent bonuses</span></div>`;
+  let html = `<div class="cmd"><span><span class="ps">$</span> cat TODO.md</span><span class="aside">permanent bonuses</span></div>`;
 
   const m = s.milestone;
   if (m) {
@@ -61,15 +60,15 @@ export function renderTodo(game: Game): string {
   });
   html += '<div class="ck dim" data-refill></div></div>';
 
-  html += `<div class="md"><div class="mdh">## commit streak ${tint('time', `${s.streak.count} day${s.streak.count === 1 ? '' : 's'}`)}</div>${streakGrid(game)}<small class="dim">${hl('play each day for a bonus; every 3rd day adds turbo.sh, every 7th sudo.sh')}</small></div>`;
-
-  html += `<div class="md"><div class="mdh">## achievements ${s.achievements.length}/${ACHIEVEMENTS.length} ${tint('loc', `+${s.achievements.length}% output`)}</div><ul class="ach">${ACHIEVEMENTS.map((a) => {
-    const done = s.achievements.includes(a.id);
-    const hidden = a.secret && !done;
-    return `<li class="${done ? '' : 'no'}"><span class="box">[${done ? 'x' : ' '}]</span> ${hidden ? '???' : a.name} <small>· ${hidden ? 'secret' : hl(a.description.toLowerCase())}</small></li>`;
-  }).join('')}</ul></div>`;
   return html;
 }
+
+/** Changes when the task list needs re-rendering. */
+export const todoKey = (game: Game): string => `${game.state.quests.length}|${game.state.quests.map((q) => q.template + q.target).join(',')}|${!!game.state.milestone}|${game.state.milestone?.done}`;
+
+/** What the `?` in todo explains. */
+export const todoHelp = (): string =>
+  hl(`tasks pay small permanent bonuses (or scripts); a finished slot refills after a short wait. each release also has a milestone: beat this run's last release by half, with enough packages and sprints, and the ship pays +${Math.round(MILESTONE.shipBonus * 100)}% stars.`);
 
 export function refreshTodo(game: Game, root: HTMLElement): void {
   const s = game.state;

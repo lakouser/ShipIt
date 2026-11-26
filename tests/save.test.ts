@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { D } from '../src/core/num';
 import { deserialize, exportSave, importSave, isNewerSave, SAVE_VERSION, serialize } from '../src/core/save';
-import { newGame } from '../src/core/state';
+import { newGame, TABS } from '../src/core/state';
 
 describe('saves', () => {
   it('round-trips the state, including numbers far past 1e308', () => {
@@ -106,6 +106,17 @@ describe('saves', () => {
     expect(back.team).toEqual(s.team);
     expect(back.debt).toBe(24);
     expect(back.settings.tab).toBe('team');
+  });
+
+  it('keeps every panel as the open tab, and falls back to pkgs for one it does not know', () => {
+    for (const tab of TABS) {
+      const s = newGame(0);
+      s.settings.tab = tab;
+      expect(deserialize(serialize(s, 0), 0)!.settings.tab).toBe(tab);
+    }
+    const old = JSON.parse(serialize(newGame(0), 0));
+    old.settings.tab = 'achievements';
+    expect(deserialize(JSON.stringify(old), 0)!.settings.tab).toBe('upgrades');
   });
 
   it('tells a save from a newer version apart from a broken one', () => {

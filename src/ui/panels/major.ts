@@ -77,12 +77,17 @@ export function renderMajor(game: Game, armed: string | null): string {
         <div class="chk"><span>xp</span><b data-mj-xp></b></div>
         <div class="chk"><span>stars from shipping</span><b data-mj-gain></b></div>
       </div>
-      <p class="caveat"># a major version banks your stars, and the release in progress, for xp. each xp earned adds ${Math.round(MAJOR.starGainPerXp * 100)}% to stars from shipping, even after you spend it. stars, dotfiles, releases and packages reset; funding, equity, xp, skills, the team, achievements, workflows, challenge rewards and users stay.</p>
       <button class="shipbtn" data-major></button>
     </div>
     ${resume(game)}
     ${challengeList(game, armed)}`;
 }
+
+/** What the `?` in major explains. */
+export const majorHelp = (): string =>
+  hl(
+    `a major version banks your stars, and the release in progress, for xp. each xp earned adds ${Math.round(MAJOR.starGainPerXp * 100)}% to stars from shipping, even after you spend it. stars, dotfiles, releases and packages reset; funding, equity, xp, skills, the team, achievements, workflows, challenge rewards and users stay. majors open with the ${ROUNDS[MAJOR.unlockRound]} round and never run out.`,
+  );
 
 export function refreshMajor(game: Game, root: HTMLElement, armed: string | null): void {
   const s = game.state;

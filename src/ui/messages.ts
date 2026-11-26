@@ -7,6 +7,7 @@ import { clock, fmt, fmtDuration, fmtMul } from '../core/num';
 import { questText } from '../core/quests';
 import type { ShipResult } from '../core/ship';
 import type { QuestReward, SprintResult } from '../core/state';
+import { unlockPath } from './nav';
 
 export { packageName };
 
@@ -21,7 +22,6 @@ export const LOG_TAGS: Record<LogKind, string> = { ok: '[ ok ]', warn: '[warn]',
 
 export const scriptFile = (id: EffectId): string => EFFECTS[id].file ?? id;
 
-const TAB_NAMES = { sprints: '1:sprints', todo: '2:todo', ship: '3:ship', team: '4:team', mail: '5:mail', major: '6:major', market: '7:market' } as const;
 
 export function rewardText(r: QuestReward): string {
   if (r.kind === 'script') return `+1 ${scriptFile(r.script)}`;
@@ -79,7 +79,7 @@ export function describe(e: GameEvent): LogLine[] {
     case 'milestoneDone':
       return [{ kind: 'ok', text: `release milestone done: this release ships with +${Math.round(MILESTONE.shipBonus * 100)}% stars (at least ${e.milestone.stars})` }];
     case 'unlocked':
-      return [{ kind: 'info', text: `new tab unlocked: ${TAB_NAMES[e.tab]}` }];
+      return [{ kind: 'info', text: `unlocked: ${unlockPath(e.tab)}` }];
     case 'checkIn':
       return [{ kind: 'ok', text: `day ${e.checkIn.count} streak: +${fmt(e.checkIn.lines)} lines${e.checkIn.script ? ` and ${scriptFile(e.checkIn.script)}` : ''}` }];
     case 'shipped': {
