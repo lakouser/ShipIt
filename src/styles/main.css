@@ -475,8 +475,12 @@ b { font-weight: 700; }
 .plog .pok { color: var(--green); }
 .plog .pbad { color: var(--butter); }
 .plog .pcmd { color: var(--ink); }
-.ln.live.crit { animation: 0.2s step-end crit-row; }
-.ln.live.crit .tx span { animation: 0.2s step-end crit-ink; }
+/* A critical tap inverts the line being typed; editor.ts takes .crit off again after 120ms.
+   Static, not an animation, because the line's spans are rebuilt on every keystroke. Off with reduced motion. */
+@media (prefers-reduced-motion: no-preference) {
+  html:not(.rm) .ln.live.crit { background: var(--ink); }
+  html:not(.rm) .ln.live.crit .tx span { color: var(--bg); }
+}
 .ide.shake { animation: 0.2s step-end shake; }
 .ptc { z-index: 5; color: var(--c-loc); pointer-events: none; margin: -9px 0 0 -4px; font-size: 14px; font-weight: 800; animation: 0.55s steps(6, end) forwards burst; position: absolute; }
 .ptc.pbug { color: var(--c-bug); }
@@ -669,8 +673,6 @@ b { font-weight: 700; }
 @keyframes pulse { 50% { box-shadow: 0 0 0 3px var(--c-loc); } }
 @keyframes bob { 50% { transform: translateY(-5px); } }
 @keyframes flash { 50% { background: var(--red); color: var(--pane); } }
-@keyframes crit-row { 0% { background: var(--ink); } 60% { background: transparent; } }
-@keyframes crit-ink { 0% { color: var(--bg); } 60% { color: inherit; } }
 @keyframes shake { 0% { transform: translateX(8px); } 25% { transform: translateX(-8px); } 50% { transform: translateY(4px); } 75% { transform: translateX(4px); } 100% { transform: none; } }
 @keyframes burst { to { transform: translate(var(--dx), var(--dy)); opacity: 0; } }
 @keyframes toast-in { from { opacity: 0; transform: translateX(16px); } }

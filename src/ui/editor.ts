@@ -7,6 +7,8 @@ const MAX_LINES = 70;
 const MINIMAP_ROWS = 60;
 /** Ghost cursors cycle through this many colours. */
 const GHOST_HUES = 4;
+/** How long a critical tap shows the line being typed inverted. */
+const CRIT_FLASH_MS = 120;
 
 interface LiveLine {
   tokens: CodeLine;
@@ -39,6 +41,7 @@ export class Editor {
   private readonly minimap: { width: number; indent: number; cls: string }[] = [];
   private ghosts: Ghost[] = [];
   private ghostTurn = 0;
+  private critTimer: ReturnType<typeof setTimeout> | undefined;
   /** While true (the screensaver is up), nothing is typed. */
   frozen = false;
 
@@ -89,12 +92,16 @@ export class Editor {
     this.trim();
   }
 
-  /** Flashes the line being typed (a critical tap). */
+  /**
+   * Flashes the line being typed (a critical tap). The flash is a static style
+   * taken off by a timer, not a CSS animation: renderLive() rebuilds the line's
+   * spans on every keystroke, and an animation on them would restart each time.
+   */
   flashLive(): void {
     const el = this.els.live;
-    el.classList.remove('crit');
-    void el.offsetWidth; // restart the animation
     el.classList.add('crit');
+    clearTimeout(this.critTimer);
+    this.critTimer = setTimeout(() => el.classList.remove('crit'), CRIT_FLASH_MS);
   }
 
   /** The teammates who type alongside, by name. Those who left finish their line. */
