@@ -2,7 +2,8 @@ import { BUGS, DEBT, PERK_VALUES, TEAM } from './content';
 import { addDebt } from './debt';
 import { addLines, devrelMultiplier, perSecond, perTap, projectOf, roleStrength } from './economy';
 import { Decimal } from './num';
-import { perkLevel } from './perks';
+import { mods } from './mods';
+import { perkEffect } from './perks';
 import type { Rng } from './rng';
 import type { GameState } from './state';
 
@@ -20,7 +21,7 @@ export function updateBugs(s: GameState, now: number, rng: Rng, canSpawn: boolea
   if (!canSpawn || now < s.nextBugAt) return null;
   s.nextBugAt = now + (BUGS.minGapMs + rng() * BUGS.extraGapMs) * (projectOf(s).bugGapMul ?? 1);
   // oncall.yml or a developer on bug duty: someone else got it.
-  if (rng() < PERK_VALUES.oncallChance * perkLevel(s, 'oncall') + TEAM.bugAuto * roleStrength(s, 'bugs')) {
+  if (rng() < PERK_VALUES.oncallChance * perkEffect(s, 'oncall') + TEAM.bugAuto * roleStrength(s, 'bugs')) {
     const reward = bugReward(s, now);
     addLines(s, reward);
     s.stats.bugs++;
@@ -34,6 +35,7 @@ export function updateBugs(s: GameState, now: number, rng: Rng, canSpawn: boolea
 export function bugReward(s: GameState, now: number): Decimal {
   const reward = perSecond(s, now).mul(BUGS.rewardAutoSeconds).add(perTap(s, now).mul(BUGS.rewardTaps));
   return Decimal.max(BUGS.minReward, reward)
+    .mul(mods(s).bugReward)
     .mul(1 + s.questBonus.bug)
     .mul(1 + TEAM.bugReward * roleStrength(s, 'bugs'))
     .mul(projectOf(s).bugRewardMul ?? 1)

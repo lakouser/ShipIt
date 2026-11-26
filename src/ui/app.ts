@@ -1,10 +1,11 @@
-import { BOSSES, TRAITS } from '../core/content';
+import { BOSSES, MILESTONE, TRAITS } from '../core/content';
 import { language } from '../core/economy';
 import type { Game, GameEvent } from '../core/game';
 import { mailDef } from '../core/mail';
 import { clock, D, fmt, fmtRate, setNotation, type Decimal } from '../core/num';
 import { deserialize, exportSave, importSave, serialize } from '../core/save';
-import { starsAvailable } from '../core/ship';
+import { churnShare } from '../core/market';
+import { currentVersion, shipReady } from '../core/ship';
 import type { Platform } from '../platform';
 import type { SaveStore } from '../platform/saves';
 import { BossView } from './boss';
@@ -15,7 +16,7 @@ import { Fx } from './fx';
 import { Header } from './header';
 import { IncidentView } from './incidents';
 import { Keycap } from './keycap';
-import { playMergeSplash, playRoundSplash } from './merge';
+import { playMajorSplash, playMergeSplash, playRoundSplash } from './merge';
 import { describe, scriptFile, type LogKind } from './messages';
 import { Panels } from './panels';
 import { Screensaver } from './screensaver';
@@ -86,7 +87,7 @@ export class App {
   private frozen = false;
   private readonly spark: Decimal[] = [];
   private sparkPrev: Decimal;
-  private readonly tabButtons = { sprints: $('[data-tab="sprints"]'), ship: $('[data-tab="ship"]') };
+  private readonly tabButtons = { sprints: $('[data-tab="sprints"]'), ship: $('[data-tab="ship"]'), market: $('[data-tab="market"]') };
 
   constructor(
     private readonly game: Game,
@@ -173,7 +174,7 @@ export class App {
 
     this.editor.setLanguage(language(s).id);
     this.editor.prefill(16);
-    if (returning) this.editor.log(from === 'cloud' ? `save loaded from your claude account, v${s.release}.0` : `session restored on v${s.release}.0`, 'ok');
+    if (returning) this.editor.log(from === 'cloud' ? `save loaded from your claude account, v${currentVersion(s)}` : `session restored on v${currentVersion(s)}`, 'ok');
     else for (const [kind, text] of BOOT_LOG) this.editor.log(text, kind);
     this.watchSaves(returning);
     if (returning) g.creditTimeAway((g.now() - s.savedAt) / 1000);
@@ -254,7 +255,7 @@ export class App {
         if (e.type !== 'achievement') this.feedback('reward');
         if (e.type === 'achievement') this.fx.toast('achievement', [e.achievement.name, '+1% output'], 'star');
         if (e.type === 'milestoneDone')
-          this.fx.toast('milestone', [`v${e.milestone.release}.0 complete`, `+${e.milestone.stars} star${e.milestone.stars > 1 ? 's' : ''}`], 'star');
+          this.fx.toast('milestone', ['release milestone done', `+${Math.round(MILESTONE.shipBonus * 100)}% stars when you ship`], 'star');
         break;
       case 'perk':
         if (tab === 'ship') this.panels.render();
@@ -310,6 +311,24 @@ export class App {
         this.fx.shake();
         this.fx.toast('incident lost', [BOSSES[e.kind].name.toLowerCase(), 'tech debt went up'], 'err', 4200);
         break;
+      case 'majorCut':
+        this.save();
+        void this.saves.flush();
+        this.panels.syncTabs();
+        this.panels.render();
+        this.dialogOpen = true;
+        this.feedback('reward');
+        void playMajorSplash(e.result, this.game.state.xp).then(() => (this.dialogOpen = false));
+        break;
+      case 'reviewed':
+        if (e.news.overtook.length) this.feedback('reward');
+        if (tab === 'market') this.panels.render();
+        break;
+      case 'skill':
+      case 'challengeStarted':
+      case 'challengeAbandoned':
+        this.panels.render();
+        break;
       case 'raised':
         this.save();
         void this.saves.flush();
@@ -340,6 +359,11 @@ export class App {
         this.save();
         void this.saves.flush();
         this.panels.render();
+        // release.yml ships quietly: a log line and the star count bouncing, no splash.
+        if (e.auto) {
+          this.header.bounceStars();
+          break;
+        }
         this.dialogOpen = true;
         void playMergeSplash(e.result, { onStars: () => this.feedback('reward') }).then(() => {
           this.dialogOpen = false;
@@ -367,9 +391,10 @@ export class App {
     if (sess.textContent !== name) sess.textContent = name;
     sess.classList.toggle('alarm', name !== 'ship-it');
     this.updateScreensaver(now);
-    // tmux-style window flags: # activity (sprint running), ! bell (ready to ship)
+    // tmux-style window flags: # activity (sprint running), ! bell (a release worth shipping; users drifting or a rival launch)
     this.tabButtons.sprints.classList.toggle('act', !!s.sprint);
-    this.tabButtons.ship.classList.toggle('bell', starsAvailable(s) >= 1);
+    this.tabButtons.ship.classList.toggle('bell', shipReady(s));
+    this.tabButtons.market.classList.toggle('bell', !!s.market.launch || churnShare(s) > 0);
     const d = new Date();
     $('#clock').textContent = `${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`;
   }
@@ -491,7 +516,7 @@ export class App {
       else warn();
     }, 45_000);
     const b = this.saves.backup();
-    if (b && D(b.meta.lifetime).gt(this.game.state.lifetime)) this.editor.log(`a backup with more progress is kept (v${b.meta.release}.0): cfg → restore backup`, 'info');
+    if (b && D(b.meta.lifetime).gt(this.game.state.lifetime)) this.editor.log(`a backup with more progress is kept (${fmt(D(b.meta.lifetime))} lines): cfg → restore backup`, 'info');
     this.saves.onLateSave((text, reason) => {
       this.editor.log(
         !text ? 'this save was reset on another device, starting over'
@@ -516,7 +541,7 @@ export class App {
       : "not saving: export your save to keep it";
     const ok = !st.held && (st.device || st.cloud === 'synced' || st.cloud === 'saving');
     const b = st.held ? null : this.saves.backup();
-    const backup = b && D(b.meta.lifetime).gt(this.game.state.lifetime) ? `v${b.meta.release}.0 · ${fmt(D(b.meta.lifetime))} lines · ${b.meta.savedAt ? `${ageText(Date.now() - b.meta.savedAt)} ago` : 'older'}` : null;
+    const backup = b && D(b.meta.lifetime).gt(this.game.state.lifetime)  ? `${fmt(D(b.meta.lifetime))} lines · ${b.meta.savedAt ? `${ageText(Date.now() - b.meta.savedAt)} ago` : 'older'}` : null;
     return { status, ok, backup };
   }
 }

@@ -4,6 +4,7 @@ import { debtMultiplier, language, projectOf } from '../core/economy';
 import { activeEffects, effectSecondsLeft } from '../core/effects';
 import type { Game } from '../core/game';
 import { clock, fmt, fmtRate } from '../core/num';
+import { currentVersion } from '../core/ship';
 import { languageExt, type LanguageId } from './codegen';
 import { $, esc, setText } from './dom';
 
@@ -53,7 +54,7 @@ export class Header {
     setText(el.lines, fmt(s.lines));
     setText(el.perTap, `+${fmtRate(g.perTap())}`);
     setText(el.perSecond, fmtRate(g.perSecond()));
-    this.html('sub', el.sub, `release v${s.release}.0 · <span class="st">${s.stars}</span> star${s.stars === 1 ? '' : 's'}`);
+    this.html('sub', el.sub, `release v${currentVersion(s)} · <span class="st">${fmt(s.stars)}</span> star${s.stars === 1 ? '' : 's'}${s.xp > 0 ? ` · ${fmt(s.xp)} xp` : ''}`);
 
     const fx = activeEffects(s, now);
     el.fx.hidden = fx.length === 0;

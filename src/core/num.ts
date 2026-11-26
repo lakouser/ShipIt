@@ -37,6 +37,19 @@ export function fmtRate(value: NumLike): string {
   return d.lt(10) ? String(Math.round(d.toNumber() * 10) / 10) : fmt(d);
 }
 
+/** Multipliers: two decimals at most below 100 ("2.2", "1.18"), then like fmt ("115", "1.23M"). */
+export function fmtMul(value: number): string {
+  return value < 100 ? String(Math.round(value * 100) / 100) : fmt(value);
+}
+
+/** Durations for logs: "45s", "38m", "2h 5m". */
+export function fmtDuration(seconds: number): string {
+  const s = Math.max(0, Math.round(seconds));
+  if (s < 60) return `${s}s`;
+  const m = Math.floor(s / 60);
+  return m < 60 ? `${m}m` : `${Math.floor(m / 60)}h ${m % 60}m`;
+}
+
 /** m:ss, rounded up so a timer never shows 0:00 while time is left. */
 export function clock(seconds: number): string {
   const s = Math.max(0, Math.ceil(seconds));

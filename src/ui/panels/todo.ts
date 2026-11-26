@@ -1,5 +1,5 @@
 import { ACHIEVEMENTS } from '../../core/achievements';
-import { STREAK } from '../../core/content';
+import { MILESTONE, STREAK } from '../../core/content';
 import type { Game } from '../../core/game';
 import { D, clock, fmt } from '../../core/num';
 import { milestoneTaskProgress, milestoneTaskText, questProgress, questText } from '../../core/quests';
@@ -47,7 +47,7 @@ export function renderTodo(game: Game): string {
 
   const m = s.milestone;
   if (m) {
-    html += `<div class="md"><div class="mdh">## v${m.release}.0 milestone ${tint('star', `+${m.stars} star${m.stars > 1 ? 's' : ''}`)}${m.done ? ' <span class="okc">done</span>' : ''}</div>`;
+    html += `<div class="md"><div class="mdh">## release milestone ${tint('star', `+${Math.round(MILESTONE.shipBonus * 100)}% stars`)} when you ship${m.done ? ' <span class="okc">done</span>' : ''}</div>`;
     m.tasks.forEach((t, i) => {
       html += `<div class="ck" data-ms="${i}"><span class="box">[ ]</span> ${hl(milestoneTaskText(t))} <span class="pg h h-${MILESTONE_HUE[t.kind] ?? 'num'}"></span></div>`;
     });

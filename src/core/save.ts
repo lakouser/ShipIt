@@ -1,26 +1,31 @@
-import { BOSS_KINDS, COMPANY_PERKS, EFFECTS, FORKS, FUNDING, PERKS, PROJECTS, ROLE_IDS, STREAK, TRAIT_IDS, UNLOCKS, type EffectId, type ForkId } from './content';
+import { AUTOMATION, BOSS_KINDS, CHALLENGES, COMPANY_PERKS, EFFECTS, FORKS, FUNDING, MARKET, PERKS, PROJECTS, RIVALS, ROLE_IDS, SHIP, SKILLS, STREAK, TRAIT_IDS, UNLOCKS, WORKFLOWS, type ChallengeId, type EffectId, type ForkId, type WorkflowId } from './content';
 import { mailDef } from './mail';
 import { MAN_PAGES } from './man';
 import { D, isFiniteDecimal, type Decimal } from './num';
+import { shippedForStars } from './ship';
 import {
   defaultSettings,
   newGame,
+  newMarket,
   newStats,
   type ActiveSprint,
   type Developer,
   type GameState,
+  type Headline,
   type Incident,
   type MailItem,
+  type MarketState,
   type Milestone,
   type Quest,
   type QuestReward,
+  type ReleaseEntry,
   type Settings,
   type SprintResult,
   type Stats,
   type Ticket,
 } from './state';
 
-export const SAVE_VERSION = 3;
+export const SAVE_VERSION = 4;
 export const SAVE_KEY = 'shipit.save';
 /** Prefix for exported save strings, so pasted text is recognisable. */
 export const EXPORT_PREFIX = 'SHIPIT:';
@@ -46,6 +51,15 @@ const MIGRATIONS: Record<number, (save: Raw) => Raw> = {
         if (n > 0) forks[id] = Array<ForkId>(Math.min(n, 400)).fill('major');
       }
     return { ...save, v: 3, forks };
+  },
+  // v3 → v4: stars now come from every line shipped this run, and versions read v{major}.{minor}.
+  // Start the star curve where the player's stars already are, so nobody loses a star and the next ones come at the
+  // same pace as for anyone else holding that many. The release in progress began before releases were timed.
+  3: (save) => {
+    const stars = Math.max(0, int(save.stars));
+    const shipped = Math.max(0, int(save.release, 1) - 1);
+    const stats = { ...(isObj(save.stats) ? save.stats : {}), starsEarned: stars, ships: shipped };
+    return { ...save, v: 4, shipped: shippedForStars(stars).toString(), releaseStartedAt: -1, major: 0, minor: shipped, stats };
   },
 };
 
@@ -137,6 +151,56 @@ function milestone(x: unknown): Milestone | null {
   return { release: Math.max(1, int(x.release, 1)), stars: Math.max(0, int(x.stars)), done: x.done === true, tasks };
 }
 
+function releaseEntry(x: unknown): ReleaseEntry | null {
+  if (!isObj(x)) return null;
+  const entry: ReleaseEntry = { version: str(x.version, '0.0'), lines: dec(x.lines, D(0)), stars: Math.max(0, int(x.stars)), seconds: typeof x.seconds === 'number' && Number.isFinite(x.seconds) ? Math.max(0, x.seconds) : null, at: num(x.at) };
+  if (typeof x.xp === 'number' && x.xp > 0) entry.xp = int(x.xp);
+  return entry;
+}
+
+const CHALLENGE_IDS = CHALLENGES.map((c) => c.id);
+
+function challenge(x: unknown): { id: ChallengeId; goal: Decimal } | null {
+  if (!isObj(x) || !CHALLENGE_IDS.includes(x.id as ChallengeId)) return null;
+  return { id: x.id as ChallengeId, goal: dec(x.goal, D(SHIP.minRelease)) };
+}
+
+function workflowFlags(x: unknown): Partial<Record<WorkflowId, boolean>> {
+  const out: Partial<Record<WorkflowId, boolean>> = {};
+  if (isObj(x)) for (const w of WORKFLOWS) if (typeof x[w.id] === 'boolean') out[w.id] = x[w.id] as boolean;
+  return out;
+}
+
+function market(x: unknown, savedAt: number): MarketState {
+  const d = newMarket();
+  if (!isObj(x)) return d;
+  const base = isObj(x.base) ? x.base : {};
+  const lastUpdateAt = num(x.lastUpdateAt);
+  // Saves from before quiet minutes were tracked: count the time from the last update to the save as played.
+  const quiet = typeof x.quietMinutes === 'number' && Number.isFinite(x.quietMinutes) ? x.quietMinutes : lastUpdateAt && savedAt > lastUpdateAt ? (savedAt - lastUpdateAt) / 60_000 : 0;
+  const absorbed: Record<string, number> = {};
+  if (isObj(x.absorbed)) for (const r of RIVALS) if (num(x.absorbed[r.id]) > 0) absorbed[r.id] = num(x.absorbed[r.id]);
+  const l = isObj(x.launch) ? x.launch : null;
+  const launch = l && RIVALS.some((r) => r.id === l.rival) ? { rival: str(l.rival), endsAt: num(l.endsAt) } : null;
+  return {
+    appName: str(x.appName, d.appName).slice(0, 24) || d.appName,
+    users: Math.max(0, num(x.users)),
+    quietMinutes: Math.max(0, quiet),
+    peak: Math.max(0, num(x.peak)),
+    lastUpdateAt,
+    startedAt: num(x.startedAt),
+    reviews: Array.isArray(x.reviews) ? x.reviews.filter((r): r is number => typeof r === 'number' && r >= 1 && r <= 5).slice(0, MARKET.reviewsKept) : [],
+    absorbed,
+    passed: Array.isArray(x.passed) ? RIVALS.map((r) => r.id).filter((id) => (x.passed as unknown[]).includes(id)) : [],
+    rank: Math.max(0, int(x.rank)),
+    staleNoticed: x.staleNoticed === true,
+    launch,
+    nextLaunchAt: num(x.nextLaunchAt),
+    press: Array.isArray(x.press) ? x.press.filter(isObj).map((h): Headline => ({ at: num(h.at), outlet: str(h.outlet), text: str(h.text) })).slice(0, MARKET.pressKept) : [],
+    base: { sprints: Math.max(0, int(base.sprints)), bugs: Math.max(0, int(base.bugs)), escaped: Math.max(0, int(base.escaped)), incidents: Math.max(0, int(base.incidents)) },
+  };
+}
+
 function stats(x: unknown): Stats {
   const base = newStats();
   if (!isObj(x)) return base;
@@ -156,7 +220,7 @@ function settings(x: unknown): Settings {
     welcome: x.welcome !== false,
     screensaver: x.screensaver !== false,
     buyAmount: oneOf(x.buyAmount, [1, 10, 'max'] as const, 1),
-    tab: oneOf(x.tab, ['upgrades', 'sprints', 'todo', 'ship', 'team', 'mail', 'settings'] as const, 'upgrades'),
+    tab: oneOf(x.tab, ['upgrades', 'sprints', 'todo', 'ship', 'team', 'mail', 'major', 'market', 'settings'] as const, 'upgrades'),
     dev: x.dev === true,
   };
 }
@@ -231,11 +295,27 @@ export function deserialize(text: string, now: number): GameState | null {
     lines: dec(raw.lines, base.lines),
     lifetime,
     thisRelease: dec(raw.thisRelease, base.thisRelease),
+    shipped: dec(raw.shipped, base.shipped),
+    lastReleaseLines: dec(raw.lastReleaseLines, base.lastReleaseLines),
+    releaseStartedAt: Math.max(-1, num(raw.releaseStartedAt, now)),
+    releasePeak: Math.max(0, num(raw.releasePeak)),
+    releaseLog: Array.isArray(raw.releaseLog) ? raw.releaseLog.map(releaseEntry).filter((r): r is ReleaseEntry => r !== null).slice(0, SHIP.logSize) : [],
     owned: counts(raw.owned),
     stars: Math.max(0, int(raw.stars)),
     starsSpent: Math.max(0, int(raw.starsSpent)),
     perks: counts(raw.perks, (k) => PERKS.some((p) => p.id === k)),
     release: Math.max(1, int(raw.release, 1)),
+    major: Math.max(0, int(raw.major)),
+    minor: Math.max(0, int(raw.minor)),
+    xp: Math.max(0, int(raw.xp)),
+    xpSpent: Math.max(0, int(raw.xpSpent)),
+    banked: Math.max(0, num(raw.banked)),
+    skills: counts(raw.skills, (k) => SKILLS.some((x) => x.id === k)),
+    challenge: challenge(raw.challenge),
+    challengesDone: Array.isArray(raw.challengesDone) ? CHALLENGE_IDS.filter((id) => (raw.challengesDone as unknown[]).includes(id)) : [],
+    workflows: workflowFlags(raw.workflows),
+    autoShipAt: oneOf(raw.autoShipAt, AUTOMATION.shipAtOptions, AUTOMATION.shipAtDefault),
+    market: market(raw.market, num(raw.savedAt, now)),
     achievements: Array.isArray(raw.achievements) ? raw.achievements.filter((a): a is string => typeof a === 'string') : [],
     flags: { crunch: flags.crunch === true, sudo: flags.sudo === true, rmrf: flags.rmrf === true, nightOwl: flags.nightOwl === true, exported: flags.exported === true, touchGrass: flags.touchGrass === true, bankrupt: flags.bankrupt === true },
     editorLine: Math.max(1, int(raw.editorLine, 1)),
@@ -257,6 +337,8 @@ export function deserialize(text: string, now: number): GameState | null {
       ship: unlocked.ship === true,
       team: unlocked.team === true || lifetime.gte(UNLOCKS.teamAtLifetime),
       mail: unlocked.mail === true || lifetime.gte(UNLOCKS.mailAtLifetime),
+      major: unlocked.major === true,
+      market: unlocked.market === true,
     },
     debt: Math.max(0, Math.min(100, num(raw.debt))),
     project: oneOf(raw.project, PROJECTS.map((p) => p.id), 'webapp'),

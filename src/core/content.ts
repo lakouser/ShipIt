@@ -102,10 +102,12 @@ export interface PerkDef {
   branch: PerkBranch;
   file: string;
   summary: string;
+  /** Infinity for a perk with no cap. */
   maxLevel: number;
-  /** Stars for level n+1 = baseCost + costStep * n. */
+  /** Stars for level n+1 = baseCost + costStep * n, or baseCost * costGrowth^n when costGrowth is set. */
   baseCost: number;
   costStep: number;
+  costGrowth?: number;
   requires?: { id: string; level: number };
 }
 
@@ -120,6 +122,7 @@ export const PERKS: readonly PerkDef[] = [
   { id: 'cron', branch: 'system', file: 'crontab', summary: '+10% offline rate and +1h offline cap per level', maxLevel: 5, baseCost: 2, costStep: 2, requires: { id: 'cache', level: 1 } },
   { id: 'timeouts', branch: 'system', file: 'timeouts.conf', summary: 'sprints get 10% more time per level', maxLevel: 5, baseCost: 2, costStep: 1, requires: { id: 'cache', level: 1 } },
   { id: 'bootstrap', branch: 'system', file: 'bootstrap.sh', summary: 'start each release with 5 keyboards and 5 ducks per level', maxLevel: 5, baseCost: 3, costStep: 3, requires: { id: 'cache', level: 3 } },
+  { id: 'zshrc', branch: 'system', file: '.zshrc', summary: 'x1.1 all output per level, no cap (each level costs twice the last)', maxLevel: Infinity, baseCost: 10, costStep: 0, costGrowth: 2, requires: { id: 'cache', level: 5 } },
 ];
 
 export const PERK_VALUES = {
@@ -134,6 +137,7 @@ export const PERK_VALUES = {
   cronHours: 1,
   timeoutsBonus: 0.1,
   bootstrapCopies: 5,
+  zshrcMul: 1.1,
 };
 
 /* ---------- sprints ---------- */
@@ -197,10 +201,29 @@ export const INCIDENTS = {
 /* ---------- prestige, offline, quests, streak, unlocks ---------- */
 
 export const SHIP = {
-  /** Stars available = floor(cbrt(lines this release / linesPerStar)): 1 star at 2M, 2 at 16M, 10 at 2B. */
+  /**
+   * Stars come from every line shipped this run (since the last funding round or major version), not just this release:
+   * stars from shipping = floor(starScale · cbrt(lines shipped this run / linesPerStar)), so 2 at 2M, 4 at 16M, 20 at 2B in total.
+   * A release pays the difference it makes to that total (times the project and brand bonuses), so shipping the same size
+   * of release again pays less, and many tiny releases pay far less than one big one.
+   */
   linesPerStar: 2_000_000,
+  starScale: 2,
+  /** A release needs at least this many lines before it can ship. */
+  minRelease: 2_000_000,
   /** Each star earned (spent or not) adds this fraction to all output. */
   bonusPerStar: 0.1,
+  /** The ship panel calls a release ready once it would grow stars by this fraction (or it's the first release). */
+  readyAt: 0.5,
+  /** Releases kept in the release log. */
+  logSize: 10,
+};
+
+export const MILESTONE = {
+  /** A finished milestone makes the next ship pay this much more (at least the milestone's flat stars). */
+  shipBonus: 0.25,
+  /** The lines task asks for this multiple of the last release's lines this run. */
+  beatLast: 1.5,
 };
 
 export const OFFLINE = {
@@ -494,3 +517,191 @@ export const UNLOCKS = {
   mailAtLifetime: MAIL.unlockAtLifetime,
   teamAtLifetime: TEAM.unlockAtLifetime,
 };
+
+/* ---------- workflows: automation earned by shipping ---------- */
+
+export type WorkflowId = 'deps' | 'devdeps' | 'scripts' | 'release';
+
+export interface WorkflowDef {
+  id: WorkflowId;
+  /** Shown as .github/workflows/<file>. */
+  file: string;
+  summary: string;
+  /** Releases shipped in total before it unlocks. Unlocked workflows start switched on. */
+  releases: number;
+}
+
+/** Bugs and coffee are left to the team (on-call and bug duty roles). */
+export const WORKFLOWS: readonly WorkflowDef[] = [
+  { id: 'deps', file: 'deps.yml', summary: 'installs automation packages for you, best value first', releases: 2 },
+  { id: 'devdeps', file: 'dev-deps.yml', summary: 'installs typing packages for you, best value first', releases: 4 },
+  { id: 'scripts', file: 'scripts.yml', summary: 'runs each ~/bin script as soon as the last one ends', releases: 6 },
+  { id: 'release', file: 'release.yml', summary: 'ships for you, as the same project, once a release would grow stars by the amount you pick', releases: 15 },
+];
+
+export const AUTOMATION = {
+  /** At most this many packages auto-installed per tick. */
+  installsPerTick: 25,
+  /** Choices for release.yml: ship once a release would grow stars by this fraction. */
+  shipAtOptions: [0.5, 0.75, 1, 2] as readonly number[],
+  shipAtDefault: 0.75,
+};
+
+/* ---------- career: titles by stars earned over the whole game ---------- */
+
+export const CAREER: readonly { title: string; stars: number }[] = [
+  { title: 'intern', stars: 0 },
+  { title: 'junior dev', stars: 2 },
+  { title: 'developer', stars: 25 },
+  { title: 'senior dev', stars: 250 },
+  { title: 'staff engineer', stars: 2_500 },
+  { title: 'principal engineer', stars: 25_000 },
+  { title: 'distinguished engineer', stars: 250_000 },
+  { title: 'fellow', stars: 2_500_000 },
+  { title: 'cto', stars: 25_000_000 },
+];
+
+/* ---------- major versions: the endless reset, from the Series B round on ---------- */
+
+export const MAJOR = {
+  /** Major versions open at this funding round (Series B), where runs start to stall. They never reset funding. */
+  unlockRound: 3,
+  /** XP earned in total = floor(cbrt(stars banked across major versions / starsPerXp)). */
+  starsPerXp: 200_000,
+  /** Each XP earned multiplies stars from shipping by 1 + this (spent or not). */
+  starGainPerXp: 0.5,
+};
+
+/** What a modifier can change. Multipliers default to 1; costGrowth replaces COST_GROWTH. */
+export interface Mods {
+  tapMul: number;
+  autoMul: number;
+  allMul: number;
+  /** Price growth per copy (1.15 normally). */
+  costGrowth: number;
+  costMul: number;
+  critAdd: number;
+  sprintReward: number;
+  bugReward: number;
+  /** Multiplies stars from shipping. */
+  starGain: number;
+  /** Only this many packages of each kind can be installed. */
+  maxTier: number;
+  /** False while dotfiles have no effect. */
+  dotfiles: boolean;
+}
+
+export interface SkillDef {
+  id: string;
+  /** Shown as a line of ~/resume.md. */
+  name: string;
+  summary: string;
+  maxLevel: number;
+  baseCost: number;
+  costStep: number;
+  costGrowth?: number;
+}
+
+/** Skills are bought with XP and kept forever. */
+export const SKILLS: readonly SkillDef[] = [
+  { id: 'tenx', name: '10x engineering', summary: 'x2 all output per level, no cap (each level costs twice the last)', maxLevel: Infinity, baseCost: 1, costStep: 0, costGrowth: 2 },
+  { id: 'pairing', name: 'pair programming', summary: '+25% stars from shipping per level', maxLevel: 4, baseCost: 1, costStep: 1 },
+  { id: 'headstart', name: 'head start', summary: 'start each major version with 25 stars per level', maxLevel: 4, baseCost: 1, costStep: 1 },
+  { id: 'muscle', name: 'muscle memory', summary: 'keep your dotfiles when you cut a major version', maxLevel: 1, baseCost: 3, costStep: 0 },
+];
+
+export const SKILL_VALUES = { tenxMul: 2, pairingGain: 0.25, headstartStars: 25 };
+
+export type ChallengeId = 'legacy' | 'cidown' | 'keyboard' | 'solo' | 'clean';
+
+export interface ChallengeDef {
+  id: ChallengeId;
+  name: string;
+  /** Shown as the branch: challenge/<branch>. */
+  branch: string;
+  restriction: string;
+  reward: string;
+  mods: Partial<Mods>;
+  rewardMods: Partial<Mods>;
+}
+
+/**
+ * Challenge releases: restart the current release under a restriction. Ship it with at least the goal
+ * (a release that grows this run's star curve by CHALLENGE.goalGain) for a permanent reward. Unlocked by the first major version.
+ */
+export const CHALLENGES: readonly ChallengeDef[] = [
+  { id: 'legacy', name: 'Legacy codebase', branch: 'legacy', restriction: 'package prices grow 30% per copy', reward: 'packages cost 10% less, forever', mods: { costGrowth: 1.3 }, rewardMods: { costMul: 0.9 } },
+  { id: 'cidown', name: 'CI is down', branch: 'ci-down', restriction: 'automation x0.1', reward: 'automation x1.5, forever', mods: { autoMul: 0.1 }, rewardMods: { autoMul: 1.5 } },
+  { id: 'keyboard', name: 'Broken keyboard', branch: 'broken-keyboard', restriction: 'per tap x0.1', reward: 'per tap x1.5, forever', mods: { tapMul: 0.1 }, rewardMods: { tapMul: 1.5 } },
+  { id: 'solo', name: 'Solo dev', branch: 'solo-dev', restriction: 'only the first 4 packages of each kind', reward: 'sprints and bugs pay x2, forever', mods: { maxTier: 4 }, rewardMods: { sprintReward: 2, bugReward: 2 } },
+  { id: 'clean', name: 'Clean install', branch: 'clean-install', restriction: 'dotfiles do nothing', reward: '+25% stars from shipping, forever', mods: { dotfiles: false }, rewardMods: { starGain: 1.25 } },
+];
+
+export const CHALLENGE = {
+  /** The goal: a release that grows this run's star curve by this fraction, about twice the lines shipped so far this run. */
+  goalGain: 0.25,
+  /** Challenges can start once this run's star curve (before bonuses) reaches this, so they can't be done on an empty codebase. */
+  minCurve: 20,
+};
+
+/* ---------- the market: reviews, users and rival companies ---------- */
+
+export const MARKET = {
+  /** The app's name until the player renames it. */
+  defaultName: 'my-app',
+  /** New users from a release = usersPerCubeRootLine × cbrt(release lines) × (review / 3)². */
+  usersPerCubeRootLine: 10,
+  /** Users start drifting to rivals after this many quiet minutes since the last update (ship or major version)... */
+  graceMinutes: 45,
+  /** ...losing this share of them each quiet minute after that... */
+  churnPerMinute: 0.01,
+  /** Time away (game closed or asleep) counts as this share of quiet minutes, so being away costs less than idling in the game. */
+  awayChurnRate: 0.35,
+  /** ...but one quiet spell never costs more than this share of the users at the last update... */
+  maxChurn: 0.5,
+  /** ...and time away alone never takes it past this share. */
+  awayMaxChurn: 0.25,
+  /** A release reviewed at least winBackAt wins back this share of the users lost since the last update. */
+  winBackAt: 4,
+  winBack: 0.5,
+  /** Each rival you are ahead of in the chart adds this to all output. */
+  rankBonus: 0.05,
+  /** Rival launches: announced with a warning; ship first to multiply that release's new users. */
+  launch: { firstDelayMs: 10 * 60_000, minGapMs: 12 * 60_000, extraGapMs: 13 * 60_000, warningMs: 5 * 60_000, stealMul: 1.5, rivalGain: 0.05 },
+  /** Scripts a first overtake drops. */
+  overtakeScripts: 2,
+  reviewsKept: 5,
+  pressKept: 12,
+};
+
+export interface RivalDef {
+  id: string;
+  name: string;
+  app: string;
+  /** Users when the player first ships... */
+  users: number;
+  /** ...growing by this share of that each day. */
+  growthPerDay: number;
+}
+
+/** Fictional competitors, smallest first. */
+export const RIVALS: readonly RivalDef[] = [
+  { id: 'hello', name: 'Hello World Inc', app: 'hello-app', users: 5_000, growthPerDay: 0.5 },
+  { id: 'foo', name: 'Foo Corp', app: 'foo.io', users: 30_000, growthPerDay: 0.5 },
+  { id: 'bar', name: 'BarSoft', app: 'bar', users: 200_000, growthPerDay: 0.5 },
+  { id: 'legacy', name: 'Legacy Systems Inc', app: 'LegacyERP', users: 1_200_000, growthPerDay: 0.25 },
+  { id: 'movefast', name: 'MoveFast Labs', app: 'movefast', users: 8_000_000, growthPerDay: 1 },
+  { id: 'waterfall', name: 'Waterfall Ltd', app: 'GanttPro', users: 50_000_000, growthPerDay: 0.25 },
+  { id: 'yak', name: 'Yak Shaving Co', app: 'yakr', users: 300_000_000, growthPerDay: 0.5 },
+  { id: 'monolith', name: 'Monolith Global', app: 'Monolith', users: 2e9, growthPerDay: 0.5 },
+  { id: 'synergy', name: 'Synergy Dynamics', app: 'Synergize', users: 12e9, growthPerDay: 0.5 },
+  { id: 'cloudnine', name: 'Cloud Nine Systems', app: 'nimbus', users: 80e9, growthPerDay: 0.5 },
+  { id: 'hype', name: 'Hype Cycle Inc', app: 'hypr', users: 500e9, growthPerDay: 1 },
+  { id: 'unicorn', name: 'Unicorn Ventures', app: 'unicornify', users: 3e12, growthPerDay: 0.5 },
+  { id: 'galaxy', name: 'Galaxy Brain AI', app: 'galaxybrain', users: 20e12, growthPerDay: 0.5 },
+  { id: 'recursion', name: 'Recursion Corp', app: 'recurse', users: 150e12, growthPerDay: 0.5 },
+  { id: 'bigtech', name: 'Big Tech Holdings', app: 'everything', users: 1e15, growthPerDay: 0.5 },
+];
+
+/** Made-up outlets for the press feed. */
+export const OUTLETS: readonly string[] = ['The Daily Diff', 'Hacker Feed', 'Stack Trace Times', '/dev/news', 'Byte Beat', 'Ship Report', 'The Merge Request'];

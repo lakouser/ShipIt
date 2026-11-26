@@ -1,9 +1,7 @@
 import { COMPANY_PERKS, FUNDING, ROUNDS, type CompanyPerkDef } from './content';
 import { companyLevel } from './economy';
-import { D } from './num';
-import { makeMilestone } from './quests';
 import type { Rng } from './rng';
-import { makeBacklog } from './sprints';
+import { resetRelease, resetRun } from './ship';
 import type { GameState } from './state';
 
 /* ---------- funding rounds: trade every star and perk for equity and a permanent multiplier ---------- */
@@ -34,17 +32,11 @@ export function raiseRound(s: GameState, now: number, rng: Rng): RaiseResult | n
   s.starsSpent = 0;
   s.perks = {};
   s.release = 1;
-  s.lines = D(0);
-  s.thisRelease = D(0);
-  s.owned = {};
-  s.forks = {};
-  s.debt = 0;
   s.project = 'webapp';
-  s.sprint = null;
-  s.lastSprint = null;
   s.boss = null;
-  s.backlog = makeBacklog(s, now, rng);
-  s.milestone = makeMilestone(s);
+  resetRun(s);
+  resetRelease(s, now, rng);
+  s.owned = {};
   return result;
 }
 

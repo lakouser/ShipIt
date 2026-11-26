@@ -39,7 +39,7 @@ export function applyDev(s: GameState, action: DevAction, now: number, rng: Rng,
       s.nextQuestAt = 0;
       return null;
     case 'unlock':
-      s.unlocked = { sprints: true, todo: true, ship: true, team: true, mail: true };
+      s.unlocked = { sprints: true, todo: true, ship: true, team: true, mail: true, major: true, market: true };
       return null;
     case 'debt':
       addDebt(s, 30);

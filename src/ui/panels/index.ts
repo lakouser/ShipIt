@@ -1,12 +1,16 @@
-import type { EffectId, ForkId, IncidentKind, ProjectId, RoleId } from '../../core/content';
+import type { ChallengeId, EffectId, ForkId, IncidentKind, ProjectId, RoleId, WorkflowId } from '../../core/content';
 import type { DevAction } from '../../core/dev';
 import { upgradesWithForks } from '../../core/economy';
 import type { Game } from '../../core/game';
 import { unreadCount } from '../../core/mail';
 import { manUnreadCount } from '../../core/man';
+import { challengeReady } from '../../core/major';
 import { nextProjects } from '../../core/ship';
+import { workflowOn } from '../../core/workflows';
 import type { BuyAmount, Notation, Skin, Tab } from '../../core/state';
 import { mailKey, renderMail, type MailView } from './mail';
+import { refreshMajor, renderMajor } from './major';
+import { refreshMarket, renderMarket } from './market';
 import { renderSettings, type SettingsView } from './settings';
 import { refreshShip, renderShip, shipKey, type ShipView } from './ship';
 import { refreshSprints, renderSprints } from './sprints';
@@ -51,6 +55,9 @@ export class Panels {
   private raiseArmed = false;
   private raiseTimer = 0;
   private letGoArmed: number | null = null;
+  /** A second confirm-tap action waiting in the major tab: 'major' or 'challenge:<id>'. */
+  private armedAction: string | null = null;
+  private actionTimer = 0;
   private project: ProjectId = 'webapp';
   private readonly mailView: MailView = { openMail: null, openMan: null };
   private duckLine = '';
@@ -74,6 +81,15 @@ export class Panels {
       this.show(btn.dataset.tab as Tab);
     });
     root.addEventListener('click', (e) => this.handleClick(e));
+    // The app name field in the market tab: saved when it loses focus or on enter.
+    root.addEventListener('change', (e) => {
+      const input = e.target as HTMLInputElement;
+      if (!input.matches('[data-appname]')) return;
+      input.value = this.game.renameApp(input.value);
+    });
+    root.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter' && (e.target as Element).matches('[data-appname]')) (e.target as HTMLInputElement).blur();
+    });
   }
 
   show(tab: Tab): void {
@@ -81,6 +97,7 @@ export class Panels {
     this.tabs.querySelector(`[data-tab="${tab}"]`)?.classList.remove('new');
     this.disarm();
     this.disarmRaise();
+    this.disarmAction(false);
     this.letGoArmed = null;
     this.exportText = null;
     this.importOpen = false;
@@ -91,7 +108,7 @@ export class Panels {
   /** Shows or hides tabs according to what the player has unlocked; newly unlocked ones blink until visited. */
   syncTabs(newlyUnlocked?: Tab): void {
     const u = this.game.state.unlocked;
-    const visible: Record<string, boolean> = { upgrades: true, sprints: u.sprints, todo: u.todo, ship: u.ship, team: u.team, mail: u.mail, settings: true };
+    const visible: Record<string, boolean> = { upgrades: true, sprints: u.sprints, todo: u.todo, ship: u.ship, team: u.team, mail: u.mail, major: u.major, market: u.market, settings: true };
     this.tabs.querySelectorAll<HTMLButtonElement>('[data-tab]').forEach((b) => {
       b.hidden = !visible[b.dataset.tab!];
       if (b.dataset.tab === newlyUnlocked) b.classList.add('new');
@@ -118,6 +135,8 @@ export class Panels {
       : tab === 'ship' ? renderShip(this.game, this.shipView())
       : tab === 'team' ? renderTeam(this.game, this.letGoArmed)
       : tab === 'mail' ? renderMail(this.game, this.mailView)
+      : tab === 'major' ? renderMajor(this.game, this.armedAction)
+      : tab === 'market' ? renderMarket(this.game)
       : renderSettings(this.game, view);
     this.shownKey = this.structureKey(tab);
     this.refresh();
@@ -129,6 +148,7 @@ export class Panels {
       : tab === 'ship' ? shipKey(this.game)
       : tab === 'team' ? teamKey(this.game)
       : tab === 'mail' ? mailKey(this.game)
+      : tab === 'major' ? `${this.game.state.major}|${!!this.game.state.challenge}|${this.game.state.challengesDone.length}|${challengeReady(this.game.state)}|${this.game.state.round}`
       : '';
   }
 
@@ -156,6 +176,8 @@ export class Panels {
     else if (tab === 'todo') refreshTodo(this.game, this.root);
     else if (tab === 'ship') refreshShip(this.game, this.root, this.shipView());
     else if (tab === 'team') refreshTeam(this.game, this.root);
+    else if (tab === 'major') refreshMajor(this.game, this.root, this.armedAction);
+    else if (tab === 'market') refreshMarket(this.game, this.root);
     else if (tab === 'settings') {
       const el = this.root.querySelector('[data-save-status]');
       const info = this.actions.saveInfo();
@@ -196,6 +218,28 @@ export class Panels {
         this.raiseTimer = window.setTimeout(() => this.disarmRaise(), ARM_MS);
         this.refresh();
       }
+    } else if ('major' in d) {
+      if (this.armedAction === 'major') {
+        this.disarmAction(false);
+        this.game.cutMajor();
+      } else this.armAction('major');
+    } else if (d.challenge) {
+      const key = `challenge:${d.challenge}`;
+      if (this.armedAction === key) {
+        this.disarmAction(false);
+        if (this.game.startChallenge(d.challenge as ChallengeId)) this.done();
+      } else this.armAction(key);
+    } else if ('abandon' in d) {
+      this.game.abandonChallenge();
+    } else if (d.skill) {
+      if (this.game.buySkill(d.skill)) this.done();
+    } else if (d.workflow) {
+      const id = d.workflow as WorkflowId;
+      this.game.setWorkflow(id, !workflowOn(s, id));
+      this.done();
+    } else if (d.autoship) {
+      this.game.setAutoShipAt(Number(d.autoship));
+      this.done();
     } else if (d.buyco) {
       if (this.game.buyCompanyPerk(d.buyco)) this.done();
     } else if ('hire' in d) {
@@ -260,6 +304,7 @@ export class Panels {
         this.render();
       } else {
         this.game.dev(d.dev as DevAction, d.kind as IncidentKind | undefined);
+        this.syncTabs(); // "unlock tabs" sets the flags directly, without unlock events
         this.render();
       }
     }
@@ -314,6 +359,21 @@ export class Panels {
     if (!this.armed) return;
     this.armed = false;
     this.refresh();
+  }
+
+  /** First tap of a two-tap action in the major tab; it disarms itself after ARM_MS. */
+  private armAction(action: string): void {
+    window.clearTimeout(this.actionTimer);
+    this.armedAction = action;
+    this.actionTimer = window.setTimeout(() => this.disarmAction(true), ARM_MS);
+    this.render();
+  }
+
+  private disarmAction(rerender: boolean): void {
+    window.clearTimeout(this.actionTimer);
+    if (!this.armedAction) return;
+    this.armedAction = null;
+    if (rerender && this.game.state.settings.tab === 'major') this.render();
   }
 
   private disarmRaise(): void {

@@ -1,7 +1,9 @@
 import { hl } from './hl';
-import { FUNDING, LANGUAGES, SHIP } from '../core/content';
+import { FUNDING, LANGUAGES } from '../core/content';
+import { starBonus } from '../core/economy';
 import type { RaiseResult } from '../core/funding';
-import { fmt } from '../core/num';
+import type { MajorResult } from '../core/major';
+import { fmt, fmtMul } from '../core/num';
 import type { ShipResult } from '../core/ship';
 import { esc, prefersReducedMotion } from './dom';
 import { BOAT } from './icons';
@@ -71,13 +73,13 @@ export function playMergeSplash(r: ShipResult, options: MergeSplashOptions = {})
   return new Promise((resolve) => {
     const reduced = prefersReducedMotion();
     const starsAfter = r.starsBefore + r.stars;
-    const branch = `release/v${r.release}`;
+    const branch = `release/v${r.version}`;
 
     const root = document.createElement('div');
     root.className = 'merge';
     root.setAttribute('role', 'dialog');
     root.setAttribute('aria-modal', 'true');
-    root.setAttribute('aria-label', `Release v${r.release}.0 merged`);
+    root.setAttribute('aria-label', `Release v${r.version} merged`);
     root.tabIndex = -1;
     root.innerHTML = `<div class="mwin">
       <div class="mt"><span>git merge</span><span>${branch} → main</span></div>
@@ -90,14 +92,14 @@ export function playMergeSplash(r: ShipResult, options: MergeSplashOptions = {})
           <div class="tbar mbar" data-bar></div>
         </div>
         <div class="mship" data-shipped hidden>
-          ${banner(`v${r.release}.0`)}
+          ${banner(`v${r.version}`)}
           <div class="sea" aria-hidden="true"><pre class="boat">${esc(BOAT)}</pre><div class="waves">${'~^~~^~~~^~~'.repeat(12)}</div></div>
         </div>
         <div class="mlog" data-log></div>
         <div class="mstars" data-stars hidden>
           ${STAR_SVG}
-          <div><div class="mnum" data-mnum><span data-num>${r.starsBefore}</span><span class="mplus">+${r.stars}</span></div>
-          <div class="mlabel">stars · output +${Math.round(starsAfter * SHIP.bonusPerStar * 100)}%</div></div>
+          <div><div class="mnum" data-mnum><span data-num>${fmt(r.starsBefore)}</span><span class="mplus">+${fmt(r.stars)}</span></div>
+          <div class="mlabel">stars · output x${fmtMul(starBonus(starsAfter))}${r.bonus ? ` · milestone +${fmt(r.bonus)}` : ''}</div></div>
         </div>
         <div class="mhint" data-hint>tap to skip</div>
       </div>
@@ -130,7 +132,7 @@ export function playMergeSplash(r: ShipResult, options: MergeSplashOptions = {})
     const objects = Math.max(3, Math.min(99999, Math.round(r.releaseLines.add(1).log10() * 617)));
     const steps = [
       () => addLog(`${fmt(r.releaseLines)} lines merged, packages reset`),
-      () => addLog(`git push origin v${r.release}.0: writing objects 100% (${objects}/${objects})`),
+      () => addLog(`git push origin v${r.version}: writing objects 100% (${objects}/${objects})`),
       // The count gives way to the version banner and the boat sails.
       () => {
         drain.hidden = true;
@@ -266,6 +268,61 @@ export function playRoundSplash(r: RaiseResult): Promise<void> {
       if (!e.repeat) close();
     };
     // A short pause, so the tap or key that raised the round doesn't close the splash at once.
+    window.setTimeout(() => {
+      window.addEventListener('keydown', onKey, true);
+      root.addEventListener('pointerdown', (e) => {
+        e.preventDefault();
+        close();
+      });
+    }, 350);
+  });
+}
+
+/** Full-screen splash after cutting a major version. Press a key or tap to close; resolves when closed. */
+export function playMajorSplash(r: MajorResult, xpAfter: number): Promise<void> {
+  return new Promise((resolve) => {
+    const reduced = prefersReducedMotion();
+    const root = document.createElement('div');
+    root.className = 'merge';
+    root.setAttribute('role', 'dialog');
+    root.setAttribute('aria-modal', 'true');
+    root.setAttribute('aria-label', `Major version v${r.version} cut`);
+    root.tabIndex = -1;
+    const ok = (text: string) => `<div><span class="tag tag-ok">${LOG_TAGS.ok}</span> ${hl(text)}</div>`;
+    root.innerHTML = `<div class="mwin">
+      <div class="mt"><span>git tag</span><span>v${esc(r.version)} · major version</span></div>
+      <div class="mbody">
+        <div class="mline"><span class="tag tag-cmd">${LOG_TAGS.cmd}</span> git tag -a v${esc(r.version)} -m "major version"</div>
+        <div class="mround">v${esc(r.version)}</div>
+        <div class="mlabel">a whole new app, the same company and users</div>
+        <div class="mlog">
+          ${ok(`${fmt(r.starsBanked)} stars banked`)}
+          ${ok(`+${fmt(r.xp)} xp (${fmt(xpAfter)} in total): stars from shipping grow with every point`)}
+          ${ok('stars, dotfiles, releases and packages start over')}
+          ${ok('funding, equity, the team, skills and users stay')}
+        </div>
+        <div class="mhint">press any key or tap to continue</div>
+      </div>
+    </div>`;
+    document.body.appendChild(root);
+    root.focus({ preventScroll: true });
+    let closed = false;
+    const close = () => {
+      if (closed) return;
+      closed = true;
+      window.removeEventListener('keydown', onKey, true);
+      root.classList.add('out');
+      window.setTimeout(() => {
+        root.remove();
+        resolve();
+      }, reduced ? 0 : 180);
+    };
+    const onKey = (e: KeyboardEvent) => {
+      if (e.metaKey || e.ctrlKey || e.altKey) return;
+      e.preventDefault();
+      e.stopPropagation();
+      if (!e.repeat) close();
+    };
     window.setTimeout(() => {
       window.addEventListener('keydown', onKey, true);
       root.addEventListener('pointerdown', (e) => {

@@ -1,7 +1,7 @@
-import { QUESTS, SHIP, UPGRADES, packageName } from './content';
+import { MILESTONE, QUESTS, SHIP, UPGRADES, packageName } from './content';
 import { critChance, isUpgradeVisible, owned, totalOwned, typicalOutput } from './economy';
 import { grantScript, randomScript } from './effects';
-import { D, fmt, type Decimal } from './num';
+import { D, Decimal, fmt } from './num';
 import type { Rng } from './rng';
 import type { GameState, Milestone, MilestoneTaskKind, Quest, QuestReward } from './state';
 
@@ -173,6 +173,10 @@ export function updateQuests(s: GameState, now: number, rng: Rng): Quest[] {
 
 /* ---------- release milestone ---------- */
 
+/**
+ * The release milestone: beat this run's last release by half again, with enough packages and sprints.
+ * Finishing it makes this release's ship pay MILESTONE.shipBonus more stars (at least `stars`).
+ */
 export function makeMilestone(s: GameState): Milestone {
   const r = s.release;
   return {
@@ -180,12 +184,16 @@ export function makeMilestone(s: GameState): Milestone {
     stars: 1 + Math.floor(r / 3),
     done: false,
     tasks: [
-      { kind: 'lines', target: D(SHIP.linesPerStar).mul(8 * r * r).toString(), baseline: '0' },
-      { kind: 'owned', target: String(30 + 15 * (r - 1)), baseline: '0' },
-      { kind: 'sprints', target: String(2 + Math.floor(r / 2)), baseline: String(s.stats.sprints) },
+      { kind: 'lines', target: niceCeil(Decimal.max(D(SHIP.linesPerStar).mul(8), s.lastReleaseLines.mul(MILESTONE.beatLast))).toString(), baseline: '0' },
+      { kind: 'owned', target: String(30 + 10 * Math.min(r - 1, 30)), baseline: '0' },
+      { kind: 'sprints', target: String(Math.min(2 + Math.floor(r / 2), 6)), baseline: String(s.stats.sprints) },
     ],
   };
 }
+
+/** Extra stars a finished milestone adds to a ship that pays `stars`. */
+export const milestoneBonus = (s: GameState, stars: number): number =>
+  s.milestone?.done ? Math.max(s.milestone.stars, Math.ceil(stars * MILESTONE.shipBonus)) : 0;
 
 export function milestoneTaskProgress(s: GameState, task: Milestone['tasks'][number]): Decimal {
   const by: Record<MilestoneTaskKind, () => Decimal> = {
@@ -202,13 +210,12 @@ export function milestoneTaskText(task: Milestone['tasks'][number]): string {
   return `merge ${task.target} sprints`;
 }
 
-/** Awards the milestone's stars once every task is done. */
+/** Marks the milestone done once every task is; its bonus is paid when the release ships. */
 export function updateMilestone(s: GameState): Milestone | null {
   const m = s.milestone;
   if (!m || m.done) return null;
   if (!m.tasks.every((t) => milestoneTaskProgress(s, t).gte(t.target))) return null;
   m.done = true;
-  s.stars += m.stars;
   s.stats.milestones++;
   return m;
 }

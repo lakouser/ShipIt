@@ -3,7 +3,8 @@ import { addDebt } from './debt';
 import { addLines, perSecond, perTap, projectOf, roleStrength, typicalOutput } from './economy';
 import { grantScript, randomScript } from './effects';
 import { D, Decimal } from './num';
-import { perkLevel } from './perks';
+import { mods } from './mods';
+import { perkEffect } from './perks';
 import type { Rng } from './rng';
 import type { ActiveSprint, GameState, SprintResult, Ticket } from './state';
 
@@ -23,9 +24,10 @@ function shuffled<T>(items: readonly T[], rng: Rng): T[] {
 function makeTicket(s: GameState, tierIndex: number, now: number, rng: Rng, title: string): Ticket {
   const tier = SPRINT_TIERS[tierIndex];
   const project = projectOf(s);
-  const timeBonus = (1 + PERK_VALUES.timeoutsBonus * perkLevel(s, 'timeouts')) * (project.sprintTimeMul ?? 1);
+  const timeBonus = (1 + PERK_VALUES.timeoutsBonus * perkEffect(s, 'timeouts')) * (project.sprintTimeMul ?? 1);
   const rewardBonus =
-    (1 + PERK_VALUES.retroReward * perkLevel(s, 'retro')) *
+    mods(s).sprintReward *
+    (1 + PERK_VALUES.retroReward * perkEffect(s, 'retro')) *
     (1 + s.questBonus.sprint) *
     (1 + TEAM.sprintReward * roleStrength(s, 'sprints')) *
     (project.sprintRewardMul ?? 1);

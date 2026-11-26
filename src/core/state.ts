@@ -1,8 +1,8 @@
-import { BUGS, INCIDENTS, type BossKind, type EffectId, type ForkId, type ProjectId, type RoleId, type TraitId } from './content';
+import { AUTOMATION, BUGS, INCIDENTS, MARKET, type BossKind, type ChallengeId, type EffectId, type ForkId, type ProjectId, type RoleId, type TraitId, type WorkflowId } from './content';
 import { D, type Decimal } from './num';
 
 export type BuyAmount = 1 | 10 | 'max';
-export type Tab = 'upgrades' | 'sprints' | 'todo' | 'ship' | 'team' | 'mail' | 'settings';
+export type Tab = 'upgrades' | 'sprints' | 'todo' | 'ship' | 'team' | 'mail' | 'major' | 'market' | 'settings';
 export type Notation = 'suffix' | 'sci';
 export type Skin = 'pine' | 'phosphor' | 'amber' | 'paper';
 
@@ -45,6 +45,63 @@ export interface Quest {
   /** Upgrade id for "own N of X" tasks. */
   subject?: string;
   reward: QuestReward;
+}
+
+/** A shipped release (or major version), for the release log. */
+export interface ReleaseEntry {
+  /** The version tag, "1.4" (shown as v1.4). */
+  version: string;
+  lines: Decimal;
+  stars: number;
+  /** How long the release took, wall-clock seconds (time away included); null if it began before releases were timed. */
+  seconds: number | null;
+  /** When it shipped (ms). */
+  at: number;
+  /** Set when this was a major version: the XP it earned. */
+  xp?: number;
+}
+
+/** A press-feed headline. */
+export interface Headline {
+  at: number;
+  outlet: string;
+  text: string;
+}
+
+/** Counters at the start of the release, so its review can see what happened during it. */
+export interface ReleaseCounters {
+  sprints: number;
+  bugs: number;
+  escaped: number;
+  incidents: number;
+}
+
+/** The app in the market: users, reviews, rivals and the press. Never reset. */
+export interface MarketState {
+  appName: string;
+  /** Users at the last update; churn since then comes from quietMinutes. */
+  users: number;
+  /** Quiet minutes since the last update: time playing counts in full, time away at MARKET.awayChurnRate. */
+  quietMinutes: number;
+  peak: number;
+  /** The last ship or major version (ms); 0 before the first ship. */
+  lastUpdateAt: number;
+  /** The first ship: rivals grow from here. */
+  startedAt: number;
+  /** Review scores, newest first. */
+  reviews: number[];
+  /** Users rivals have taken from the player, by rival id. */
+  absorbed: Record<string, number>;
+  /** Rivals the player has overtaken at least once. */
+  passed: string[];
+  /** Chart position last announced (0 before the first ship). */
+  rank: number;
+  /** Set once the press has noticed this quiet spell. */
+  staleNoticed: boolean;
+  launch: { rival: string; endsAt: number } | null;
+  nextLaunchAt: number;
+  press: Headline[];
+  base: ReleaseCounters;
 }
 
 export type MilestoneTaskKind = 'lines' | 'owned' | 'sprints';
@@ -117,6 +174,15 @@ export interface Stats {
   bossesFailed: number;
   mailAnswered: number;
   duckPokes: number;
+  /** Releases shipped over the whole game (GameState.release resets with funding rounds and majors). */
+  ships: number;
+  /** Stars earned over the whole game (shipping and milestones), for career titles. */
+  starsEarned: number;
+  autoShips: number;
+  majors: number;
+  challenges: number;
+  steals: number;
+  fiveStars: number;
 }
 
 export interface Settings {
@@ -140,15 +206,42 @@ export interface GameState {
   lines: Decimal;
   /** Every line ever written, across releases. */
   lifetime: Decimal;
-  /** Lines written since the last ship; drives stars. */
+  /** Lines written since the last ship. */
   thisRelease: Decimal;
+  /** Lines of every release shipped this run (since the last funding round or major). Stars come from this plus thisRelease. */
+  shipped: Decimal;
+  /** Lines of the last release shipped this run, for the milestone (0 at the start of a run). */
+  lastReleaseLines: Decimal;
+  /** When the current release started (ms), for stars per minute; -1 if it began before releases were timed. */
+  releaseStartedAt: number;
+  /** Best stars per minute seen during the current release. */
+  releasePeak: number;
+  /** The last few shipped releases, newest first. */
+  releaseLog: ReleaseEntry[];
   owned: Record<string, number>;
   /** Stars ever earned. The output bonus counts all of them, spent or not. */
   stars: number;
   starsSpent: number;
   perks: Record<string, number>;
-  /** Current major version; starts at 1. */
+  /** Releases shipped this run plus one: resets with a funding round or a major version. */
   release: number;
+  /** The version shown as v{major}.{minor}: majors cut so far, and releases shipped since the last one (funding rounds don't reset it). */
+  major: number;
+  minor: number;
+  /** XP earned in total (the star bonus counts all of it, spent or not) and XP spent on skills. */
+  xp: number;
+  xpSpent: number;
+  /** Stars banked by cutting major versions; drives XP the way shipped lines drive stars. */
+  banked: number;
+  skills: Record<string, number>;
+  /** A challenge release in progress: its id and the lines it needs to count. */
+  challenge: { id: ChallengeId; goal: Decimal } | null;
+  challengesDone: ChallengeId[];
+  /** Workflows the player switched off (unlocked ones are on unless listed here as false). */
+  workflows: Partial<Record<WorkflowId, boolean>>;
+  /** release.yml ships once a release would grow stars by this fraction. */
+  autoShipAt: number;
+  market: MarketState;
   achievements: string[];
   flags: { crunch?: boolean; sudo?: boolean; rmrf?: boolean; nightOwl?: boolean; exported?: boolean; touchGrass?: boolean; bankrupt?: boolean };
   /** Line number shown in the editor gutter. */
@@ -173,7 +266,7 @@ export interface GameState {
   nextIncidentAt: number;
   /** activity: taps per day (YYYY-MM-DD), for the days kept. */
   streak: { lastDay: string; count: number; days: string[]; activity: Record<string, number> };
-  unlocked: { sprints: boolean; todo: boolean; ship: boolean; team: boolean; mail: boolean };
+  unlocked: { sprints: boolean; todo: boolean; ship: boolean; team: boolean; mail: boolean; major: boolean; market: boolean };
   /** Tech debt, 0 to DEBT.max. */
   debt: number;
   /** What this release is building. */
@@ -209,6 +302,12 @@ export const newStats = (): Stats => ({
   taps: 0, crits: 0, purchases: 0, sprints: 0, bugs: 0, bugsEscaped: 0, coffees: 0, outagesFixed: 0,
   conflictsResolved: 0, scriptsRun: 0, quests: 0, milestones: 0, perksBought: 0, flowMaxed: 0, maxOfOne: 0,
   refactors: 0, forksChosen: 0, hires: 0, bossesBeaten: 0, bossesFailed: 0, mailAnswered: 0, duckPokes: 0,
+  ships: 0, starsEarned: 0, autoShips: 0, majors: 0, challenges: 0, steals: 0, fiveStars: 0,
+});
+
+export const newMarket = (): MarketState => ({
+  appName: MARKET.defaultName, users: 0, quietMinutes: 0, peak: 0, lastUpdateAt: 0, startedAt: 0, reviews: [], absorbed: {}, passed: [], rank: 0,
+  staleNoticed: false, launch: null, nextLaunchAt: 0, press: [], base: { sprints: 0, bugs: 0, escaped: 0, incidents: 0 },
 });
 
 export const defaultSettings = (): Settings => ({
@@ -221,11 +320,27 @@ export function newGame(now: number): GameState {
     lines: D(0),
     lifetime: D(0),
     thisRelease: D(0),
+    shipped: D(0),
+    lastReleaseLines: D(0),
+    releaseStartedAt: now,
+    releasePeak: 0,
+    releaseLog: [],
     owned: {},
     stars: 0,
     starsSpent: 0,
     perks: {},
     release: 1,
+    major: 0,
+    minor: 0,
+    xp: 0,
+    xpSpent: 0,
+    banked: 0,
+    skills: {},
+    challenge: null,
+    challengesDone: [],
+    workflows: {},
+    autoShipAt: AUTOMATION.shipAtDefault,
+    market: newMarket(),
     achievements: [],
     flags: {},
     editorLine: 1,
@@ -244,7 +359,7 @@ export function newGame(now: number): GameState {
     incident: null,
     nextIncidentAt: now + INCIDENTS.firstDelayMs,
     streak: { lastDay: '', count: 0, days: [], activity: {} },
-    unlocked: { sprints: false, todo: false, ship: false, team: false, mail: false },
+    unlocked: { sprints: false, todo: false, ship: false, team: false, mail: false, major: false, market: false },
     debt: 0,
     project: 'webapp',
     projectsShipped: [],

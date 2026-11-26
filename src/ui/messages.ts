@@ -1,8 +1,11 @@
-import { BOSSES, DEBT, EFFECTS, FUNDING, LANGUAGES, ROLES, SHIP, TRAITS, packageName, type EffectId, type ForkDef, type UpgradeKind } from '../core/content';
+import { BOSSES, DEBT, EFFECTS, FUNDING, LANGUAGES, MARKET, MILESTONE, ROLES, TRAITS, packageName, type EffectId, type ForkDef, type UpgradeKind } from '../core/content';
+import { starBonus } from '../core/economy';
 import type { GameEvent } from '../core/game';
 import { mailDef } from '../core/mail';
-import { clock, fmt } from '../core/num';
+import { findChallenge } from '../core/major';
+import { clock, fmt, fmtDuration, fmtMul } from '../core/num';
 import { questText } from '../core/quests';
+import type { ShipResult } from '../core/ship';
 import type { QuestReward, SprintResult } from '../core/state';
 
 export { packageName };
@@ -18,12 +21,18 @@ export const LOG_TAGS: Record<LogKind, string> = { ok: '[ ok ]', warn: '[warn]',
 
 export const scriptFile = (id: EffectId): string => EFFECTS[id].file ?? id;
 
-const TAB_NAMES = { sprints: '1:sprints', todo: '2:todo', ship: '3:ship', team: '4:team', mail: '5:mail' } as const;
+const TAB_NAMES = { sprints: '1:sprints', todo: '2:todo', ship: '3:ship', team: '4:team', mail: '5:mail', major: '6:major', market: '7:market' } as const;
 
 export function rewardText(r: QuestReward): string {
   if (r.kind === 'script') return `+1 ${scriptFile(r.script)}`;
   const pct = Math.round(r.amount * 100);
   return { tap: `+${pct}% per tap`, auto: `+${pct}% automation`, bug: `+${pct}% bug rewards`, sprint: `+${pct}% sprint rewards` }[r.kind];
+}
+
+function challengeLines(c: ShipResult['challenge']): LogLine[] {
+  if (!c) return [];
+  const def = findChallenge(c.id);
+  return [c.done ? { kind: 'ok', text: `challenge complete: ${def.name}. ${def.reward}` } : { kind: 'info', text: `${def.name} shipped short of its goal: no reward this time` }];
 }
 
 /** Turns game events into log lines printed in the editor. */
@@ -68,13 +77,13 @@ export function describe(e: GameEvent): LogLine[] {
     case 'questDone':
       return [{ kind: 'ok', text: `TODO done: ${questText(e.quest)} (${rewardText(e.quest.reward)})` }];
     case 'milestoneDone':
-      return [{ kind: 'ok', text: `v${e.milestone.release}.0 milestone complete, +${e.milestone.stars} star${e.milestone.stars > 1 ? 's' : ''}` }];
+      return [{ kind: 'ok', text: `release milestone done: this release ships with +${Math.round(MILESTONE.shipBonus * 100)}% stars (at least ${e.milestone.stars})` }];
     case 'unlocked':
       return [{ kind: 'info', text: `new tab unlocked: ${TAB_NAMES[e.tab]}` }];
     case 'checkIn':
       return [{ kind: 'ok', text: `day ${e.checkIn.count} streak: +${fmt(e.checkIn.lines)} lines${e.checkIn.script ? ` and ${scriptFile(e.checkIn.script)}` : ''}` }];
     case 'shipped': {
-      const lines: LogLine[] = [{ kind: 'ok', text: `shipped v${e.result.release}.0, +${e.result.stars} star${e.result.stars > 1 ? 's' : ''}, output +${Math.round(e.totalStars * SHIP.bonusPerStar * 100)}%` }];
+      const lines: LogLine[] = [...challengeLines(e.result.challenge), { kind: 'ok', text: `${e.auto ? 'release.yml ' : ''}shipped v${e.result.version}${e.result.seconds !== null ? ` after ${fmtDuration(e.result.seconds)}` : ''}, +${fmt(e.result.stars)} star${e.result.stars > 1 ? 's' : ''}, output x${fmtMul(starBonus(e.totalStars))}` }];
       if (e.result.next.id !== 'webapp' || e.result.shipped.id !== 'webapp') lines.push({ kind: 'cmd', text: `git init ~/${e.result.next.dir} (${e.result.next.rules.join(', ')})` });
       return lines;
     }
@@ -104,6 +113,37 @@ export function describe(e: GameEvent): LogLine[] {
       return [{ kind: 'ok', text: `${BOSSES[e.kind].name.toLowerCase()} resolved: +${fmt(e.reward)} lines, ${e.scripts.map(scriptFile).join(' and ')}, ${DEBT.bossBeaten} tech debt` }];
     case 'bossFailed':
       return [{ kind: 'err', text: `${BOSSES[e.kind].name.toLowerCase()} got away at stage ${e.stage + 1}: +${DEBT.bossFailed} tech debt` }];
+    case 'autoInstalled':
+      // Packages are re-installed after every release, so automatic installs stay out of the log.
+      return [];
+    case 'promoted':
+      return [{ kind: 'ok', text: `promoted to ${e.title}` }];
+    case 'workflowUnlocked':
+      return [{ kind: 'ok', text: `new workflow: .github/workflows/${e.workflow.file} (${e.workflow.summary}). switch it off in 3:ship` }];
+    case 'majorCut':
+      return [{ kind: 'ok', text: `cut v${e.result.version}: ${fmt(e.result.starsBanked)} stars banked for +${fmt(e.result.xp)} xp` }];
+    case 'skill':
+      return [{ kind: 'cmd', text: `echo "${e.skill.name} (level ${e.level})" >> ~/resume.md` }];
+    case 'challengeStarted':
+      return [{ kind: 'cmd', text: `git switch -c challenge/${e.challenge.branch}` }, { kind: 'warn', text: `${e.challenge.name}: ${e.challenge.restriction}. ship with the goal met for ${e.challenge.reward}` }];
+    case 'challengeAbandoned':
+      return [{ kind: 'info', text: `challenge/${findChallenge(e.id).branch} abandoned` }];
+    case 'reviewed': {
+      const n = e.news;
+      const back = n.regained >= 1 ? `, ${fmt(n.regained)} came back` : n.lost >= 1 ? `, ${fmt(n.lost)} went to rivals` : '';
+      const lines: LogLine[] = [{ kind: 'ok', text: `reviews are in: ${n.review.toFixed(1)}★, +${fmt(n.newUsers)} users${back}` }];
+      for (const r of n.overtook) lines.push({ kind: 'ok', text: `overtook ${r.name} in the charts, found ${MARKET.overtakeScripts} scripts` });
+      for (const h of n.headlines) lines.push({ kind: 'info', text: `${h.outlet}: ${h.text}` });
+      return lines;
+    }
+    case 'market': {
+      const n = e.news;
+      if (n.kind === 'launch') return [{ kind: 'warn', text: `${n.rival.name} launches in ${clock(MARKET.launch.warningMs / 1000)}: ship first to steal the headline` }, { kind: 'info', text: `${n.headline.outlet}: ${n.headline.text}` }];
+      if (n.kind === 'stale') return [{ kind: 'warn', text: `no update for ${MARKET.graceMinutes} minutes: users are drifting to rivals` }, { kind: 'info', text: `${n.headline.outlet}: ${n.headline.text}` }];
+      return [{ kind: n.kind === 'overtaken' ? 'warn' : 'info', text: `${n.headline.outlet}: ${n.headline.text}` }];
+    }
+    case 'news':
+      return [{ kind: 'info', text: `${e.headline.outlet}: ${e.headline.text}` }];
     case 'raised':
       return [
         { kind: 'ok', text: `${e.result.name} round closed: x${FUNDING.outputPerRound} output for good, +${e.result.equity} equity` },

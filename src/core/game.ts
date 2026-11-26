@@ -1,9 +1,12 @@
 import { checkAchievements, type AchievementDef } from './achievements';
+import { careerLevel } from './career';
 import { bossPick, bossTap, engageBoss, updateBoss, type BossChange } from './bosses';
 import { squashBug, updateBugs } from './bugs';
 import {
+  AUTOMATION,
   BOSS_KINDS,
   BUGS,
+  CAREER,
   COMPANY_VALUES,
   CRIT,
   FLOW,
@@ -11,6 +14,8 @@ import {
   PERK_VALUES,
   UNLOCKS,
   type BossKind,
+  type ChallengeDef,
+  type ChallengeId,
   type CompanyPerkDef,
   type EffectDef,
   type EffectId,
@@ -20,7 +25,10 @@ import {
   type PerkDef,
   type ProjectId,
   type RoleId,
+  type SkillDef,
   type UpgradeDef,
+  type WorkflowDef,
+  type WorkflowId,
 } from './content';
 import { refactor, tickDebt } from './debt';
 import { applyDev, type DevAction } from './dev';
@@ -29,18 +37,21 @@ import { effectSum, pruneEffects, runScript } from './effects';
 import { buyCompanyPerk, raiseRound, type RaiseResult } from './funding';
 import { catchCoffee, chooseConflict, outageTap, updateIncident } from './incidents';
 import { answerMail, markRead, updateMail, type MailAnswer } from './mail';
+import { abandonChallenge, buySkill, cutMajor, majorTabUnlocked, startChallenge, type MajorResult } from './major';
+import { addQuietTime, marketOnMajor, marketOnRaise, marketOnShip, renameApp, reviewScore, startReleaseCounters, updateMarket, type MarketNews, type ShipNews } from './market';
 import { readMan } from './man';
 import type { Decimal } from './num';
-import { buyPerk, perkLevel } from './perks';
+import { buyPerk, perkEffect } from './perks';
 import { makeMilestone, updateMilestone, updateQuests } from './quests';
 import type { Rng } from './rng';
-import { ship, type ShipResult } from './ship';
+import { nextProjects, ship, shipGain, starsPerMinute, type ShipResult } from './ship';
 import { makeBacklog, refreshBacklog, resolveSprint, startSprint } from './sprints';
-import type { ActiveSprint, Boss, Developer, GameState, Incident, MailItem, Milestone, Quest, SprintResult } from './state';
+import type { ActiveSprint, Boss, Developer, GameState, Headline, Incident, MailItem, Milestone, Quest, SprintResult } from './state';
 import { checkIn, dayKey, type CheckIn } from './streak';
 import { assignRole, hire, letGo, passApplicant, updateApplicant } from './team';
+import { autoInstall, autoRunScripts, releasesShipped, workflowOn, workflowsUnlockedBetween } from './workflows';
 
-export type UnlockTab = 'sprints' | 'todo' | 'ship' | 'team' | 'mail';
+export type UnlockTab = 'sprints' | 'todo' | 'ship' | 'team' | 'mail' | 'major' | 'market';
 export type IncidentOutcome = 'caught' | 'fixed' | 'resolved' | 'wrong' | 'missed';
 
 export type GameEvent =
@@ -63,7 +74,17 @@ export type GameEvent =
   | { type: 'milestoneDone'; milestone: Milestone }
   | { type: 'unlocked'; tab: UnlockTab }
   | { type: 'checkIn'; checkIn: CheckIn }
-  | { type: 'shipped'; result: ShipResult; totalStars: number }
+  | { type: 'shipped'; result: ShipResult; totalStars: number; auto: boolean }
+  | { type: 'promoted'; title: string }
+  | { type: 'workflowUnlocked'; workflow: WorkflowDef }
+  | { type: 'autoInstalled'; count: number; forks: Purchase[] }
+  | { type: 'majorCut'; result: MajorResult }
+  | { type: 'skill'; skill: SkillDef; level: number }
+  | { type: 'challengeStarted'; challenge: ChallengeDef }
+  | { type: 'challengeAbandoned'; id: ChallengeId }
+  | { type: 'reviewed'; news: ShipNews }
+  | { type: 'market'; news: MarketNews }
+  | { type: 'news'; headline: Headline }
   | { type: 'offline'; lines: Decimal; seconds: number; awaySeconds: number; rate: number }
   | { type: 'forkChosen'; upgrade: UpgradeDef; fork: ForkDef }
   | { type: 'refactored'; refactor: { cost: Decimal; cleared: number } }
@@ -152,7 +173,7 @@ export class Game {
 
   /** Multiplier the flow meter currently gives taps. */
   flowMultiplier(): number {
-    return 1 + this.flow * (FLOW.maxBonus + PERK_VALUES.flowPerLevel * perkLevel(this.state, 'flow'));
+    return 1 + this.flow * (FLOW.maxBonus + PERK_VALUES.flowPerLevel * perkEffect(this.state, 'flow'));
   }
 
   /** Taps per second over the last windowMs (player taps only). */
@@ -280,8 +301,59 @@ export class Game {
 
   raise(): RaiseResult | null {
     const result = raiseRound(this.state, this.clock(), this.rng);
-    if (result) this.emit({ type: 'raised', result });
+    if (!result) return null;
+    startReleaseCounters(this.state);
+    this.emit({ type: 'raised', result });
+    const headline = marketOnRaise(this.state, this.clock(), this.rng, result.name);
+    if (headline) this.emit({ type: 'news', headline });
     return result;
+  }
+
+  /** The endless reset after the IPO: bank stars for XP and start the next major version. */
+  cutMajor(): MajorResult | null {
+    const s = this.state;
+    const result = cutMajor(s, this.clock(), this.rng);
+    if (!result) return null;
+    startReleaseCounters(s);
+    const headline = marketOnMajor(s, this.clock(), this.rng, result.version);
+    this.emit({ type: 'majorCut', result });
+    if (headline) this.emit({ type: 'news', headline });
+    return result;
+  }
+
+  buySkill(id: string): boolean {
+    const result = buySkill(this.state, id);
+    if (result) this.emit({ type: 'skill', skill: result.skill, level: result.level });
+    return !!result;
+  }
+
+  startChallenge(id: ChallengeId): boolean {
+    const challenge = startChallenge(this.state, id, this.clock(), this.rng);
+    if (!challenge) return false;
+    startReleaseCounters(this.state);
+    this.emit({ type: 'challengeStarted', challenge });
+    return true;
+  }
+
+  abandonChallenge(): boolean {
+    const id = abandonChallenge(this.state);
+    if (id) this.emit({ type: 'challengeAbandoned', id });
+    return !!id;
+  }
+
+  /** Names the app in the market (and the press). */
+  renameApp(name: string): string {
+    return renameApp(this.state, name);
+  }
+
+  /** Switches an unlocked workflow on or off. */
+  setWorkflow(id: WorkflowId, on: boolean): void {
+    this.state.workflows[id] = on;
+  }
+
+  /** release.yml's trigger: ship once a release would grow stars by this fraction. */
+  setAutoShipAt(fraction: number): void {
+    if (AUTOMATION.shipAtOptions.includes(fraction)) this.state.autoShipAt = fraction;
   }
 
   buyCompanyPerk(id: string): boolean {
@@ -340,10 +412,32 @@ export class Game {
     return result.ok;
   }
 
-  ship(next: ProjectId = 'webapp'): ShipResult | null {
-    const result = ship(this.state, this.clock(), this.rng, next);
-    if (result) this.emit({ type: 'shipped', result, totalStars: this.state.stars });
+  /** Ships the release and starts the next project. release.yml ships with auto = true. */
+  ship(next: ProjectId = 'webapp', auto = false): ShipResult | null {
+    const s = this.state;
+    const now = this.clock();
+    const titleBefore = careerLevel(s.stats.starsEarned);
+    const shippedBefore = releasesShipped(s);
+    const gain = shipGain(s);
+    const review = reviewScore(s, gain);
+    const result = ship(s, now, this.rng, next);
+    if (!result) return null;
+    if (auto) s.stats.autoShips++;
+    const news = marketOnShip(s, now, this.rng, review, result.releaseLines, result.version, gain < 0.1);
+    startReleaseCounters(s);
+    this.emit({ type: 'shipped', result, totalStars: s.stars, auto });
+    this.emit({ type: 'reviewed', news });
+    const title = careerLevel(s.stats.starsEarned);
+    if (title > titleBefore) this.emit({ type: 'promoted', title: CAREER[title].title });
+    for (const workflow of workflowsUnlockedBetween(shippedBefore, releasesShipped(s))) this.emit({ type: 'workflowUnlocked', workflow });
     return result;
+  }
+
+  /** release.yml: ship as the same project when it's on offer, otherwise as a web app. */
+  private autoShip(): void {
+    const s = this.state;
+    const same = nextProjects(s).some((p) => p.id === s.project) ? s.project : 'webapp';
+    this.ship(same, true);
   }
 
   markExported(): void {
@@ -360,12 +454,13 @@ export class Game {
   /** Credits time away (closed app, sleeping tab) at the offline rate, capped. The crontab perk and runway raise both. */
   creditTimeAway(awaySeconds: number): void {
     const s = this.state;
-    const level = perkLevel(s, 'cron');
+    const level = perkEffect(s, 'cron');
     const runway = companyLevel(s, 'runway');
     const rate = OFFLINE.rate + PERK_VALUES.cronRate * level + COMPANY_VALUES.runwayRate * runway;
     const cap = OFFLINE.maxSeconds + (PERK_VALUES.cronHours * level + COMPANY_VALUES.runwayHours * runway) * 3600;
     const seconds = Math.min(cap, Math.max(0, awaySeconds));
     if (awaySeconds >= 2 * 3600) s.flags.touchGrass = true;
+    addQuietTime(s, Math.max(0, awaySeconds), true);
     const lines = perSecond(s, this.clock()).mul(seconds * rate).floor();
     if (lines.lt(1)) return;
     addLines(s, lines, false);
@@ -404,6 +499,7 @@ export class Game {
       this.creditTimeAway(dt);
     } else if (dt > 0) {
       addLines(s, perSecond(s, now).mul(dt));
+      addQuietTime(s, dt, false);
       const autoTaps = effectSum(s, 'autoTapsPerSecond', now);
       if (autoTaps > 0) {
         this.autoTapBudget += autoTaps * dt;
@@ -438,6 +534,10 @@ export class Game {
     else if (boss?.type === 'ignored') this.emit({ type: 'bossIgnored', kind: boss.kind });
     else if (boss?.type === 'failed') this.emit({ type: 'bossFailed', kind: boss.kind, stage: boss.stage });
 
+    const installed = autoInstall(s);
+    if (installed.count > 0) this.emit({ type: 'autoInstalled', ...installed });
+    for (const effect of autoRunScripts(s, now)) this.emit({ type: 'script', effect });
+
     this.checkUnlocks();
     const applicant = updateApplicant(s, now, this.rng);
     if (applicant) this.emit({ type: 'applicant', dev: applicant });
@@ -445,6 +545,9 @@ export class Game {
     if (s.unlocked.todo) for (const quest of updateQuests(s, now, this.rng)) this.emit({ type: 'questDone', quest });
     const milestone = updateMilestone(s);
     if (milestone) this.emit({ type: 'milestoneDone', milestone });
+    for (const news of updateMarket(s, now, this.rng, canSpawn)) this.emit({ type: 'market', news });
+    s.releasePeak = Math.max(s.releasePeak, starsPerMinute(s, now));
+    if (workflowOn(s, 'release') && shipGain(s) >= s.autoShipAt) this.autoShip();
 
     const hour = new Date(now).getHours();
     if (hour >= 2 && hour < 5 && s.stats.taps > 0) s.flags.nightOwl = true;
@@ -465,5 +568,7 @@ export class Game {
     if (!u.ship && (s.thisRelease.gte(UNLOCKS.shipAtRelease) || s.stars > 0 || s.round > 0)) unlock('ship');
     if (!u.mail && s.lifetime.gte(UNLOCKS.mailAtLifetime)) unlock('mail');
     if (!u.team && s.lifetime.gte(UNLOCKS.teamAtLifetime)) unlock('team');
+    if (!u.market && s.market.startedAt > 0) unlock('market');
+    if (!u.major && majorTabUnlocked(s)) unlock('major');
   }
 }
