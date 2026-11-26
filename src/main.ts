@@ -11,6 +11,7 @@ import { newGame } from './core/state';
 import { getPlatform } from './platform';
 import { SaveStore, type Candidate } from './platform/saves';
 import { App } from './ui/app';
+import { watchFit } from './ui/fit';
 
 async function boot(): Promise<void> {
   const platform = getPlatform();
@@ -69,4 +70,6 @@ function registerServiceWorker(): void {
   navigator.serviceWorker.register('./sw.js').catch(() => {});
 }
 
+// Size the layout to the room it really has before anything is drawn, the boot note included.
+watchFit(document.querySelector<HTMLElement>('.app')!);
 void boot();

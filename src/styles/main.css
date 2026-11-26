@@ -116,7 +116,12 @@ b { font-weight: 700; }
   max-width: 1240px;
   margin: 0 auto;
   display: grid;
-  grid-template-rows: auto auto minmax(170px, 1fr) auto auto auto minmax(220px, 1.15fr) auto;
+  /*
+   * The editor and the panel share what the other rows leave. Their floor is 0, not a fixed height:
+   * a fixed floor let the rows outgrow a short page, and the bar (which scrolls sideways, so the grid
+   * may shrink it) was squeezed off the bottom. data-fit (src/ui/fit.ts) trims rows before that.
+   */
+  grid-template-rows: auto auto minmax(0, 1fr) auto auto auto minmax(0, 1.15fr) auto;
   grid-template-areas: "top" "goal" "ide" "event" "key" "scripts" "panel" "bar";
   gap: 8px;
   padding: 10px max(12px, env(safe-area-inset-right)) 0 max(12px, env(safe-area-inset-left));
@@ -325,7 +330,8 @@ b { font-weight: 700; }
 
 /* ---------- tmux bar ---------- */
 .bar {
-  grid-area: bar; display: flex; align-items: stretch; gap: 0; margin: 0 calc(-1 * max(12px, env(safe-area-inset-right))) 0 calc(-1 * max(12px, env(safe-area-inset-left)));
+  /* Never shorter than its buttons, however little room is left (overflow lets the grid shrink it). */
+  grid-area: bar; min-height: 47px; display: flex; align-items: stretch; gap: 0; margin: 0 calc(-1 * max(12px, env(safe-area-inset-right))) 0 calc(-1 * max(12px, env(safe-area-inset-left)));
   background: var(--pane2); border-top: 1px solid var(--line); font-size: 13px; white-space: nowrap; overflow-x: auto;
   scrollbar-width: none;
 }
@@ -772,16 +778,18 @@ b { font-weight: 700; }
   .g { width: 40px; padding-right: 6px; margin-right: 6px; }
   .tabline .path { display: none; }
 }
-@media (max-height: 760px) and (max-width: 899px) {
-  .app { grid-template-rows: auto auto minmax(120px, 1fr) auto auto auto minmax(190px, 1.1fr) auto; gap: 6px; padding-top: 6px; }
-  .key { height: 52px; }
-  #loc { font-size: 34px; }
-  .pane, .g2 { display: none; }
-  .goal { padding: 3px 10px; }
-  .slot { min-height: 36px; }
-}
-@media (max-height: 640px) and (max-width: 899px) {
-  .desks, .event { display: none; }
+/*
+ * Short pages, by the height the game really gets (data-fit, set by src/ui/fit.ts), not the
+ * viewport's: in the Claude app the viewport counts the status bar, toolbar and home indicator too.
+ */
+@media (max-width: 899px) {
+  .app[data-fit~="short"] { grid-template-rows: auto auto minmax(0, 1fr) auto auto auto minmax(0, 1.1fr) auto; gap: 6px; padding-top: 6px; }
+  [data-fit~="short"] .key { height: 52px; }
+  [data-fit~="short"] #loc { font-size: 34px; }
+  [data-fit~="short"] :is(.pane, .g2) { display: none; }
+  [data-fit~="short"] .goal { padding: 3px 10px; }
+  [data-fit~="short"] .slot { min-height: 36px; }
+  [data-fit~="tiny"] :is(.desks, .event) { display: none; }
 }
 
 @keyframes blink { 50% { opacity: 0; } }
