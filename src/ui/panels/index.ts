@@ -5,6 +5,7 @@ import type { Game } from '../../core/game';
 import type { BuyAmount, KeySound, Notation, Skin, Tab } from '../../core/state';
 import { renderSettings, type SettingsView } from './settings';
 import { refreshMajor, renderMajor } from './major';
+import { refreshMarket, renderMarket } from './market';
 import { renderShip, refreshShip } from './ship';
 import { renderSprints, refreshSprints } from './sprints';
 import { renderTodo, refreshTodo } from './todo';
@@ -56,6 +57,15 @@ export class Panels {
       this.show(btn.dataset.tab as Tab);
     });
     root.addEventListener('click', (e) => this.handleClick(e));
+    // The app name field in the market tab: saved when it loses focus or on enter.
+    root.addEventListener('change', (e) => {
+      const input = e.target as HTMLInputElement;
+      if (!input.matches('[data-appname]')) return;
+      input.value = this.game.renameApp(input.value);
+    });
+    root.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter' && (e.target as Element).matches('[data-appname]')) (e.target as HTMLInputElement).blur();
+    });
   }
 
   show(tab: Tab): void {
@@ -71,7 +81,7 @@ export class Panels {
   /** Shows or hides tabs according to what the player has unlocked; newly unlocked ones blink until visited. */
   syncTabs(newlyUnlocked?: Tab): void {
     const u = this.game.state.unlocked;
-    const visible: Record<string, boolean> = { upgrades: true, sprints: u.sprints, todo: u.todo, ship: u.ship, major: u.major, settings: true };
+    const visible: Record<string, boolean> = { upgrades: true, sprints: u.sprints, todo: u.todo, ship: u.ship, major: u.major, market: u.market, settings: true };
     this.tabs.querySelectorAll<HTMLButtonElement>('[data-tab]').forEach((b) => {
       b.hidden = !visible[b.dataset.tab!];
       if (b.dataset.tab === newlyUnlocked) b.classList.add('new');
@@ -98,6 +108,7 @@ export class Panels {
       : tab === 'todo' ? renderTodo(this.game)
       : tab === 'ship' ? renderShip(this.game)
       : tab === 'major' ? renderMajor(this.game, this.armedAction)
+      : tab === 'market' ? renderMarket(this.game)
       : renderSettings(this.game, view);
     this.shownKey = visibilityKey(this.game);
     this.refresh();
@@ -112,6 +123,7 @@ export class Panels {
     else if (tab === 'todo') refreshTodo(this.game, this.root);
     else if (tab === 'ship') refreshShip(this.game, this.root, this.armed);
     else if (tab === 'major') refreshMajor(this.game, this.root, this.armedAction);
+    else if (tab === 'market') refreshMarket(this.game, this.root);
     else if (tab === 'settings') {
       const el = this.root.querySelector('[data-save-status]');
       const info = this.actions.saveInfo();
@@ -188,6 +200,7 @@ export class Panels {
         this.render();
       } else {
         this.game.dev(d.dev as DevAction, d.kind as IncidentKind | undefined);
+        this.syncTabs(); // "unlock tabs" sets the flags directly, without unlock events
         this.render();
       }
     }

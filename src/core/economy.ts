@@ -1,4 +1,5 @@
 import { ACHIEVEMENT_BONUS, BASE_TAP, DOUBLING_STEP, PERK_VALUES, SHIP, UPGRADES, type UpgradeDef, type UpgradeKind } from './content';
+import { chartMultiplier } from './market';
 import { mods } from './mods';
 import { effectProduct, effectSum } from './effects';
 import { D, Decimal } from './num';
@@ -19,10 +20,11 @@ export const totalOwned = (s: GameState): number => Object.values(s.owned).reduc
 /** Output multiplier from stars: each one ever earned adds SHIP.bonusPerStar, spent or not. */
 export const starMultiplier = (stars: number): number => 1 + SHIP.bonusPerStar * stars;
 
-/** Stars, achievements and coffee: applies to everything the player writes. */
+/** Stars, achievements, the chart and coffee: applies to everything the player writes. */
 export function globalMultiplier(s: GameState, now: number): Decimal {
   return D(starMultiplier(s.stars))
     .mul(mods(s).allMul)
+    .mul(chartMultiplier(s, now))
     .mul(PERK_VALUES.zshrcMul ** perkEffect(s, 'zshrc'))
     .mul(1 + ACHIEVEMENT_BONUS * s.achievements.length)
     .mul(effectProduct(s, 'allMul', now));

@@ -1,4 +1,4 @@
-import { EFFECTS, MILESTONE, packageName, type EffectId } from '../core/content';
+import { EFFECTS, MARKET, MILESTONE, packageName, type EffectId } from '../core/content';
 import { starMultiplier } from '../core/economy';
 import type { GameEvent } from '../core/game';
 import { clock, fmt, fmtDuration, fmtMul } from '../core/num';
@@ -20,7 +20,7 @@ export const LOG_TAGS: Record<LogKind, string> = { ok: '[ ok ]', warn: '[warn]',
 
 export const scriptFile = (id: EffectId): string => EFFECTS[id].file ?? id;
 
-const TAB_NAMES = { sprints: '1:sprints', todo: '2:todo', ship: '3:ship', major: '4:major' } as const;
+const TAB_NAMES = { sprints: '1:sprints', todo: '2:todo', ship: '3:ship', major: '4:major', market: '5:market' } as const;
 
 export function rewardText(r: QuestReward): string {
   if (r.kind === 'script') return `+1 ${scriptFile(r.script)}`;
@@ -45,6 +45,22 @@ export function describe(e: GameEvent): LogLine[] {
       if (doubledAt) lines.push({ kind: 'ok', text: `${packageName(upgrade.name)} output doubled at ${doubledAt} installed` });
       return lines;
     }
+    case 'reviewed': {
+      const n = e.news;
+      const back = n.regained >= 1 ? `, ${fmt(n.regained)} came back` : n.lost >= 1 ? `, ${fmt(n.lost)} went to rivals` : '';
+      const lines: LogLine[] = [{ kind: 'ok', text: `reviews are in: ${n.review.toFixed(1)}★, +${fmt(n.newUsers)} users${back}` }];
+      for (const r of n.overtook) lines.push({ kind: 'ok', text: `overtook ${r.name} in the charts, found ${MARKET.overtakeScripts} scripts` });
+      for (const h of n.headlines) lines.push({ kind: 'info', text: `${h.outlet}: ${h.text}` });
+      return lines;
+    }
+    case 'market': {
+      const n = e.news;
+      if (n.kind === 'launch') return [{ kind: 'warn', text: `${n.rival.name} launches in ${clock(MARKET.launch.warningMs / 1000)}: ship first to steal the headline` }, { kind: 'info', text: `${n.headline.outlet}: ${n.headline.text}` }];
+      if (n.kind === 'stale') return [{ kind: 'warn', text: `no update for ${MARKET.graceMinutes} minutes: users are drifting to rivals` }, { kind: 'info', text: `${n.headline.outlet}: ${n.headline.text}` }];
+      return [{ kind: n.kind === 'overtaken' ? 'warn' : 'info', text: `${n.headline.outlet}: ${n.headline.text}` }];
+    }
+    case 'news':
+      return [{ kind: 'info', text: `${e.headline.outlet}: ${e.headline.text}` }];
     case 'majorCut':
       return [{ kind: 'ok', text: `cut v${e.result.version} in ${e.result.stack}: ${fmt(e.result.starsBanked)} stars banked for +${fmt(e.result.xp)} xp` }];
     case 'skill':
@@ -54,7 +70,8 @@ export function describe(e: GameEvent): LogLine[] {
     case 'challengeAbandoned':
       return [{ kind: 'info', text: `challenge/${findChallenge(e.id).branch} abandoned` }];
     case 'autoInstalled':
-      return e.doublings.map((p) => ({ kind: 'ok' as const, text: `${packageName(p.upgrade.name)} output doubled at ${p.doubledAt} installed` }));
+      // Packages are re-installed after every release, so automatic doublings would repeat constantly: kept quiet.
+      return [];
     case 'promoted':
       return [{ kind: 'ok', text: `promoted to ${e.title}` }];
     case 'workflowUnlocked':

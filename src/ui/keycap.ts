@@ -33,6 +33,8 @@ export class Keycap {
       if (!enabled() || e.repeat || e.metaKey || e.ctrlKey || e.altKey) return;
       if (IGNORED_KEYS.has(e.key) || e.key.startsWith('Arrow')) return;
       const target = e.target as Element | null;
+      // Typing into a text field (the app name, an imported save) is not writing code.
+      if (target?.closest('input, textarea')) return;
       // Let Enter/Space activate whatever button has focus instead of double-counting.
       if (target?.closest('button') && (e.key === 'Enter' || e.key === ' ')) return;
       if (e.key === ' ') e.preventDefault();

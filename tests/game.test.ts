@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { BUGS, CRIT, EFFECTS, FLOW, INCIDENTS, OFFLINE, SPRINT_TIERS, UNLOCKS } from '../src/core/content';
 import type { GameEvent } from '../src/core/game';
 import { D } from '../src/core/num';
+import { chartMultiplier } from '../src/core/market';
 import { linesForStars, shippedForStars, shipReady, starsAvailable, starsPerMinute } from '../src/core/ship';
 import { fixedRng, testGame } from './helpers';
 
@@ -318,7 +319,7 @@ describe('ship', () => {
     expect(t.state.lines.toNumber()).toBe(0);
     expect(t.state.shipped.toNumber()).toBe(16_000_000);
     expect(t.state.owned).toEqual({});
-    expect(t.game.perTap().toNumber()).toBeCloseTo(1.4);
+    expect(t.game.perTap().toNumber()).toBeCloseTo(1.4 * chartMultiplier(t.state, t.now)); // 4 stars, and the chart
     expect(t.state.milestone?.release).toBe(2);
   });
 

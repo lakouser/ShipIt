@@ -264,6 +264,64 @@ export const CHALLENGE = {
   minCurve: 20,
 };
 
+/* ---------- the market: reviews, users and rival companies ---------- */
+
+export const MARKET = {
+  /** The app's name until the player renames it. */
+  defaultName: 'my-app',
+  /** New users from a release = usersPerCubeRootLine × cbrt(release lines) × (review / 3)². */
+  usersPerCubeRootLine: 10,
+  /** Users start drifting to rivals this long after the last update (ship or major version)... */
+  graceMinutes: 45,
+  /** ...losing this share of them each minute after that... */
+  churnPerMinute: 0.01,
+  /** ...but one quiet spell never costs more than this share of the users at the last update. */
+  maxChurn: 0.5,
+  /** A release reviewed at least winBackAt wins back this share of the users lost since the last update. */
+  winBackAt: 4,
+  winBack: 0.5,
+  /** Each rival you are ahead of in the chart adds this to all output. */
+  rankBonus: 0.05,
+  /** Rival launches: announced with a warning; ship first to multiply that release's new users. */
+  launch: { firstDelayMs: 10 * 60_000, minGapMs: 12 * 60_000, extraGapMs: 13 * 60_000, warningMs: 5 * 60_000, stealMul: 1.5, rivalGain: 0.05 },
+  /** Scripts a first overtake drops. */
+  overtakeScripts: 2,
+  reviewsKept: 5,
+  pressKept: 12,
+};
+
+export interface RivalDef {
+  id: string;
+  name: string;
+  app: string;
+  /** Users when the player first ships... */
+  users: number;
+  /** ...growing by this share of that each day. */
+  growthPerDay: number;
+}
+
+/** Fictional competitors, smallest first. */
+export const RIVALS: readonly RivalDef[] = [
+  { id: 'hello', name: 'Hello World Inc', app: 'hello-app', users: 5_000, growthPerDay: 0.5 },
+  { id: 'foo', name: 'Foo Corp', app: 'foo.io', users: 30_000, growthPerDay: 0.5 },
+  { id: 'bar', name: 'BarSoft', app: 'bar', users: 200_000, growthPerDay: 0.5 },
+  { id: 'legacy', name: 'Legacy Systems Inc', app: 'LegacyERP', users: 1_200_000, growthPerDay: 0.25 },
+  { id: 'movefast', name: 'MoveFast Labs', app: 'movefast', users: 8_000_000, growthPerDay: 1 },
+  { id: 'waterfall', name: 'Waterfall Ltd', app: 'GanttPro', users: 50_000_000, growthPerDay: 0.25 },
+  { id: 'yak', name: 'Yak Shaving Co', app: 'yakr', users: 300_000_000, growthPerDay: 0.5 },
+  { id: 'monolith', name: 'Monolith Global', app: 'Monolith', users: 2e9, growthPerDay: 0.5 },
+  { id: 'synergy', name: 'Synergy Dynamics', app: 'Synergize', users: 12e9, growthPerDay: 0.5 },
+  { id: 'cloudnine', name: 'Cloud Nine Systems', app: 'nimbus', users: 80e9, growthPerDay: 0.5 },
+  { id: 'hype', name: 'Hype Cycle Inc', app: 'hypr', users: 500e9, growthPerDay: 1 },
+  { id: 'unicorn', name: 'Unicorn Ventures', app: 'unicornify', users: 3e12, growthPerDay: 0.5 },
+  { id: 'galaxy', name: 'Galaxy Brain AI', app: 'galaxybrain', users: 20e12, growthPerDay: 0.5 },
+  { id: 'recursion', name: 'Recursion Corp', app: 'recurse', users: 150e12, growthPerDay: 0.5 },
+  { id: 'bigtech', name: 'Big Tech Holdings', app: 'everything', users: 1e15, growthPerDay: 0.5 },
+];
+
+/** Made-up outlets for the press feed. */
+export const OUTLETS: readonly string[] = ['The Daily Diff', 'Hacker Feed', 'Stack Trace Times', '/dev/news', 'Byte Beat', 'Ship Report', 'The Merge Request'];
+
 /* ---------- career: titles by stars earned over the whole game ---------- */
 
 export const CAREER: readonly { title: string; stars: number }[] = [

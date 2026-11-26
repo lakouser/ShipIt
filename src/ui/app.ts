@@ -1,6 +1,7 @@
 import type { Game, GameEvent } from '../core/game';
 import { clock, D, fmt, setNotation, type Decimal } from '../core/num';
 import { deserialize, exportSave, importSave, serialize } from '../core/save';
+import { churnShare } from '../core/market';
 import { currentVersion, shipReady } from '../core/ship';
 import type { Platform } from '../platform';
 import type { SaveStore } from '../platform/saves';
@@ -63,7 +64,7 @@ export class App {
   private frozen = false;
   private readonly spark: Decimal[] = [];
   private sparkPrev: Decimal;
-  private readonly tabButtons = { sprints: $('[data-tab="sprints"]'), ship: $('[data-tab="ship"]') };
+  private readonly tabButtons = { sprints: $('[data-tab="sprints"]'), ship: $('[data-tab="ship"]'), market: $('[data-tab="market"]') };
 
   constructor(
     private readonly game: Game,
@@ -190,6 +191,10 @@ export class App {
       case 'perk':
         if (tab === 'ship') this.panels.render();
         break;
+      case 'reviewed':
+        if (e.news.overtook.length) this.feedback(true);
+        if (tab === 'market') this.panels.render();
+        break;
       case 'skill':
       case 'challengeStarted':
       case 'challengeAbandoned':
@@ -250,6 +255,7 @@ export class App {
     // tmux-style window flags: # activity (sprint running), ! bell (a release worth shipping)
     this.tabButtons.sprints.classList.toggle('act', !!s.sprint);
     this.tabButtons.ship.classList.toggle('bell', shipReady(s));
+    this.tabButtons.market.classList.toggle('bell', !!s.market.launch || churnShare(s, this.game.now()) > 0);
     const d = new Date();
     $('#clock').textContent = `${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`;
   }

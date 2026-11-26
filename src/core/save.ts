@@ -1,13 +1,16 @@
-import { AUTOMATION, CHALLENGES, EFFECTS, PERKS, SHIP, SKILLS, STACKS, WORKFLOWS, type ChallengeId, type EffectId, type StackId, type WorkflowId } from './content';
+import { AUTOMATION, CHALLENGES, EFFECTS, MARKET, PERKS, RIVALS, SHIP, SKILLS, STACKS, WORKFLOWS, type ChallengeId, type EffectId, type StackId, type WorkflowId } from './content';
 import { D, isFiniteDecimal, type Decimal } from './num';
 import { shippedForStars } from './ship';
 import {
   defaultSettings,
   newGame,
+  newMarket,
   newStats,
   type ActiveSprint,
   type GameState,
+  type Headline,
   type Incident,
+  type MarketState,
   type Milestone,
   type Quest,
   type QuestReward,
@@ -159,6 +162,32 @@ function workflowFlags(x: unknown): Partial<Record<WorkflowId, boolean>> {
   return out;
 }
 
+function market(x: unknown): MarketState {
+  const d = newMarket();
+  if (!isObj(x)) return d;
+  const base = isObj(x.base) ? x.base : {};
+  const absorbed: Record<string, number> = {};
+  if (isObj(x.absorbed)) for (const r of RIVALS) if (num(x.absorbed[r.id]) > 0) absorbed[r.id] = num(x.absorbed[r.id]);
+  const l = isObj(x.launch) ? x.launch : null;
+  const launch = l && RIVALS.some((r) => r.id === l.rival) ? { rival: str(l.rival), endsAt: num(l.endsAt) } : null;
+  return {
+    appName: str(x.appName, d.appName).slice(0, 24) || d.appName,
+    users: Math.max(0, num(x.users)),
+    peak: Math.max(0, num(x.peak)),
+    lastUpdateAt: num(x.lastUpdateAt),
+    startedAt: num(x.startedAt),
+    reviews: Array.isArray(x.reviews) ? x.reviews.filter((r): r is number => typeof r === 'number' && r >= 1 && r <= 5).slice(0, MARKET.reviewsKept) : [],
+    absorbed,
+    passed: Array.isArray(x.passed) ? RIVALS.map((r) => r.id).filter((id) => (x.passed as unknown[]).includes(id)) : [],
+    rank: Math.max(0, int(x.rank)),
+    staleNoticed: x.staleNoticed === true,
+    launch,
+    nextLaunchAt: num(x.nextLaunchAt),
+    press: Array.isArray(x.press) ? x.press.filter(isObj).map((h): Headline => ({ at: num(h.at), outlet: str(h.outlet), text: str(h.text) })).slice(0, MARKET.pressKept) : [],
+    base: { sprints: Math.max(0, int(base.sprints)), bugs: Math.max(0, int(base.bugs)), escaped: Math.max(0, int(base.escaped)), incidents: Math.max(0, int(base.incidents)) },
+  };
+}
+
 function stats(x: unknown): Stats {
   const base = newStats();
   if (!isObj(x)) return base;
@@ -178,7 +207,7 @@ function settings(x: unknown): Settings {
     skin: oneOf(x.skin, ['pine', 'phosphor', 'amber', 'paper'] as const, d.skin),
     welcome: x.welcome !== false,
     buyAmount: oneOf(x.buyAmount, [1, 10, 'max'] as const, 1),
-    tab: oneOf(x.tab, ['upgrades', 'sprints', 'todo', 'ship', 'major', 'settings'] as const, 'upgrades'),
+    tab: oneOf(x.tab, ['upgrades', 'sprints', 'todo', 'ship', 'major', 'market', 'settings'] as const, 'upgrades'),
     dev: x.dev === true,
   };
 }
@@ -230,6 +259,7 @@ export function deserialize(text: string, now: number): GameState | null {
     stack: oneOf<StackId>(raw.stack, STACK_IDS, 'plain'),
     nextStack: oneOf<StackId>(raw.nextStack, STACK_IDS, 'rust'),
     challenge: challenge(raw.challenge),
+    market: market(raw.market),
     challengesDone: Array.isArray(raw.challengesDone) ? CHALLENGE_IDS.filter((id) => (raw.challengesDone as unknown[]).includes(id)) : [],
     achievements: Array.isArray(raw.achievements) ? raw.achievements.filter((a): a is string => typeof a === 'string') : [],
     flags: { crunch: flags.crunch === true, sudo: flags.sudo === true, rmrf: flags.rmrf === true, nightOwl: flags.nightOwl === true, exported: flags.exported === true, touchGrass: flags.touchGrass === true },
@@ -248,7 +278,7 @@ export function deserialize(text: string, now: number): GameState | null {
     lastSprint: sprintResult(raw.lastSprint),
     incident: null as Incident | null,
     streak: { lastDay: str(streak.lastDay), count: Math.max(0, int(streak.count)), days: Array.isArray(streak.days) ? streak.days.filter((d): d is string => typeof d === 'string') : [] },
-    unlocked: { sprints: unlocked.sprints === true, todo: unlocked.todo === true, ship: unlocked.ship === true, major: unlocked.major === true },
+    unlocked: { sprints: unlocked.sprints === true, todo: unlocked.todo === true, ship: unlocked.ship === true, major: unlocked.major === true, market: unlocked.market === true },
     settings: settings(raw.settings),
     savedAt: num(raw.savedAt, now),
   };

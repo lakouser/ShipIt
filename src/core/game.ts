@@ -3,6 +3,7 @@ import { squashBug, updateBugs } from './bugs';
 import { careerLevel } from './career';
 import { AUTOMATION, BUGS, CAREER, CRIT, FLOW, MAJOR, OFFLINE, PERK_VALUES, UNLOCKS, type ChallengeDef, type ChallengeId, type EffectDef, type EffectId, type IncidentKind, type PerkDef, type SkillDef, type StackId, type WorkflowDef, type WorkflowId } from './content';
 import { abandonChallenge, buySkill, chooseStack, cutMajor, startChallenge, type MajorResult } from './major';
+import { marketOnMajor, marketOnShip, renameApp, reviewScore, startReleaseCounters, updateMarket, type MarketNews, type ShipNews } from './market';
 import { applyDev, type DevAction } from './dev';
 import { addLines, buy, critChance, perSecond, perTap, type Purchase } from './economy';
 import { effectSum, pruneEffects, runScript } from './effects';
@@ -13,11 +14,11 @@ import { makeMilestone, updateMilestone, updateQuests } from './quests';
 import type { Rng } from './rng';
 import { ship, shipGain, starsPerMinute, type ShipResult } from './ship';
 import { makeBacklog, refreshBacklog, resolveSprint, startSprint } from './sprints';
-import type { ActiveSprint, GameState, Incident, Milestone, Quest, SprintResult } from './state';
+import type { ActiveSprint, GameState, Headline, Incident, Milestone, Quest, SprintResult } from './state';
 import { checkIn, type CheckIn } from './streak';
 import { autoInstall, autoRunScripts, releasesShipped, workflowOn, workflowsUnlockedBetween } from './workflows';
 
-export type UnlockTab = 'sprints' | 'todo' | 'ship' | 'major';
+export type UnlockTab = 'sprints' | 'todo' | 'ship' | 'major' | 'market';
 export type IncidentOutcome = 'caught' | 'fixed' | 'resolved' | 'wrong' | 'missed';
 
 export type GameEvent =
@@ -48,6 +49,9 @@ export type GameEvent =
   | { type: 'skill'; skill: SkillDef; level: number }
   | { type: 'challengeStarted'; challenge: ChallengeDef }
   | { type: 'challengeAbandoned'; id: ChallengeId }
+  | { type: 'reviewed'; news: ShipNews }
+  | { type: 'market'; news: MarketNews }
+  | { type: 'news'; headline: Headline }
   | { type: 'offline'; lines: Decimal; seconds: number; awaySeconds: number; rate: number };
 
 export interface GameOptions {
@@ -213,10 +217,15 @@ export class Game {
     const s = this.state;
     const titleBefore = careerLevel(s.stats.starsEarned);
     const shippedBefore = releasesShipped(s);
+    const gain = shipGain(s);
+    const review = reviewScore(s, gain);
     const result = ship(s, this.clock(), this.rng);
     if (!result) return null;
     if (auto) s.stats.autoShips++;
+    const news = marketOnShip(s, this.clock(), this.rng, review, result.releaseLines, result.version, gain < 0.1);
+    startReleaseCounters(s);
     this.emit({ type: 'shipped', result, totalStars: s.stars, auto });
+    this.emit({ type: 'reviewed', news });
     const title = careerLevel(s.stats.starsEarned);
     if (title > titleBefore) this.emit({ type: 'promoted', title: CAREER[title].title });
     for (const workflow of workflowsUnlockedBetween(shippedBefore, releasesShipped(s))) this.emit({ type: 'workflowUnlocked', workflow });
@@ -229,7 +238,10 @@ export class Game {
     const shippedBefore = releasesShipped(s);
     const result = cutMajor(s, this.clock(), this.rng);
     if (!result) return null;
+    startReleaseCounters(s);
+    const headline = marketOnMajor(s, this.clock(), this.rng, result.version, result.stack);
     this.emit({ type: 'majorCut', result });
+    if (headline) this.emit({ type: 'news', headline });
     for (const workflow of workflowsUnlockedBetween(shippedBefore, releasesShipped(s))) this.emit({ type: 'workflowUnlocked', workflow });
     return result;
   }
@@ -246,6 +258,7 @@ export class Game {
 
   startChallenge(id: ChallengeId): boolean {
     const challenge = startChallenge(this.state, id, this.clock(), this.rng);
+    if (challenge) startReleaseCounters(this.state);
     if (challenge) this.emit({ type: 'challengeStarted', challenge });
     return !!challenge;
   }
@@ -254,6 +267,11 @@ export class Game {
     const id = abandonChallenge(this.state);
     if (id) this.emit({ type: 'challengeAbandoned', id });
     return !!id;
+  }
+
+  /** Names the app in the market (and the press). */
+  renameApp(name: string): string {
+    return renameApp(this.state, name);
   }
 
   /** Switches an unlocked workflow on or off. */
@@ -348,6 +366,7 @@ export class Game {
     if (s.unlocked.todo) for (const quest of updateQuests(s, now, this.rng)) this.emit({ type: 'questDone', quest });
     const milestone = updateMilestone(s);
     if (milestone) this.emit({ type: 'milestoneDone', milestone });
+    for (const news of updateMarket(s, now, this.rng, canSpawn)) this.emit({ type: 'market', news });
     s.releasePeak = Math.max(s.releasePeak, starsPerMinute(s, now));
     if (workflowOn(s, 'release') && shipGain(s) >= s.autoShipAt) this.ship(true);
 
@@ -369,5 +388,6 @@ export class Game {
     if (!u.todo && s.lifetime.gte(UNLOCKS.todoAtLifetime)) unlock('todo');
     if (!u.ship && (s.thisRelease.gte(UNLOCKS.shipAtRelease) || s.stars > 0)) unlock('ship');
     if (!u.major && (s.stars >= MAJOR.teaseAtStars || s.major > 0)) unlock('major');
+    if (!u.market && s.market.startedAt > 0) unlock('market');
   }
 }

@@ -1,4 +1,4 @@
-import { CHALLENGES, UPGRADES, WORKFLOWS } from './content';
+import { CHALLENGES, RIVALS, UPGRADES, WORKFLOWS } from './content';
 import { owned } from './economy';
 import { perSecond, perTap } from './economy';
 import { PERKS } from './content';
@@ -92,6 +92,13 @@ export const ACHIEVEMENTS: readonly AchievementDef[] = [
   { id: 'resume', name: 'Resume-driven development', description: 'Learn a skill', unlocked: (s) => Object.keys(s.skills).length > 0 },
   { id: 'flagged', name: 'Feature flagged', description: 'Complete a challenge release', unlocked: (s) => s.challengesDone.length >= 1 },
   { id: 'hardmode', name: 'Hard mode', description: 'Complete every challenge release', unlocked: (s) => s.challengesDone.length >= CHALLENGES.length },
+  { id: 'users1k', name: 'Early adopters', description: 'Reach 1,000 users', unlocked: (s) => s.market.peak >= 1e3 },
+  { id: 'users1m', name: 'Product-market fit', description: 'Reach 1 million users', unlocked: (s) => s.market.peak >= 1e6 },
+  { id: 'users1b', name: 'Household name', description: 'Reach 1 billion users', unlocked: (s) => s.market.peak >= 1e9 },
+  { id: 'fivestar', name: 'Five stars', description: 'Ship a release reviewed 5.0', unlocked: (s) => s.stats.fiveStars >= 1 },
+  { id: 'scoop', name: 'Scooped', description: "Ship before a rival's launch and steal the headline", unlocked: (s) => s.stats.steals >= 1 },
+  { id: 'top3', name: 'Top three', description: 'Reach #3 in the charts', unlocked: (s) => s.market.passed.length >= RIVALS.length - 2 },
+  { id: 'number1', name: 'Number one', description: 'Reach #1 in the charts', unlocked: (s) => s.market.passed.length >= RIVALS.length },
   { id: 'ricing', name: 'Ricing', description: 'Buy a dotfiles perk', unlocked: (s) => s.stats.perksBought >= 1 },
   { id: 'zsh', name: 'Oh my zsh', description: 'Buy a level of .zshrc', unlocked: (s) => (s.perks.zshrc ?? 0) >= 1 },
   { id: 'perfect', name: 'Dotfile perfectionist', description: 'Max out a dotfiles perk', unlocked: (s) => PERKS.some((p) => (s.perks[p.id] ?? 0) >= p.maxLevel) },

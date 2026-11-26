@@ -3,6 +3,7 @@ import { costOf, isUpgradeVisible, owned, perSecond, perTap } from '../src/core/
 import { Game } from '../src/core/game';
 import { D, fmt } from '../src/core/num';
 import { skillStatus, xpAvailable } from '../src/core/major';
+import { standing, usersNow } from '../src/core/market';
 import { perkStatus } from '../src/core/perks';
 import { seededRng } from '../src/core/rng';
 import { starsAvailable } from '../src/core/ship';
@@ -42,7 +43,7 @@ export interface SimReport {
   milestones: number;
   topUpgrade: string;
   perks: Record<string, number>;
-  timeline: { minute: number; lines: string; perSecond: string; perTap: string; release: number; stars: number; top: string }[];
+  timeline: { minute: number; lines: string; perSecond: string; perTap: string; release: number; stars: number; top: string; users: number; rank: number }[];
 }
 
 const topUpgrade = (s: Game['state']): string => [...UPGRADES].reverse().find((u) => owned(s, u.id) > 0)?.id ?? 'none';
@@ -121,7 +122,7 @@ export function simulate({ minutes, tapsPerSecond, seed = 7, ship = { kind: 'gai
     }
 
     if (step % (4 * 60 * 10) === 0) {
-      report.timeline.push({ minute: Math.round(now / 60000), lines: fmt(s.lifetime), perSecond: fmt(perSecond(s, now)), perTap: fmt(perTap(s, now)), release: s.release, stars: s.stars, top: topUpgrade(s) });
+      report.timeline.push({ minute: Math.round(now / 60000), lines: fmt(s.lifetime), perSecond: fmt(perSecond(s, now)), perTap: fmt(perTap(s, now)), release: s.release, stars: s.stars, top: topUpgrade(s), users: Math.round(usersNow(s, now)), rank: s.market.startedAt ? standing(s, now).rank : 0 });
     }
   }
 
