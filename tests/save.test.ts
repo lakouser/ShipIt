@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { D } from '../src/core/num';
-import { deserialize, exportSave, importSave, SAVE_VERSION, serialize } from '../src/core/save';
+import { deserialize, exportSave, importSave, isNewerSave, SAVE_VERSION, serialize } from '../src/core/save';
 import { newGame } from '../src/core/state';
 
 describe('saves', () => {
@@ -16,7 +16,10 @@ describe('saves', () => {
     s.achievements = ['hello', 'ship'];
     s.scripts = { turbo: 2, sudo: 1 };
     s.questBonus.tap = 0.04;
-    s.streak = { lastDay: '2026-11-25', count: 3, days: ['2026-11-23', '2026-11-24', '2026-11-25'] };
+    s.streak = { lastDay: '2026-11-25', count: 3, days: ['2026-11-23', '2026-11-24', '2026-11-25'], activity: { '2026-11-25': 40 } };
+    s.forks = { duck: ['major', 'lts'] };
+    s.debt = 42.5;
+    s.round = 2;
     s.settings.buyAmount = 'max';
     s.settings.skin = 'amber';
     s.settings.tab = 'ship';
@@ -29,6 +32,10 @@ describe('saves', () => {
     expect(back.scripts).toEqual({ turbo: 2, sudo: 1 });
     expect(back.questBonus.tap).toBe(0.04);
     expect(back.streak.count).toBe(3);
+    expect(back.streak.activity).toEqual({ '2026-11-25': 40 });
+    expect(back.forks).toEqual({ duck: ['major', 'lts'] });
+    expect(back.debt).toBe(42.5);
+    expect(back.round).toBe(2);
     expect(back.settings.skin).toBe('amber');
     expect(back.settings.tab).toBe('ship');
     expect(back.savedAt).toBe(1234);
@@ -59,6 +66,14 @@ describe('saves', () => {
     expect(back.lines.toNumber()).toBe(500);
   });
 
+  it('turns version 2 doublings into major-rewrite forks', () => {
+    const v2 = { v: 2, lines: '10', lifetime: '10', thisRelease: '10', owned: { kb: 60, duck: 24, intern: 25 } };
+    const back = deserialize(JSON.stringify(v2), 0)!;
+    expect(back.forks).toEqual({ kb: ['major', 'major'], intern: ['major'] });
+    expect(back.owned).toEqual({ kb: 60, duck: 24, intern: 25 });
+    expect(SAVE_VERSION).toBe(4);
+  });
+
   it('exports and imports as a single line', () => {
     const s = newGame(0);
     s.lines = D('123456789');
@@ -73,7 +88,32 @@ describe('saves', () => {
     expect(deserialize('not json', 0)).toBeNull();
     expect(deserialize('[]', 0)).toBeNull();
     expect(deserialize(JSON.stringify({ lines: '5' }), 0)).toBeNull();
-    expect(deserialize(JSON.stringify({ v: SAVE_VERSION + 1 }), 0)).toBeNull();
+    expect(deserialize(JSON.stringify({ v: 99 }), 0)).toBeNull();
+  });
+
+  it('reads a save from the live v0.3 builds in full: team, mail, forks and debt', () => {
+    const s = newGame(0);
+    s.lifetime = D('5e9');
+    s.release = 4;
+    s.owned = { kb: 30 };
+    s.forks = { kb: ['major'] };
+    s.team = [{ id: 1, name: 'Ada', trait: 'generalist', role: 'features', face: 0 }];
+    s.debt = 24;
+    s.settings.tab = 'team';
+    const back = deserialize(serialize(s, 1234), 5000)!;
+    expect(back.lifetime.eq(D('5e9'))).toBe(true);
+    expect(back.forks).toEqual({ kb: ['major'] });
+    expect(back.team).toEqual(s.team);
+    expect(back.debt).toBe(24);
+    expect(back.settings.tab).toBe('team');
+  });
+
+  it('tells a save from a newer version apart from a broken one', () => {
+    expect(isNewerSave(JSON.stringify({ v: 99 }))).toBe(true);
+    expect(isNewerSave(JSON.stringify({ v: SAVE_VERSION + 1 }))).toBe(true);
+    expect(isNewerSave(JSON.stringify({ v: 3 }))).toBe(false);
+    expect(isNewerSave(serialize(newGame(0), 0))).toBe(false);
+    expect(isNewerSave('not json')).toBe(false);
   });
 
   it('fills missing or broken fields with defaults', () => {

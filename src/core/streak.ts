@@ -29,7 +29,11 @@ export function checkIn(s: GameState, now: number): CheckIn | null {
   const today = dayKey(now);
   if (s.streak.lastDay === today) return null;
   const count = s.streak.lastDay === previousDay(today) ? s.streak.count + 1 : 1;
-  s.streak = { lastDay: today, count, days: [...s.streak.days.filter((d) => d !== today), today].slice(-STREAK.daysKept) };
+  const days = [...s.streak.days.filter((d) => d !== today), today].slice(-STREAK.daysKept);
+  // Keep the activity of the days still shown.
+  const activity: Record<string, number> = {};
+  for (const d of days) if (s.streak.activity[d]) activity[d] = s.streak.activity[d];
+  s.streak = { lastDay: today, count, days, activity };
 
   const lines = Decimal.max(STREAK.minLines, perSecond(s, now).mul(STREAK.dailyAutoSeconds)).floor();
   addLines(s, lines, false);

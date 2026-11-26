@@ -1,8 +1,10 @@
-import { ASSUMED_TAPS_PER_SECOND, DIFFICULTY_BANDS, PERK_VALUES, SPRINT_TIERS, TICKET_TITLES } from './content';
-import { addLines, perSecond, perTap, typicalOutput } from './economy';
+import { ASSUMED_TAPS_PER_SECOND, DEBT, DIFFICULTY_BANDS, PERK_VALUES, SPRINT_TIERS, TEAM, TICKET_TITLES } from './content';
+import { addDebt } from './debt';
+import { addLines, perSecond, perTap, projectOf, roleStrength, typicalOutput } from './economy';
 import { grantScript, randomScript } from './effects';
 import { D, Decimal } from './num';
-import { perkLevel } from './perks';
+import { mods } from './mods';
+import { perkEffect } from './perks';
 import type { Rng } from './rng';
 import type { ActiveSprint, GameState, SprintResult, Ticket } from './state';
 
@@ -18,11 +20,17 @@ function shuffled<T>(items: readonly T[], rng: Rng): T[] {
   return a;
 }
 
-/** A fresh ticket for one tier, sized to the player's current output. Perks add time and reward. */
+/** A fresh ticket for one tier, sized to the player's current output. Perks, the team and the project change time and reward. */
 function makeTicket(s: GameState, tierIndex: number, now: number, rng: Rng, title: string): Ticket {
   const tier = SPRINT_TIERS[tierIndex];
-  const timeBonus = 1 + PERK_VALUES.timeoutsBonus * perkLevel(s, 'timeouts');
-  const rewardBonus = (1 + PERK_VALUES.retroReward * perkLevel(s, 'retro')) * (1 + s.questBonus.sprint);
+  const project = projectOf(s);
+  const timeBonus = (1 + PERK_VALUES.timeoutsBonus * perkEffect(s, 'timeouts')) * (project.sprintTimeMul ?? 1);
+  const rewardBonus =
+    mods(s).sprintReward *
+    (1 + PERK_VALUES.retroReward * perkEffect(s, 'retro')) *
+    (1 + s.questBonus.sprint) *
+    (1 + TEAM.sprintReward * roleStrength(s, 'sprints')) *
+    (project.sprintRewardMul ?? 1);
   const target = Decimal.max(50, typicalOutput(s, now, tier.durationS * tier.difficulty, ASSUMED_TAPS_PER_SECOND).div(10).ceil().mul(10));
   return {
     tier: tierIndex,
@@ -91,6 +99,7 @@ export function resolveSprint(s: GameState, now: number, rng: Rng): SprintResult
   if (ok) {
     addLines(s, sp.reward);
     s.stats.sprints++;
+    addDebt(s, DEBT.sprintMerged);
     if (secondsLeft < 3) s.flags.crunch = true;
     if (rng() < (SPRINT_TIERS[sp.tier]?.scriptChance ?? 0)) {
       script = randomScript(rng);

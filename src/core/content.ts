@@ -13,6 +13,8 @@ export interface UpgradeDef {
   baseCost: number;
   /** Lines per tap ('tap') or per second ('auto') for one copy, before multipliers. */
   output: number;
+  /** Only offered from this funding round on (see FUNDING). */
+  minRound?: number;
 }
 
 /** Upgrade names as package names: "Rubber duck" → "rubber-duck". */
@@ -26,6 +28,9 @@ export const UPGRADES: readonly UpgradeDef[] = [
   { id: 'macro', kind: 'tap', name: 'Keyboard macros', blurb: 'One key, forty keystrokes.', baseCost: 7_000_000, output: 900 },
   { id: 'llm', kind: 'tap', name: 'Autocomplete model', blurb: 'Finishes your sentences. And functions.', baseCost: 180_000_000, output: 5_000 },
   { id: 'neural', kind: 'tap', name: 'Neural interface', blurb: 'Think it, ship it.', baseCost: 5_000_000_000, output: 28_000 },
+  { id: 'dilation', kind: 'tap', name: 'Time dilation desk', blurb: 'One hour of work every minute.', baseCost: 140_000_000_000, output: 160_000, minRound: 1 },
+  { id: 'precog', kind: 'tap', name: 'Precognitive keyboard', blurb: 'Types what you were about to type.', baseCost: 4_000_000_000_000, output: 900_000, minRound: 1 },
+  { id: 'hivemind', kind: 'tap', name: 'Hive mind', blurb: 'Every engineer who ever lived, on one branch.', baseCost: 110_000_000_000_000, output: 5_000_000, minRound: 2 },
   { id: 'duck', kind: 'auto', name: 'Rubber duck', blurb: 'Listens. Somehow helps.', baseCost: 25, output: 1 },
   { id: 'intern', kind: 'auto', name: 'Summer intern', blurb: 'Eager. Mostly writes tests.', baseCost: 400, output: 6 },
   { id: 'lint', kind: 'auto', name: 'Linter bot', blurb: 'Fixes semicolons at 3 a.m.', baseCost: 7_500, output: 35 },
@@ -35,14 +40,17 @@ export const UPGRADES: readonly UpgradeDef[] = [
   { id: 'k8s', kind: 'auto', name: 'Container cluster', blurb: 'Nobody knows how it works. It works.', baseCost: 2_200_000_000, output: 40_000 },
   { id: 'agents', kind: 'auto', name: 'Agent swarm', blurb: 'A thousand tiny coworkers.', baseCost: 60_000_000_000, output: 230_000 },
   { id: 'quantum', kind: 'auto', name: 'Quantum compiler', blurb: 'Compiles every branch at once.', baseCost: 1_800_000_000_000, output: 1_300_000 },
+  { id: 'dyson', kind: 'auto', name: 'Dyson build farm', blurb: 'A star, entirely for CI minutes.', baseCost: 54_000_000_000_000, output: 7_500_000, minRound: 1 },
+  { id: 'simverse', kind: 'auto', name: 'Simulated universe', blurb: 'Its inhabitants also write code for you.', baseCost: 1_600_000_000_000_000, output: 43_000_000, minRound: 1 },
+  { id: 'entropy', kind: 'auto', name: 'Entropy reverser', blurb: 'Unwrites bugs before they happen.', baseCost: 48_000_000_000_000_000, output: 250_000_000, minRound: 2 },
 ];
 
 /** Lines per tap with no upgrades. */
 export const BASE_TAP = 1;
 /** Each copy of an upgrade costs this much more than the previous one. */
 export const COST_GROWTH = 1.15;
-/** Every this-many copies of one upgrade doubles that upgrade's output. */
-export const DOUBLING_STEP = 25;
+/** Every this-many copies of one upgrade earn a fork (see FORKS). */
+export const FORK_STEP = 25;
 /** Each achievement adds this fraction to all output. */
 export const ACHIEVEMENT_BONUS = 0.01;
 
@@ -94,10 +102,12 @@ export interface PerkDef {
   branch: PerkBranch;
   file: string;
   summary: string;
+  /** Infinity for a perk with no cap. */
   maxLevel: number;
-  /** Stars for level n+1 = baseCost + costStep * n. */
+  /** Stars for level n+1 = baseCost + costStep * n, or baseCost * costGrowth^n when costGrowth is set. */
   baseCost: number;
   costStep: number;
+  costGrowth?: number;
   requires?: { id: string; level: number };
 }
 
@@ -112,6 +122,7 @@ export const PERKS: readonly PerkDef[] = [
   { id: 'cron', branch: 'system', file: 'crontab', summary: '+10% offline rate and +1h offline cap per level', maxLevel: 5, baseCost: 2, costStep: 2, requires: { id: 'cache', level: 1 } },
   { id: 'timeouts', branch: 'system', file: 'timeouts.conf', summary: 'sprints get 10% more time per level', maxLevel: 5, baseCost: 2, costStep: 1, requires: { id: 'cache', level: 1 } },
   { id: 'bootstrap', branch: 'system', file: 'bootstrap.sh', summary: 'start each release with 5 keyboards and 5 ducks per level', maxLevel: 5, baseCost: 3, costStep: 3, requires: { id: 'cache', level: 3 } },
+  { id: 'zshrc', branch: 'system', file: '.zshrc', summary: 'x1.1 all output per level, no cap (each level costs twice the last)', maxLevel: Infinity, baseCost: 10, costStep: 0, costGrowth: 2, requires: { id: 'cache', level: 5 } },
 ];
 
 export const PERK_VALUES = {
@@ -126,6 +137,7 @@ export const PERK_VALUES = {
   cronHours: 1,
   timeoutsBonus: 0.1,
   bootstrapCopies: 5,
+  zshrcMul: 1.1,
 };
 
 /* ---------- sprints ---------- */
@@ -189,10 +201,29 @@ export const INCIDENTS = {
 /* ---------- prestige, offline, quests, streak, unlocks ---------- */
 
 export const SHIP = {
-  /** Stars available = floor(cbrt(lines this release / linesPerStar)): 1 star at 2M, 2 at 16M, 10 at 2B. */
+  /**
+   * Stars come from every line shipped this run (since the last funding round or major version), not just this release:
+   * stars from shipping = floor(starScale · cbrt(lines shipped this run / linesPerStar)), so 2 at 2M, 4 at 16M, 20 at 2B in total.
+   * A release pays the difference it makes to that total (times the project and brand bonuses), so shipping the same size
+   * of release again pays less, and many tiny releases pay far less than one big one.
+   */
   linesPerStar: 2_000_000,
+  starScale: 2,
+  /** A release needs at least this many lines before it can ship. */
+  minRelease: 2_000_000,
   /** Each star earned (spent or not) adds this fraction to all output. */
   bonusPerStar: 0.1,
+  /** The ship panel calls a release ready once it would grow stars by this fraction (or it's the first release). */
+  readyAt: 0.5,
+  /** Releases kept in the release log. */
+  logSize: 10,
+};
+
+export const MILESTONE = {
+  /** A finished milestone makes the next ship pay this much more (at least the milestone's flat stars). */
+  shipBonus: 0.25,
+  /** The lines task asks for this multiple of the last release's lines this run. */
+  beatLast: 1.5,
 };
 
 export const OFFLINE = {
@@ -220,9 +251,457 @@ export const STREAK = {
   minLines: 200,
 };
 
+/* ---------- forks: chosen every FORK_STEP copies of a package ---------- */
+
+export type ForkId = 'major' | 'plugin' | 'lts';
+
+export interface ForkDef {
+  id: ForkId;
+  name: string;
+  /** Multiplies that package's output. */
+  outputMul: number;
+  /** Also adds this fraction to every package of the same kind. */
+  kindBonus?: number;
+  /** Multiplies that package's price. */
+  costMul?: number;
+}
+
+export const FORKS: Record<ForkId, ForkDef> = {
+  major: { id: 'major', name: 'major rewrite', outputMul: 2 },
+  plugin: { id: 'plugin', name: 'plugin ecosystem', outputMul: 1.4, kindBonus: 0.08 },
+  lts: { id: 'lts', name: 'LTS build', outputMul: 1.5, costMul: 0.5 },
+};
+
+/** The two forks offered at a package's nth fork. */
+export const forkChoices = (n: number): ForkId[] => (n % 2 === 0 ? ['major', 'plugin'] : ['major', 'lts']);
+
+/* ---------- tech debt ---------- */
+
+export const DEBT = {
+  /** Debt only starts building once this many lines have been written in all. */
+  startsAtLifetime: 25_000,
+  max: 100,
+  perMinute: 3,
+  /** Extra debt per minute for each timed effect running. */
+  perMinutePerEffect: 3,
+  bugEscaped: 4,
+  bugSquashed: -1,
+  sprintMerged: -2,
+  bossFailed: 10,
+  bossBeaten: -20,
+  /** Debt up to this costs nothing. */
+  grace: 10,
+  /** Output lost at full debt. */
+  maxPenalty: 0.5,
+  /** A refactor costs this many seconds of automation per point of debt, at least minRefactorCost. */
+  refactorSecondsPerPoint: 1,
+  minRefactorCost: 100,
+  warnAt: 60,
+};
+
+/* ---------- projects: what the next release is ---------- */
+
+export type ProjectId = 'webapp' | 'cli' | 'enterprise' | 'game' | 'startup' | 'os';
+
+export interface ProjectDef {
+  id: ProjectId;
+  name: string;
+  /** The folder the editor shows: ~/<dir>/src. */
+  dir: string;
+  blurb: string;
+  rules: string[];
+  /** Offered from this release on. */
+  minRelease: number;
+  tapMul?: number;
+  autoMul?: number;
+  starMul?: number;
+  costMul?: number;
+  sprintRewardMul?: number;
+  sprintTimeMul?: number;
+  debtMul?: number;
+  incidentGapMul?: number;
+  bugGapMul?: number;
+  bugRewardMul?: number;
+}
+
+export const PROJECTS: readonly ProjectDef[] = [
+  { id: 'webapp', name: 'Web app', dir: 'web-app', blurb: 'The usual.', rules: ['no special rules'], minRelease: 1 },
+  { id: 'cli', name: 'CLI tool', dir: 'cli-tool', blurb: 'One developer, one terminal.', rules: ['no automation', 'x4 per tap', '+50% stars'], minRelease: 2, autoMul: 0, tapMul: 4, starMul: 1.5 },
+  { id: 'enterprise', name: 'Enterprise suite', dir: 'enterprise-suite', blurb: 'Meetings about meetings.', rules: ['x3 automation', 'half the lines per tap', 'packages cost 20% more'], minRelease: 2, autoMul: 3, tapMul: 0.5, costMul: 1.2 },
+  { id: 'game', name: 'Game engine', dir: 'game-engine', blurb: 'Crunch is a lifestyle.', rules: ['x3 sprint rewards', 'sprints are 25% shorter', '+25% stars'], minRelease: 3, sprintRewardMul: 3, sprintTimeMul: 0.75, starMul: 1.25 },
+  { id: 'startup', name: 'Startup MVP', dir: 'startup-mvp', blurb: 'Move fast, break things.', rules: ['x2 everything', 'tech debt builds three times as fast', 'incidents twice as often'], minRelease: 3, tapMul: 2, autoMul: 2, debtMul: 3, incidentGapMul: 0.5 },
+  { id: 'os', name: 'Operating system', dir: 'kernel', blurb: 'Everything is a file. Every file has bugs.', rules: ['bugs three times as often', 'x5 bug rewards', 'tech debt builds twice as fast', '+25% stars'], minRelease: 4, bugGapMul: 1 / 3, bugRewardMul: 5, debtMul: 2, starMul: 1.25 },
+];
+
+/* ---------- the team ---------- */
+
+export type RoleId = 'features' | 'sprints' | 'oncall' | 'bugs' | 'refactor';
+
+export const ROLES: Record<RoleId, { label: string; summary: string }> = {
+  features: { label: 'features', summary: '+10% automation' },
+  sprints: { label: 'sprints', summary: '+20% sprint rewards' },
+  oncall: { label: 'on-call', summary: 'outages and boss fights need 15% fewer taps' },
+  bugs: { label: 'bug duty', summary: 'squashes 20% of bugs for you, +15% bug rewards' },
+  refactor: { label: 'refactoring', summary: '-1.5 tech debt per minute' },
+};
+export const ROLE_IDS = Object.keys(ROLES) as RoleId[];
+
+export type TraitId = 'senior' | 'tenx' | 'tester' | 'sre' | 'scrum' | 'tidy' | 'generalist';
+
+export interface TraitDef {
+  label: string;
+  blurb: string;
+  /** Multiplies the developer's effect in any role. */
+  all: number;
+  /** Replaces `all` in these roles. */
+  roles?: Partial<Record<RoleId, number>>;
+  debtPerMinute?: number;
+}
+
+export const TRAITS: Record<TraitId, TraitDef> = {
+  senior: { label: 'senior', blurb: 'x1.5 in any role', all: 1.5 },
+  tenx: { label: '10x', blurb: 'x2 in any role, +1 tech debt per minute', all: 2, debtPerMinute: 1 },
+  tester: { label: 'tester', blurb: 'x2.5 on bug duty', all: 1, roles: { bugs: 2.5 } },
+  sre: { label: 'sre', blurb: 'x2.5 on-call', all: 1, roles: { oncall: 2.5 } },
+  scrum: { label: 'scrum lead', blurb: 'x2.5 on sprints', all: 1, roles: { sprints: 2.5 } },
+  tidy: { label: 'tidy', blurb: 'x2.5 when refactoring', all: 1, roles: { refactor: 2.5 } },
+  generalist: { label: 'generalist', blurb: 'x1.25 in any role', all: 1.25 },
+};
+export const TRAIT_IDS = Object.keys(TRAITS) as TraitId[];
+
+export const DEV_NAMES: readonly string[] = 'ada.bjorn.chidi.dara.emre.farah.goran.hana.ines.jun.kavya.lena.mika.noor.olu.priya.quinn.rosa.sven.tomas.uma.vik.wei.xan.yara.zed'.split('.');
+
+export const TEAM = {
+  unlockAtLifetime: 100_000,
+  baseSlots: 3,
+  /** After a hire or a pass, the next applicant comes this many seconds later. */
+  applicantGapS: 240,
+  /** Hiring costs this many seconds of typical output (at least minHire), times 1 + hireStep per developer already hired. */
+  hireSeconds: 90,
+  hireStep: 0.5,
+  minHire: 5_000,
+  /** Effect of one developer (times their trait) in each role. */
+  featuresAuto: 0.1,
+  sprintReward: 0.2,
+  oncallTaps: 0.15,
+  oncallCap: 0.6,
+  bugAuto: 0.2,
+  bugReward: 0.15,
+  refactorPerMinute: 1.5,
+};
+
+/* ---------- boss fights ---------- */
+
+export type BossKind = 'deploy' | 'ddos' | 'audit' | 'migration';
+
+export type BossStage = { type: 'mash'; label: string; taps: number; seconds: number } | { type: 'pick'; label: string; options: number; seconds: number };
+
+export interface BossDef {
+  kind: BossKind;
+  name: string;
+  intro: string;
+  stages: BossStage[];
+}
+
+export const BOSSES: Record<BossKind, BossDef> = {
+  deploy: {
+    kind: 'deploy', name: 'FRIDAY DEPLOY', intro: 'someone merged to main at 16:59',
+    stages: [
+      { type: 'mash', label: 'roll back the deploy', taps: 30, seconds: 12 },
+      { type: 'pick', label: 'find the line that broke prod', options: 3, seconds: 14 },
+      { type: 'mash', label: 'ship the hotfix', taps: 40, seconds: 14 },
+    ],
+  },
+  ddos: {
+    kind: 'ddos', name: 'DDOS ATTACK', intro: 'traffic is up 40,000% and none of it is customers',
+    stages: [
+      { type: 'mash', label: 'scale up the load balancers', taps: 25, seconds: 10 },
+      { type: 'mash', label: 'block the botnet', taps: 35, seconds: 12 },
+      { type: 'mash', label: 'bring the cache back', taps: 45, seconds: 14 },
+    ],
+  },
+  audit: {
+    kind: 'audit', name: 'SECURITY AUDIT', intro: 'the auditors are in the lobby',
+    stages: [
+      { type: 'pick', label: 'find the leaked secret', options: 3, seconds: 14 },
+      { type: 'mash', label: 'rotate every key', taps: 35, seconds: 12 },
+      { type: 'pick', label: 'find the injection', options: 3, seconds: 14 },
+    ],
+  },
+  migration: {
+    kind: 'migration', name: 'DATABASE MIGRATION', intro: 'the migration is half applied',
+    stages: [
+      { type: 'pick', label: 'find the bad migration', options: 3, seconds: 14 },
+      { type: 'mash', label: 'restore from backup', taps: 35, seconds: 13 },
+      { type: 'pick', label: 'find the query that locks the table', options: 3, seconds: 14 },
+      { type: 'mash', label: 'replay the write-ahead log', taps: 30, seconds: 12 },
+    ],
+  },
+};
+export const BOSS_KINDS = Object.keys(BOSSES) as BossKind[];
+
+export const BOSS = {
+  firstAtLifetime: 1_000_000,
+  firstDelayMs: 240_000,
+  minGapMs: 420_000,
+  extraGapMs: 300_000,
+  /** Warning before a boss arrives. */
+  incomingMs: 20_000,
+  /** Each stage cleared pays this many seconds of typical output; beating the boss pays rewardSeconds and scripts. */
+  stageRewardSeconds: 30,
+  rewardSeconds: 240,
+  scripts: 2,
+};
+
+/* ---------- funding rounds and the company ---------- */
+
+export const ROUNDS: readonly string[] = ['Bootstrapped', 'Seed', 'Series A', 'Series B', 'Series C', 'IPO'];
+
+/** The editor writes a different language each funding round. */
+export type LanguageId = 'ts' | 'rs' | 'go' | 'py';
+
+export const LANGUAGES: readonly { id: LanguageId; name: string }[] = [
+  { id: 'ts', name: 'TypeScript' },
+  { id: 'rs', name: 'Rust' },
+  { id: 'go', name: 'Go' },
+  { id: 'py', name: 'Python' },
+];
+
+export const FUNDING = {
+  /** Stars needed to raise each round. */
+  starsPerRound: [150, 2_000, 60_000, 1_500_000, 20_000_000],
+  /** Each round raised multiplies all output by this. */
+  outputPerRound: 3,
+  maxRounds: ROUNDS.length - 1,
+};
+
+export interface CompanyPerkDef {
+  id: string;
+  name: string;
+  summary: string;
+  maxLevel: number;
+  /** Equity for level n+1 = baseCost + costStep * n. */
+  baseCost: number;
+  costStep: number;
+}
+
+export const COMPANY_PERKS: readonly CompanyPerkDef[] = [
+  { id: 'headcount', name: 'headcount', summary: '+1 team slot per level', maxLevel: 3, baseCost: 2, costStep: 1 },
+  { id: 'brand', name: 'brand', summary: '+25% stars from shipping per level', maxLevel: 4, baseCost: 1, costStep: 1 },
+  { id: 'runway', name: 'runway', summary: '+10% offline rate and +2h offline cap per level', maxLevel: 3, baseCost: 1, costStep: 1 },
+  { id: 'platform', name: 'platform team', summary: 'tech debt builds 20% slower per level', maxLevel: 3, baseCost: 1, costStep: 1 },
+  { id: 'devrel', name: 'devrel', summary: '+50% bug, incident and boss rewards per level', maxLevel: 3, baseCost: 1, costStep: 1 },
+];
+
+export const COMPANY_VALUES = { brandStars: 0.25, runwayRate: 0.1, runwayHours: 2, platformDebt: 0.2, devrelReward: 0.5 };
+
+/* ---------- mail ---------- */
+
+export const MAIL = {
+  unlockAtLifetime: 5_000,
+  firstDelayMs: 120_000,
+  minGapMs: 300_000,
+  extraGapMs: 240_000,
+  /** Gap between the parts of a story. */
+  storyGapMs: 45_000,
+  maxPending: 3,
+  /** Mail kept in the inbox. */
+  kept: 30,
+};
+
 /** When the other tabs appear, so new players aren't shown everything at once. */
 export const UNLOCKS = {
   sprintsAtLifetime: 750,
   todoAtLifetime: 2_000,
   shipAtRelease: 200_000,
+  mailAtLifetime: MAIL.unlockAtLifetime,
+  teamAtLifetime: TEAM.unlockAtLifetime,
 };
+
+/* ---------- workflows: automation earned by shipping ---------- */
+
+export type WorkflowId = 'deps' | 'devdeps' | 'scripts' | 'release';
+
+export interface WorkflowDef {
+  id: WorkflowId;
+  /** Shown as .github/workflows/<file>. */
+  file: string;
+  summary: string;
+  /** Releases shipped in total before it unlocks. Unlocked workflows start switched on. */
+  releases: number;
+}
+
+/** Bugs and coffee are left to the team (on-call and bug duty roles). */
+export const WORKFLOWS: readonly WorkflowDef[] = [
+  { id: 'deps', file: 'deps.yml', summary: 'installs automation packages for you, best value first', releases: 2 },
+  { id: 'devdeps', file: 'dev-deps.yml', summary: 'installs typing packages for you, best value first', releases: 4 },
+  { id: 'scripts', file: 'scripts.yml', summary: 'runs each ~/bin script as soon as the last one ends', releases: 6 },
+  { id: 'release', file: 'release.yml', summary: 'ships for you, as the same project, once a release would grow stars by the amount you pick', releases: 15 },
+];
+
+export const AUTOMATION = {
+  /** At most this many packages auto-installed per tick. */
+  installsPerTick: 25,
+  /** Choices for release.yml: ship once a release would grow stars by this fraction. */
+  shipAtOptions: [0.5, 0.75, 1, 2] as readonly number[],
+  shipAtDefault: 0.75,
+};
+
+/* ---------- career: titles by stars earned over the whole game ---------- */
+
+export const CAREER: readonly { title: string; stars: number }[] = [
+  { title: 'intern', stars: 0 },
+  { title: 'junior dev', stars: 2 },
+  { title: 'developer', stars: 25 },
+  { title: 'senior dev', stars: 250 },
+  { title: 'staff engineer', stars: 2_500 },
+  { title: 'principal engineer', stars: 25_000 },
+  { title: 'distinguished engineer', stars: 250_000 },
+  { title: 'fellow', stars: 2_500_000 },
+  { title: 'cto', stars: 25_000_000 },
+];
+
+/* ---------- major versions: the endless reset, from the Series B round on ---------- */
+
+export const MAJOR = {
+  /** Major versions open at this funding round (Series B), where runs start to stall. They never reset funding. */
+  unlockRound: 3,
+  /** XP earned in total = floor(cbrt(stars banked across major versions / starsPerXp)). */
+  starsPerXp: 200_000,
+  /** Each XP earned multiplies stars from shipping by 1 + this (spent or not). */
+  starGainPerXp: 0.5,
+};
+
+/** What a modifier can change. Multipliers default to 1; costGrowth replaces COST_GROWTH. */
+export interface Mods {
+  tapMul: number;
+  autoMul: number;
+  allMul: number;
+  /** Price growth per copy (1.15 normally). */
+  costGrowth: number;
+  costMul: number;
+  critAdd: number;
+  sprintReward: number;
+  bugReward: number;
+  /** Multiplies stars from shipping. */
+  starGain: number;
+  /** Only this many packages of each kind can be installed. */
+  maxTier: number;
+  /** False while dotfiles have no effect. */
+  dotfiles: boolean;
+}
+
+export interface SkillDef {
+  id: string;
+  /** Shown as a line of ~/resume.md. */
+  name: string;
+  summary: string;
+  maxLevel: number;
+  baseCost: number;
+  costStep: number;
+  costGrowth?: number;
+}
+
+/** Skills are bought with XP and kept forever. */
+export const SKILLS: readonly SkillDef[] = [
+  { id: 'tenx', name: '10x engineering', summary: 'x2 all output per level, no cap (each level costs twice the last)', maxLevel: Infinity, baseCost: 1, costStep: 0, costGrowth: 2 },
+  { id: 'pairing', name: 'pair programming', summary: '+25% stars from shipping per level', maxLevel: 4, baseCost: 1, costStep: 1 },
+  { id: 'headstart', name: 'head start', summary: 'start each major version with 25 stars per level', maxLevel: 4, baseCost: 1, costStep: 1 },
+  { id: 'muscle', name: 'muscle memory', summary: 'keep your dotfiles when you cut a major version', maxLevel: 1, baseCost: 3, costStep: 0 },
+];
+
+export const SKILL_VALUES = { tenxMul: 2, pairingGain: 0.25, headstartStars: 25 };
+
+export type ChallengeId = 'legacy' | 'cidown' | 'keyboard' | 'solo' | 'clean';
+
+export interface ChallengeDef {
+  id: ChallengeId;
+  name: string;
+  /** Shown as the branch: challenge/<branch>. */
+  branch: string;
+  restriction: string;
+  reward: string;
+  mods: Partial<Mods>;
+  rewardMods: Partial<Mods>;
+}
+
+/**
+ * Challenge releases: restart the current release under a restriction. Ship it with at least the goal
+ * (a release that grows this run's star curve by CHALLENGE.goalGain) for a permanent reward. Unlocked by the first major version.
+ */
+export const CHALLENGES: readonly ChallengeDef[] = [
+  { id: 'legacy', name: 'Legacy codebase', branch: 'legacy', restriction: 'package prices grow 30% per copy', reward: 'packages cost 10% less, forever', mods: { costGrowth: 1.3 }, rewardMods: { costMul: 0.9 } },
+  { id: 'cidown', name: 'CI is down', branch: 'ci-down', restriction: 'automation x0.1', reward: 'automation x1.5, forever', mods: { autoMul: 0.1 }, rewardMods: { autoMul: 1.5 } },
+  { id: 'keyboard', name: 'Broken keyboard', branch: 'broken-keyboard', restriction: 'per tap x0.1', reward: 'per tap x1.5, forever', mods: { tapMul: 0.1 }, rewardMods: { tapMul: 1.5 } },
+  { id: 'solo', name: 'Solo dev', branch: 'solo-dev', restriction: 'only the first 4 packages of each kind', reward: 'sprints and bugs pay x2, forever', mods: { maxTier: 4 }, rewardMods: { sprintReward: 2, bugReward: 2 } },
+  { id: 'clean', name: 'Clean install', branch: 'clean-install', restriction: 'dotfiles do nothing', reward: '+25% stars from shipping, forever', mods: { dotfiles: false }, rewardMods: { starGain: 1.25 } },
+];
+
+export const CHALLENGE = {
+  /** The goal: a release that grows this run's star curve by this fraction, about twice the lines shipped so far this run. */
+  goalGain: 0.25,
+  /** Challenges can start once this run's star curve (before bonuses) reaches this, so they can't be done on an empty codebase. */
+  minCurve: 20,
+};
+
+/* ---------- the market: reviews, users and rival companies ---------- */
+
+export const MARKET = {
+  /** The app's name until the player renames it. */
+  defaultName: 'my-app',
+  /** New users from a release = usersPerCubeRootLine × cbrt(release lines) × (review / 3)². */
+  usersPerCubeRootLine: 10,
+  /** Users start drifting to rivals after this many quiet minutes since the last update (ship or major version)... */
+  graceMinutes: 45,
+  /** ...losing this share of them each quiet minute after that... */
+  churnPerMinute: 0.01,
+  /** Time away (game closed or asleep) counts as this share of quiet minutes, so being away costs less than idling in the game. */
+  awayChurnRate: 0.35,
+  /** ...but one quiet spell never costs more than this share of the users at the last update... */
+  maxChurn: 0.5,
+  /** ...and time away alone never takes it past this share. */
+  awayMaxChurn: 0.25,
+  /** A release reviewed at least winBackAt wins back this share of the users lost since the last update. */
+  winBackAt: 4,
+  winBack: 0.5,
+  /** Each rival you are ahead of in the chart adds this to all output. */
+  rankBonus: 0.05,
+  /** Rival launches: announced with a warning; ship first to multiply that release's new users. */
+  launch: { firstDelayMs: 10 * 60_000, minGapMs: 12 * 60_000, extraGapMs: 13 * 60_000, warningMs: 5 * 60_000, stealMul: 1.5, rivalGain: 0.05 },
+  /** Scripts a first overtake drops. */
+  overtakeScripts: 2,
+  reviewsKept: 5,
+  pressKept: 12,
+};
+
+export interface RivalDef {
+  id: string;
+  name: string;
+  app: string;
+  /** Users when the player first ships... */
+  users: number;
+  /** ...growing by this share of that each day. */
+  growthPerDay: number;
+}
+
+/** Fictional competitors, smallest first. */
+export const RIVALS: readonly RivalDef[] = [
+  { id: 'hello', name: 'Hello World Inc', app: 'hello-app', users: 5_000, growthPerDay: 0.5 },
+  { id: 'foo', name: 'Foo Corp', app: 'foo.io', users: 30_000, growthPerDay: 0.5 },
+  { id: 'bar', name: 'BarSoft', app: 'bar', users: 200_000, growthPerDay: 0.5 },
+  { id: 'legacy', name: 'Legacy Systems Inc', app: 'LegacyERP', users: 1_200_000, growthPerDay: 0.25 },
+  { id: 'movefast', name: 'MoveFast Labs', app: 'movefast', users: 8_000_000, growthPerDay: 1 },
+  { id: 'waterfall', name: 'Waterfall Ltd', app: 'GanttPro', users: 50_000_000, growthPerDay: 0.25 },
+  { id: 'yak', name: 'Yak Shaving Co', app: 'yakr', users: 300_000_000, growthPerDay: 0.5 },
+  { id: 'monolith', name: 'Monolith Global', app: 'Monolith', users: 2e9, growthPerDay: 0.5 },
+  { id: 'synergy', name: 'Synergy Dynamics', app: 'Synergize', users: 12e9, growthPerDay: 0.5 },
+  { id: 'cloudnine', name: 'Cloud Nine Systems', app: 'nimbus', users: 80e9, growthPerDay: 0.5 },
+  { id: 'hype', name: 'Hype Cycle Inc', app: 'hypr', users: 500e9, growthPerDay: 1 },
+  { id: 'unicorn', name: 'Unicorn Ventures', app: 'unicornify', users: 3e12, growthPerDay: 0.5 },
+  { id: 'galaxy', name: 'Galaxy Brain AI', app: 'galaxybrain', users: 20e12, growthPerDay: 0.5 },
+  { id: 'recursion', name: 'Recursion Corp', app: 'recurse', users: 150e12, growthPerDay: 0.5 },
+  { id: 'bigtech', name: 'Big Tech Holdings', app: 'everything', users: 1e15, growthPerDay: 0.5 },
+];
+
+/** Made-up outlets for the press feed. */
+export const OUTLETS: readonly string[] = ['The Daily Diff', 'Hacker Feed', 'Stack Trace Times', '/dev/news', 'Byte Beat', 'Ship Report', 'The Merge Request'];

@@ -7,13 +7,25 @@ import type { CloudDoc, KeyValueStore } from './types';
  * phone app lost a player's save this way).
  *
  * Rules that keep a save from being lost:
- * - The cloud copy is read before anything is written to it, so a stand-in new game started while
- *   the cloud was slow can never overwrite it. If the cloud answers late with a newer save, the
- *   game is told (onLateSave) and switches to it.
- * - The game starts from whichever save is newer, this device's or the cloud's.
- * - Writing a save with less progress than the one it replaces (a reset, an import, another device)
- *   keeps the old one as a backup, on this device and in the cloud, which the player can restore.
- * - A save that fails to load is kept aside instead of being overwritten.
+ * - The cloud copy is read, as the store confirms it (never a cached copy), before anything is
+ *   written to it, so a stand-in new game started while the cloud was out of reach can never
+ *   overwrite it. If the cloud answers late with a better save, the game is told (onLateSave) and
+ *   switches to it. However long the answer takes: there is no point after which the cloud is
+ *   given up on for the session.
+ * - The game may be open in several tabs or on several devices at once, all writing the same cloud
+ *   document (last writer wins). The cloud is followed live: when another copy saves more progress,
+ *   or replaces the save on purpose, this one switches to it instead of writing over it.
+ * - The game starts from the save with the most progress, this device's or the cloud's, not the
+ *   newest: a new game started while the real save was out of reach is newer but must not win.
+ * - The one exception is a deliberate replacement (reset, import, restoring a backup). It starts a
+ *   new generation (resetAt), recorded on this device and in the cloud with every save written
+ *   after it; saves from an older generation no longer count. Generations don't depend on device
+ *   clocks agreeing.
+ * - A save with more progress than the one the game starts from or replaces it with (a reset, an
+ *   import, another device) is kept as a backup, on this device and in the cloud, which the player
+ *   can restore.
+ * - A save that fails to load is kept aside instead of being overwritten, and a save this version
+ *   can't read is not written over at all (hold).
  *
  * This file knows only the few fields it compares saves by (savedAt, lifetime, release), not the
  * rest of the format.
@@ -29,6 +41,8 @@ export interface Candidate {
   text: string;
   source: 'device' | 'cloud';
   meta: SaveMeta;
+  /** The generation (deliberate replacement) this save belongs to; see resetAt. */
+  gen: number;
 }
 
 export type CloudState = 'off' | 'connecting' | 'synced' | 'saving' | 'error';
@@ -39,6 +53,8 @@ export interface SaveStatus {
   cloud: CloudState;
   /** When the cloud last confirmed a save (ms), if this session wrote or read one. */
   cloudSavedAt: number | null;
+  /** Nothing is being saved: this version could not read the player's save (see hold). */
+  held: boolean;
 }
 
 export interface Backup {
@@ -54,7 +70,17 @@ export interface SaveStoreOptions {
   cloudEveryMs: number;
   /** Routine cloud writes only happen while the game is on screen. */
   visible: () => boolean;
+  /**
+   * How long to wait for the cloud before starting when this device keeps nothing: the cloud is then the
+   * only save there is, and starting a stand-in game would mean reloading into the real one later.
+   */
+  noStorageWaitMs?: number;
+  /** How long a reset, import or restore waits for the cloud's first answer before going ahead. */
+  replaceWaitMs?: number;
 }
+
+/** Why the game must switch saves (see onLateSave). */
+export type SwitchReason = 'progress' | 'replaced';
 
 /** The cloud document: the save as a string (so its shape and depth never matter to the store). */
 interface CloudBody {
@@ -63,6 +89,8 @@ interface CloudBody {
   lifetime: number;
   release: number;
   prev?: string;
+  /** The generation `save` belongs to: when the player last deliberately replaced their save. */
+  resetAt?: number;
 }
 
 const sleep = (ms: number) => new Promise<void>((r) => setTimeout(r, ms));
@@ -87,7 +115,18 @@ function asBody(data: Record<string, unknown> | null): CloudBody | null {
     lifetime: Number(data.lifetime) || 0,
     release: Number(data.release) || 1,
     ...(typeof data.prev === 'string' && data.prev ? { prev: data.prev } : {}),
+    ...(Number(data.resetAt) > 0 ? { resetAt: Number(data.resetAt) } : {}),
   };
+}
+
+/**
+ * Saves best first: the most progress wins (lifetime only ever grows in play), then the newest.
+ * Saves from before the latest deliberate replacement (gen below resetAt) are left out.
+ */
+export function rank<T extends { meta: SaveMeta; gen: number }>(list: T[], resetAt: number): T[] {
+  return list
+    .filter((c) => c.gen >= resetAt)
+    .sort((a, b) => b.meta.lifetime - a.meta.lifetime || b.meta.savedAt - a.meta.savedAt);
 }
 
 /** Errors after which this session stops trying the cloud. */
@@ -110,12 +149,23 @@ export class SaveStore {
   private cloudSavedAt: number | null = null;
   private device = true;
   private lastLocal: { text: string; meta: SaveMeta } | null = null;
-  /** The save this session started from, when the cloud had not answered yet. */
-  private bootMeta: SaveMeta | null = null;
-  private lateText: string | null = null;
-  private lateListener: ((text: string) => void) | null = null;
+  /** The latest generation known to this device or the cloud (0: never replaced on purpose). */
+  private resetAt = 0;
+  /** The generation of the save on this device. */
+  private localGen = 0;
+  /** Every save load() found, so one with more progress than the one started from is kept as a backup. */
+  private found: string[] = [];
+  /** The cloud had not answered when the game started: no cloud writes until its answer is weighed. */
+  private deciding = false;
+  /** The cloud's late answer, once the game must switch to it (see onLateSave). */
+  private late: { text: string | null; reason: SwitchReason } | null = null;
+  private lateListener: ((text: string | null, reason: SwitchReason) => void) | null = null;
+  /** The save being written to the cloud right now (its echo from the store is not another copy's). */
+  private inFlight: string | null = null;
   /** Set once the game is switching saves: nothing more is written. */
   private stopped = false;
+  /** Set when this version could not read the player's save (see hold). */
+  private held = false;
   private best: Backup | null = null;
 
   constructor(
@@ -128,27 +178,39 @@ export class SaveStore {
     return `${this.opts.key}.prev`;
   }
 
-  /** The saves to start from, newest first. Waits up to waitMs for the cloud. */
+  private get genKey(): string {
+    return `${this.opts.key}.resetAt`;
+  }
+
+  /** The saves to start from, best first (see rank). Waits up to waitMs for the cloud. */
   async load(): Promise<Candidate[]> {
     this.device = await this.local.probe();
     const localText = await this.local.get(this.opts.key);
     const localMeta = metaOf(localText);
     if (localText && localMeta) this.lastLocal = { text: localText, meta: localMeta };
+    this.localGen = Number(await this.local.get(this.genKey)) || 0;
+    this.resetAt = this.localGen;
 
     this.cloudState = 'connecting';
     this.reading = this.readCloud();
-    const first = await Promise.race([this.reading, sleep(this.opts.waitMs).then(() => 'timeout' as const)]);
+    const wait = this.device ? this.opts.waitMs : Math.max(this.opts.waitMs, this.opts.noStorageWaitMs ?? 40_000);
+    const first = await Promise.race([this.reading, sleep(wait).then(() => 'timeout' as const)]);
 
     const list: Candidate[] = [];
-    if (localText) list.push({ text: localText, source: 'device', meta: localMeta ?? { savedAt: 0, lifetime: 0, release: 1 } });
+    if (localText && localMeta) list.push({ text: localText, source: 'device', meta: localMeta, gen: this.localGen });
     if (first === 'timeout') {
-      this.bootMeta = localMeta;
+      this.deciding = true;
       void this.reading.then(() => this.afterLateRead());
     } else if (first?.save) {
-      list.push({ text: first.save, source: 'cloud', meta: metaOf(first.save) ?? { savedAt: first.savedAt, lifetime: first.lifetime, release: first.release } });
+      const meta = metaOf(first.save) ?? { savedAt: first.savedAt, lifetime: first.lifetime, release: first.release };
+      list.push({ text: first.save, source: 'cloud', meta, gen: first.resetAt ?? 0 });
     }
+    this.found = list.map((c) => c.text);
     await this.refreshBackup();
-    return list.sort((a, b) => b.meta.savedAt - a.meta.savedAt);
+    const ranked = rank(list, this.resetAt);
+    // A device save that isn't even JSON goes last, so the game still keeps it aside.
+    if (localText && !localMeta) ranked.push({ text: localText, source: 'device', meta: { savedAt: 0, lifetime: 0, release: 1 }, gen: this.localGen });
+    return ranked;
   }
 
   private async readCloud(): Promise<CloudBody | null> {
@@ -167,9 +229,11 @@ export class SaveStore {
         data = await this.cloud.get();
       }
       this.remote = asBody(data);
+      this.resetAt = Math.max(this.resetAt, this.remote?.resetAt ?? 0);
       this.cloudReady = true;
       this.cloudState = 'synced';
       this.cloudSavedAt = this.remote?.savedAt || null;
+      this.cloud.watch?.((d) => this.onRemote(asBody(d)));
       return this.remote;
     } catch {
       this.cloudState = 'error';
@@ -177,29 +241,90 @@ export class SaveStore {
     }
   }
 
-  /** The cloud answered after the game had started from this device's save. */
+  /**
+   * The cloud answered after the game had started without it (from this device's save, or a new
+   * game). Decided before anything else can run, so the game in progress can't reach the cloud first.
+   */
   private async afterLateRead(): Promise<void> {
+    if (!this.cloudReady || this.stopped) {
+      this.deciding = false;
+      return void (await this.refreshBackup());
+    }
+    const cloudText = this.remote?.save || null;
+    const cloudMeta = metaOf(cloudText);
+    const here: Candidate[] = this.lastLocal ? [{ ...this.lastLocal, source: 'device', gen: this.localGen }] : [];
+    const there: Candidate[] = cloudText && cloudMeta ? [{ text: cloudText, meta: cloudMeta, source: 'cloud', gen: this.remote?.resetAt ?? 0 }] : [];
+    const best = rank([...here, ...there], this.resetAt)[0];
+    let switchTo: string | null | undefined;
+    if (best?.source === 'cloud') {
+      if (cloudText !== this.lastLocal?.text) switchTo = cloudText; // the cloud's save is better
+    } else if (!best && here.length > 0) switchTo = null; // the save in play was reset on another device
+    if (switchTo !== undefined) {
+      this.deciding = false;
+      this.switchTo(switchTo, switchTo === null ? 'replaced' : 'progress');
+      return;
+    }
+    this.deciding = false;
     await this.refreshBackup();
-    if (!this.cloudReady) return;
-    const cloudMeta = metaOf(this.remote?.save);
-    if (this.remote?.save && cloudMeta && cloudMeta.savedAt > (this.bootMeta?.savedAt ?? -1)) {
-      this.stopped = true; // the stand-in game must never reach the cloud
-      this.pending = null;
-      this.lateText = this.remote.save;
-      this.lateListener?.(this.lateText);
-    } else this.schedule();
+    this.schedule();
   }
 
-  /** The save the game started from, so a later save with less progress is caught and backed up. */
+  /**
+   * The save the game started from, so a later save with less progress is caught and backed up.
+   * Any other save load() found with more progress (one replaced on purpose elsewhere, or one this
+   * version could not read) is kept as a backup.
+   */
   started(text: string | null): void {
     const meta = metaOf(text);
     this.lastLocal = text && meta ? { text, meta } : null;
+    for (const other of this.found) {
+      const m = metaOf(other);
+      if (other !== text && m && m.lifetime > (meta?.lifetime ?? 0)) this.keepBackup(other);
+    }
   }
 
-  /** Called if a newer save arrives from the cloud after the game started. */
-  onLateSave(listener: (text: string) => void): void {
+  /** Stops all saving for this session: this version can't read the player's save and must not overwrite it. */
+  hold(): void {
+    this.stopped = true;
+    this.held = true;
+    this.pending = null;
+  }
+
+  /**
+   * Called when the game must switch to the cloud's save: it answered late with a better one, another open
+   * copy saved more progress ('progress'), or the save was replaced on purpose elsewhere ('replaced'; null
+   * when it was reset: start a new game).
+   */
+  onLateSave(listener: (text: string | null, reason: SwitchReason) => void): void {
     this.lateListener = listener;
-    if (this.lateText) listener(this.lateText);
+    if (this.late) listener(this.late.text, this.late.reason);
+  }
+
+  /** Stops saving and tells the game to switch to `text`. */
+  private switchTo(text: string | null, reason: SwitchReason): void {
+    if (this.late) return;
+    this.stopped = true; // the game in progress must never reach the cloud
+    this.pending = null;
+    this.late = { text, reason };
+    this.lateListener?.(text, reason);
+  }
+
+  /**
+   * A confirmed change to the cloud document while the game runs: this game's own write coming back, or
+   * another open copy's. A copy further ahead, or a deliberate replacement made elsewhere, wins: this game
+   * switches to it rather than write over it. A copy behind is left to be overwritten by the next save.
+   */
+  private onRemote(body: CloudBody | null): void {
+    if (this.deciding) return; // the first answer is still being weighed (afterLateRead)
+    this.remote = body;
+    if (body?.savedAt) this.cloudSavedAt = body.savedAt;
+    if (this.stopped || this.held) return;
+    const text = body?.save || null;
+    if (text !== null && (text === this.written || text === this.inFlight)) return;
+    const gen = body?.resetAt ?? 0;
+    if (gen > this.resetAt) return this.switchTo(text, 'replaced');
+    const meta = metaOf(text);
+    if (gen === this.resetAt && text && meta && meta.lifetime > (this.lastLocal?.meta.lifetime ?? 0)) this.switchTo(text, 'progress');
   }
 
   /** Saves to this device now and queues the cloud copy. */
@@ -209,6 +334,7 @@ export class SaveStore {
     if (!meta) return;
     if (this.lastLocal && meta.lifetime < this.lastLocal.meta.lifetime) this.keepBackup(this.lastLocal.text);
     void this.local.set(this.opts.key, text);
+    if (this.localGen !== this.resetAt) this.setLocalGen(this.resetAt);
     this.lastLocal = { text, meta };
     this.pending = text;
     this.schedule();
@@ -221,29 +347,56 @@ export class SaveStore {
     await this.push();
   }
 
-  /** Replaces the save everywhere (import, restoring a backup, a newer cloud save). Call before reloading. */
-  async replace(text: string): Promise<void> {
+  /**
+   * The player replaces their save on purpose (import, restoring a backup): it becomes the save
+   * everywhere, even with less progress, and saves from before it stop counting. Call before reloading.
+   */
+  async replace(text: string): Promise<boolean> {
+    const meta = metaOf(text);
+    if (!meta) return false;
+    const before = { resetAt: this.resetAt, localGen: this.localGen, stopped: this.stopped };
+    this.stopped = true;
+    await this.whenReadable(this.opts.replaceWaitMs ?? 45_000);
+    if (this.lastLocal && meta.lifetime < this.lastLocal.meta.lifetime) this.keepBackup(this.lastLocal.text);
+    this.newGeneration();
+    await this.local.set(this.opts.key, text);
+    const onDevice = this.device && (await this.local.get(this.opts.key)) === text;
+    const inCloud = await this.writeCloud(text);
+    if (onDevice || inCloud) return true;
+    // Kept nowhere: nothing is replaced, and this session goes on saving as before.
+    this.resetAt = before.resetAt;
+    this.setLocalGen(before.localGen);
+    this.stopped = before.stopped;
+    return false;
+  }
+
+  /** Takes the cloud's answer onto this device (see onLateSave; null starts a new game). Call before reloading. */
+  async adopt(text: string | null): Promise<void> {
     this.stopped = true;
     const meta = metaOf(text);
-    if (this.lastLocal && meta && meta.lifetime < this.lastLocal.meta.lifetime) this.keepBackup(this.lastLocal.text);
-    await this.local.set(this.opts.key, text);
-    await this.whenReadable();
-    if (this.remote?.save !== text) await this.writeCloud(text);
+    if (this.lastLocal && (!meta || meta.lifetime < this.lastLocal.meta.lifetime)) this.keepBackup(this.lastLocal.text);
+    if (text) await this.local.set(this.opts.key, text);
+    else await this.local.remove(this.opts.key);
+    this.setLocalGen(this.resetAt);
   }
 
   /** Erases progress (reset). The erased save stays restorable as a backup. */
   async clear(): Promise<void> {
     this.stopped = true;
-    const current = this.lastLocal?.text ?? this.remote?.save;
+    const current = this.lastLocal?.text ?? this.remote?.save ?? null;
     if (current) this.keepBackup(current);
+    await this.whenReadable(this.opts.replaceWaitMs ?? 45_000);
+    this.newGeneration();
     await this.local.remove(this.opts.key);
-    await this.whenReadable();
-    if (this.cloud && this.cloudReady && this.remote?.save) {
+    if (this.cloud && this.cloudReady) {
       await this.idle();
+      const prev = this.bestOf(this.bestOf(this.remote?.save ?? null, this.remote?.prev ?? null), current);
+      const body: CloudBody = { save: '', savedAt: Date.now(), lifetime: 0, release: 1, resetAt: this.resetAt, ...(prev ? { prev } : {}) };
       try {
-        await this.cloud.set({ save: '', savedAt: Date.now(), lifetime: 0, release: 1, prev: this.bestOf(this.remote.save, this.remote.prev ?? null) ?? this.remote.save });
+        await this.cloud.set(body as unknown as Record<string, unknown>);
+        this.remote = body;
       } catch {
-        /* the cloud keeps the old save; it will win on the next load, which is the safe failure */
+        /* the cloud keeps the old save; this device's newer generation still wins here, and is uploaded next time */
       }
     }
   }
@@ -259,10 +412,21 @@ export class SaveStore {
   }
 
   status(): SaveStatus {
-    return { device: this.device, cloud: this.cloudState, cloudSavedAt: this.cloudSavedAt };
+    return { device: this.device, cloud: this.cloudState, cloudSavedAt: this.cloudSavedAt, held: this.held };
   }
 
   // ---------- internals ----------
+
+  /** A deliberate replacement: a generation above every one known, whatever this device's clock says. */
+  private newGeneration(): void {
+    this.resetAt = Math.max(Date.now(), this.resetAt + 1);
+    this.setLocalGen(this.resetAt);
+  }
+
+  private setLocalGen(gen: number): void {
+    this.localGen = gen;
+    void this.local.set(this.genKey, String(gen));
+  }
 
   private keepBackup(text: string): void {
     const better = this.bestOf(text, this.best?.text ?? null);
@@ -288,9 +452,9 @@ export class SaveStore {
     this.best = text && meta ? { text, meta } : null;
   }
 
-  /** Waits (a little) for the first cloud read, so a reset or import isn't undone by a cloud copy. */
-  private async whenReadable(): Promise<void> {
-    if (this.reading && !this.cloudReady) await Promise.race([this.reading, sleep(5000)]);
+  /** Waits for the first cloud read (up to ms), so a reset or import reaches the cloud and isn't undone by its copy. */
+  private async whenReadable(ms: number): Promise<void> {
+    if (this.reading && !this.cloudReady && this.cloudState === 'connecting') await Promise.race([this.reading, sleep(ms)]);
   }
 
   private async idle(): Promise<void> {
@@ -298,7 +462,7 @@ export class SaveStore {
   }
 
   private schedule(): void {
-    if (!this.cloudReady || this.stopped || this.timer || this.writing) return;
+    if (!this.cloudReady || this.deciding || this.stopped || this.timer || this.writing) return;
     if (this.pending === null || this.pending === this.written || !this.opts.visible()) return;
     const wait = Math.max(0, this.lastCloudWrite + this.opts.cloudEveryMs - Date.now());
     this.timer = setTimeout(() => {
@@ -308,22 +472,27 @@ export class SaveStore {
   }
 
   private async push(): Promise<void> {
-    if (this.stopped || this.writing || this.pending === null || this.pending === this.written) return;
+    if (this.stopped || this.deciding || this.writing || this.pending === null || this.pending === this.written) return;
     await this.writeCloud(this.pending);
     this.schedule();
   }
 
-  private async writeCloud(text: string): Promise<void> {
-    if (!this.cloud || !this.cloudReady) return;
+  /** Writes `text` as the cloud's save. False if it wasn't written. */
+  private async writeCloud(text: string): Promise<boolean> {
+    if (!this.cloud || !this.cloudReady) return false;
     await this.idle();
     const meta = metaOf(text);
-    if (!meta) return;
+    if (!meta) return false;
+    // Another copy replaced the save on purpose since: its generation wins (onRemote switches to it).
+    if ((this.remote?.resetAt ?? 0) > this.resetAt) return false;
     const body: CloudBody = { save: text, savedAt: meta.savedAt, lifetime: meta.lifetime, release: meta.release };
+    if (this.resetAt > 0) body.resetAt = this.resetAt;
     // Keep the cloud's best older save while it still has more progress than this one.
     const prev = this.bestOf(this.remote?.save ?? null, this.remote?.prev ?? null);
     const prevMeta = metaOf(prev);
     if (prev && prevMeta && prevMeta.lifetime > meta.lifetime) body.prev = prev;
     this.writing = true;
+    this.inFlight = text;
     this.cloudState = 'saving';
     try {
       await this.cloud.set(body as unknown as Record<string, unknown>);
@@ -332,12 +501,15 @@ export class SaveStore {
       if (body.prev && this.bestOf(body.prev, this.best?.text ?? null) === body.prev) this.best = { text: body.prev, meta: metaOf(body.prev)! };
       this.cloudSavedAt = Date.now();
       this.cloudState = 'synced';
+      return true;
     } catch (e) {
       this.cloudState = 'error';
       if (isFatal(e)) this.cloudReady = false;
+      return false;
     } finally {
       this.lastCloudWrite = Date.now();
       this.writing = false;
+      this.inFlight = null;
     }
   }
 }

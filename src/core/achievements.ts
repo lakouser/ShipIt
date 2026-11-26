@@ -1,5 +1,5 @@
-import { UPGRADES } from './content';
-import { owned } from './economy';
+import { BOSS_KINDS, CHALLENGES, DEBT, FUNDING, PROJECTS, RIVALS, UPGRADES, WORKFLOWS } from './content';
+import { isUpgradeAvailable, owned, teamSlots } from './economy';
 import { perSecond, perTap } from './economy';
 import { PERKS } from './content';
 import type { GameState } from './state';
@@ -52,7 +52,7 @@ export const ACHIEVEMENTS: readonly AchievementDef[] = [
   { id: 'install', name: 'npm install everything', description: 'Install 100 packages', unlocked: (s) => s.stats.purchases >= 100 },
   { id: 'double', name: 'Doubling down', description: 'Have 25 of one package', unlocked: (s) => s.stats.maxOfOne >= 25 },
   { id: 'lockin', name: 'Vendor lock-in', description: 'Have 100 of one package', unlocked: (s) => s.stats.maxOfOne >= 100 },
-  { id: 'fullstack', name: 'Full stack', description: 'Have at least one of every package', unlocked: (s) => UPGRADES.every((u) => owned(s, u.id) > 0) },
+  { id: 'fullstack', name: 'Full stack', description: 'Have at least one of every package', unlocked: (s) => UPGRADES.filter((u) => isUpgradeAvailable(s, u)).every((u) => owned(s, u.id) > 0) },
   // bugs and incidents
   { id: 'feature', name: "It's a feature", description: 'Squash your first bug', unlocked: (s) => s.stats.bugs >= 1 },
   { id: 'ext', name: 'Exterminator', description: 'Squash 5 bugs', unlocked: (s) => s.stats.bugs >= 5 },
@@ -74,20 +74,58 @@ export const ACHIEVEMENTS: readonly AchievementDef[] = [
   { id: 'inbox', name: 'Inbox zero', description: 'Finish 10 TODO tasks', unlocked: (s) => s.stats.quests >= 10 },
   { id: 'roadmap', name: 'On the roadmap', description: 'Complete a release milestone', unlocked: (s) => s.stats.milestones >= 1 },
   // releases and dotfiles
-  { id: 'ship', name: 'Shipped', description: 'Ship your first release', unlocked: (s) => s.release > 1 },
-  { id: 'semver', name: 'Semantic versioning', description: 'Reach v5.0', unlocked: (s) => s.release >= 5 },
-  { id: 'lts', name: 'Long-term support', description: 'Reach v10.0', unlocked: (s) => s.release >= 10 },
+  { id: 'ship', name: 'Shipped', description: 'Ship your first release', unlocked: (s) => s.stats.ships >= 1 || s.release > 1 },
+  { id: 'lts', name: 'Long-term support', description: 'Ship 10 releases', unlocked: (s) => s.stats.ships >= 10 },
+  { id: 'releases25', name: 'Release train', description: 'Ship 25 releases', unlocked: (s) => s.stats.ships >= 25 },
+  { id: 'releases100', name: 'Continuous delivery', description: 'Ship 100 releases', unlocked: (s) => s.stats.ships >= 100 },
+  { id: 'stars500', name: 'Rising star', description: 'Earn 500 stars in total', unlocked: (s) => s.stats.starsEarned >= 500 },
+  { id: 'stars10k', name: 'Awesome list', description: 'Earn 10,000 stars in total', unlocked: (s) => s.stats.starsEarned >= 1e4 },
+  { id: 'stars1m', name: 'Most starred', description: 'Earn 1,000,000 stars in total', unlocked: (s) => s.stats.starsEarned >= 1e6 },
+  { id: 'roadmap10', name: 'Roadmap delivered', description: 'Complete 10 release milestones', unlocked: (s) => s.stats.milestones >= 10 },
+  { id: 'pipeline', name: 'Everything is a pipeline', description: 'Unlock every workflow', unlocked: (s) => s.stats.ships >= WORKFLOWS[WORKFLOWS.length - 1].releases },
+  { id: 'autoship', name: 'Release on green', description: 'Let release.yml ship a release', unlocked: (s) => s.stats.autoShips >= 1 },
+  { id: 'zsh', name: 'Oh my zsh', description: 'Buy a level of .zshrc', unlocked: (s) => (s.perks.zshrc ?? 0) >= 1 },
+  { id: 'semver', name: 'Semantic versioning', description: 'Cut v1.0, your first major version', unlocked: (s) => s.major >= 1 },
+  { id: 'breaking', name: 'Breaking changes', description: 'Reach v3.0', unlocked: (s) => s.major >= 3 },
+  { id: 'majorleague', name: 'Major league', description: 'Reach v10.0', unlocked: (s) => s.major >= 10 },
+  { id: 'resume', name: 'Resume-driven development', description: 'Learn a skill', unlocked: (s) => Object.keys(s.skills).length > 0 },
+  { id: 'flagged', name: 'Feature flagged', description: 'Complete a challenge release', unlocked: (s) => s.challengesDone.length >= 1 },
+  { id: 'hardmode', name: 'Hard mode', description: 'Complete every challenge release', unlocked: (s) => s.challengesDone.length >= CHALLENGES.length },
+  { id: 'users1k', name: 'Early adopters', description: 'Reach 1,000 users', unlocked: (s) => s.market.peak >= 1e3 },
+  { id: 'users1m', name: 'Product-market fit', description: 'Reach 1 million users', unlocked: (s) => s.market.peak >= 1e6 },
+  { id: 'users1b', name: 'Household name', description: 'Reach 1 billion users', unlocked: (s) => s.market.peak >= 1e9 },
+  { id: 'fivestar', name: 'Five stars', description: 'Ship a release reviewed 5.0', unlocked: (s) => s.stats.fiveStars >= 1 },
+  { id: 'scoop', name: 'Scooped', description: "Ship before a rival's launch and steal the headline", unlocked: (s) => s.stats.steals >= 1 },
+  { id: 'top3', name: 'Top three', description: 'Reach #3 in the charts', unlocked: (s) => s.market.passed.length >= RIVALS.length - 2 },
+  { id: 'number1', name: 'Number one', description: 'Reach #1 in the charts', unlocked: (s) => s.market.passed.length >= RIVALS.length },
   { id: 'stars10', name: 'Trending', description: 'Earn 10 stars', unlocked: (s) => s.stars >= 10 },
   { id: 'stars50', name: 'Starred repo', description: 'Earn 50 stars', unlocked: (s) => s.stars >= 50 },
   { id: 'ricing', name: 'Ricing', description: 'Buy a dotfiles perk', unlocked: (s) => s.stats.perksBought >= 1 },
   { id: 'perfect', name: 'Dotfile perfectionist', description: 'Max out a dotfiles perk', unlocked: (s) => PERKS.some((p) => (s.perks[p.id] ?? 0) >= p.maxLevel) },
   { id: 'standup', name: 'Daily standup', description: 'Play 3 days in a row', unlocked: (s) => s.streak.count >= 3 },
   { id: 'green', name: 'Green squares', description: 'Play 7 days in a row', unlocked: (s) => s.streak.count >= 7 },
+  // tech debt, forks, the team, bosses, projects, funding, mail
+  { id: 'refactor', name: 'Leave it better', description: 'Refactor away your tech debt', unlocked: (s) => s.stats.refactors >= 1 },
+  { id: 'bankrupt', name: 'Technical bankruptcy', description: 'Let tech debt reach 100%', unlocked: (s) => !!s.flags.bankrupt || s.debt >= DEBT.max },
+  { id: 'fork', name: 'Breaking change', description: 'Pick a package upgrade', unlocked: (s) => s.stats.forksChosen >= 1 },
+  { id: 'forks25', name: 'Dependency hell', description: 'Pick 25 package upgrades', unlocked: (s) => s.stats.forksChosen >= 25 },
+  { id: 'hire', name: "We're hiring", description: 'Hire a developer', unlocked: (s) => s.stats.hires >= 1 },
+  { id: 'fullteam', name: 'Two-pizza team', description: 'Fill every team slot', unlocked: (s) => s.team.length >= teamSlots(s) },
+  { id: 'boss', name: 'Incident commander', description: 'Beat a boss incident', unlocked: (s) => s.stats.bossesBeaten >= 1 },
+  { id: 'boss10', name: 'War room veteran', description: 'Beat 10 boss incidents', unlocked: (s) => s.stats.bossesBeaten >= 10 },
+  { id: 'bossall', name: 'Seen it all', description: 'Beat every kind of boss incident', unlocked: (s) => BOSS_KINDS.every((k) => s.bossKinds.includes(k)) },
+  { id: 'pivot', name: 'Pivot', description: 'Ship something other than a web app', unlocked: (s) => s.projectsShipped.some((p) => p !== 'webapp') },
+  { id: 'portfolio', name: 'Portfolio', description: 'Ship every kind of project', unlocked: (s) => PROJECTS.every((p) => s.projectsShipped.includes(p.id)) },
+  { id: 'raise', name: 'Term sheet', description: 'Raise a funding round', unlocked: (s) => s.round >= 1 },
+  { id: 'ipo', name: 'Ring the bell', description: 'Take the company public', unlocked: (s) => s.round >= FUNDING.maxRounds },
+  { id: 'replyall', name: 'Reply all', description: 'Answer 10 emails', unlocked: (s) => s.stats.mailAnswered >= 10 },
+  { id: 'rtfm', name: 'RTFM', description: 'Read 5 man pages', unlocked: (s) => s.manRead.length >= 5 },
   // secrets
   { id: 'sudo', name: 'sudo make me a sandwich', description: 'Type sudo on a keyboard', secret: true, unlocked: (s) => !!s.flags.sudo },
   { id: 'rmrf', name: 'Living dangerously', description: 'Type rm -rf on a keyboard', secret: true, unlocked: (s) => !!s.flags.rmrf },
   { id: 'owl', name: 'Night owl', description: 'Play between 2 and 5 a.m.', secret: true, unlocked: (s, c) => !!s.flags.nightOwl || (c.hour >= 2 && c.hour < 5 && s.stats.taps > 0) },
   { id: 'backup', name: 'Backup strategy', description: 'Export your save', secret: true, unlocked: (s) => !!s.flags.exported },
+  { id: 'quack', name: 'Rubber duck debugging', description: 'Talk to the duck 10 times', secret: true, unlocked: (s) => s.stats.duckPokes >= 10 },
   { id: 'grass', name: 'Touch grass', description: 'Come back after 2 hours away', secret: true, unlocked: (s) => !!s.flags.touchGrass },
 ];
 

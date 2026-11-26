@@ -1,5 +1,5 @@
 import { ACHIEVEMENTS } from '../../core/achievements';
-import { STREAK } from '../../core/content';
+import { MILESTONE, STREAK } from '../../core/content';
 import type { Game } from '../../core/game';
 import { D, clock, fmt } from '../../core/num';
 import { milestoneTaskProgress, milestoneTaskText, questProgress, questText } from '../../core/quests';
@@ -19,19 +19,26 @@ function streakGrid(game: Game): string {
   const s = game.state;
   const played = new Set(s.streak.days);
   const today = new Date(game.now());
-  // Columns are weeks (oldest left), rows are days, like a contribution graph.
+  // Rows are weekdays, columns are weeks (oldest left), shaded by taps that day, like a contribution graph.
   const weeks = Math.ceil(STREAK.daysKept / 7);
-  const cells: string[] = [];
+  const busiest = Math.max(1, ...Object.values(s.streak.activity));
   const start = new Date(today.getFullYear(), today.getMonth(), today.getDate() - (weeks * 7 - 1) + (6 - today.getDay()), 12);
-  for (let w = 0; w < weeks; w++) {
-    for (let d = 0; d < 7; d++) {
+  const days = ['S', 'M', 'T', 'W', 'T', 'F', 'S'];
+  let html = '';
+  for (let d = 0; d < 7; d++) {
+    html += `<div class="hrow"><span class="hday">${d % 2 ? days[d] : ' '}</span>`;
+    for (let w = 0; w < weeks; w++) {
       const day = new Date(start.getFullYear(), start.getMonth(), start.getDate() + w * 7 + d, 12);
       const key = dayKey(day.getTime());
       const future = day.getTime() > today.getTime() + 12 * 3600 * 1000;
-      cells.push(`<i class="${future ? 'fut' : played.has(key) ? 'on' : ''}" title="${key}"></i>`);
+      const taps = s.streak.activity[key] ?? 0;
+      // Days played before taps were counted show the lightest shade.
+      const level = future ? 0 : taps > 0 ? 1 + Math.min(2, Math.floor((taps / busiest) * 3)) : +played.has(key);
+      html += `<span class="${future ? 'fut' : `l${level}`}" title="${key}${taps ? `: ${taps} taps` : ''}">■</span>`;
     }
+    html += '</div>';
   }
-  return `<div class="grid" style="grid-template-columns:repeat(${weeks},12px)">${cells.join('')}</div>`;
+  return `<div class="heat" role="img" aria-label="Days played in the last ${weeks} weeks">${html}</div><small class="dim hkey">less <span class="heat">${[0, 1, 2, 3].map((l) => `<span class="l${l}">■</span>`).join('')}</span> more taps</small>`;
 }
 
 export function renderTodo(game: Game): string {
@@ -40,7 +47,7 @@ export function renderTodo(game: Game): string {
 
   const m = s.milestone;
   if (m) {
-    html += `<div class="md"><div class="mdh">## v${m.release}.0 milestone ${tint('star', `+${m.stars} star${m.stars > 1 ? 's' : ''}`)}${m.done ? ' <span class="okc">done</span>' : ''}</div>`;
+    html += `<div class="md"><div class="mdh">## release milestone ${tint('star', `+${Math.round(MILESTONE.shipBonus * 100)}% stars`)} when you ship${m.done ? ' <span class="okc">done</span>' : ''}</div>`;
     m.tasks.forEach((t, i) => {
       html += `<div class="ck" data-ms="${i}"><span class="box">[ ]</span> ${hl(milestoneTaskText(t))} <span class="pg h h-${MILESTONE_HUE[t.kind] ?? 'num'}"></span></div>`;
     });

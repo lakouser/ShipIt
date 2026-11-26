@@ -1,7 +1,7 @@
 // Ship It service worker: makes the game work offline once it has been opened.
 // Pages: network first (so updates arrive), falling back to the cache.
 // Assets (hashed file names): cache first.
-const CACHE = 'shipit-v1';
+const CACHE = 'shipit-v2';
 
 self.addEventListener('install', (event) => {
   event.waitUntil(caches.open(CACHE).then((cache) => cache.addAll(['./', './index.html', './manifest.webmanifest', './favicon.svg'])));
