@@ -229,7 +229,7 @@ export const MILESTONE = {
 export const OFFLINE = {
   /** Gaps longer than this (app closed, tab asleep) count as time away. */
   thresholdS: 60,
-  maxSeconds: 2 * 60 * 60,
+  maxSeconds: 7 * 60 * 60,
   /** Share of automation output earned while away (raised by the crontab perk). */
   rate: 0.25,
 };

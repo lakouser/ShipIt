@@ -48,7 +48,7 @@ npm run preview    # serve dist/ locally
 | **Career** | A title by stars earned over the whole game, from intern to cto. |
 | **Achievements** | 93, each worth +1% output, including a few secrets. |
 | **Commit streak** | Play on consecutive days for a daily bonus (scripts every 3rd and 7th day). TODO shows a heatmap of the days you played. |
-| **Time away** | 25% of automation for up to 2 hours (raised by `crontab`), shown on a welcome-back screen. |
+| **Time away** | 25% of automation for up to 7 hours (raised by `crontab` and runway), shown on a welcome-back screen. |
 
 New players see only the pkgs tab at first; sprints, TODO, mail, team, ship, market and major appear as they progress. The rubber duck gives advice when tapped, a CI pane runs builds once the pipeline is installed, and a screensaver takes over after a minute idle (settings can turn it off).
 
