@@ -255,7 +255,7 @@ export class App {
     // tmux-style window flags: # activity (sprint running), ! bell (a release worth shipping)
     this.tabButtons.sprints.classList.toggle('act', !!s.sprint);
     this.tabButtons.ship.classList.toggle('bell', shipReady(s));
-    this.tabButtons.market.classList.toggle('bell', !!s.market.launch || churnShare(s, this.game.now()) > 0);
+    this.tabButtons.market.classList.toggle('bell', !!s.market.launch || churnShare(s) > 0);
     const d = new Date();
     $('#clock').textContent = `${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`;
   }

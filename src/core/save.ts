@@ -162,9 +162,12 @@ function workflowFlags(x: unknown): Partial<Record<WorkflowId, boolean>> {
   return out;
 }
 
-function market(x: unknown): MarketState {
+function market(x: unknown, savedAt: number): MarketState {
   const d = newMarket();
   if (!isObj(x)) return d;
+  const lastUpdateAt = num(x.lastUpdateAt);
+  // Saves from before quiet minutes were tracked: count the time from the last update to the save as played.
+  const quiet = typeof x.quietMinutes === 'number' && Number.isFinite(x.quietMinutes) ? x.quietMinutes : lastUpdateAt && savedAt > lastUpdateAt ? (savedAt - lastUpdateAt) / 60_000 : 0;
   const base = isObj(x.base) ? x.base : {};
   const absorbed: Record<string, number> = {};
   if (isObj(x.absorbed)) for (const r of RIVALS) if (num(x.absorbed[r.id]) > 0) absorbed[r.id] = num(x.absorbed[r.id]);
@@ -173,8 +176,9 @@ function market(x: unknown): MarketState {
   return {
     appName: str(x.appName, d.appName).slice(0, 24) || d.appName,
     users: Math.max(0, num(x.users)),
+    quietMinutes: Math.max(0, quiet),
     peak: Math.max(0, num(x.peak)),
-    lastUpdateAt: num(x.lastUpdateAt),
+    lastUpdateAt,
     startedAt: num(x.startedAt),
     reviews: Array.isArray(x.reviews) ? x.reviews.filter((r): r is number => typeof r === 'number' && r >= 1 && r <= 5).slice(0, MARKET.reviewsKept) : [],
     absorbed,
@@ -259,7 +263,7 @@ export function deserialize(text: string, now: number): GameState | null {
     stack: oneOf<StackId>(raw.stack, STACK_IDS, 'plain'),
     nextStack: oneOf<StackId>(raw.nextStack, STACK_IDS, 'rust'),
     challenge: challenge(raw.challenge),
-    market: market(raw.market),
+    market: market(raw.market, num(raw.savedAt, now)),
     challengesDone: Array.isArray(raw.challengesDone) ? CHALLENGE_IDS.filter((id) => (raw.challengesDone as unknown[]).includes(id)) : [],
     achievements: Array.isArray(raw.achievements) ? raw.achievements.filter((a): a is string => typeof a === 'string') : [],
     flags: { crunch: flags.crunch === true, sudo: flags.sudo === true, rmrf: flags.rmrf === true, nightOwl: flags.nightOwl === true, exported: flags.exported === true, touchGrass: flags.touchGrass === true },

@@ -122,7 +122,7 @@ export function simulate({ minutes, tapsPerSecond, seed = 7, ship = { kind: 'gai
     }
 
     if (step % (4 * 60 * 10) === 0) {
-      report.timeline.push({ minute: Math.round(now / 60000), lines: fmt(s.lifetime), perSecond: fmt(perSecond(s, now)), perTap: fmt(perTap(s, now)), release: s.release, stars: s.stars, top: topUpgrade(s), users: Math.round(usersNow(s, now)), rank: s.market.startedAt ? standing(s, now).rank : 0 });
+      report.timeline.push({ minute: Math.round(now / 60000), lines: fmt(s.lifetime), perSecond: fmt(perSecond(s, now)), perTap: fmt(perTap(s, now)), release: s.release, stars: s.stars, top: topUpgrade(s), users: Math.round(usersNow(s)), rank: s.market.startedAt ? standing(s, now).rank : 0 });
     }
   }
 

@@ -82,8 +82,10 @@ export interface ReleaseCounters {
 /** The app in the market: users, reviews, rivals and the press. */
 export interface MarketState {
   appName: string;
-  /** Users at the last update. Churn since then is worked out from lastUpdateAt, so time away counts. */
+  /** Users at the last update; churn since then comes from quietMinutes. */
   users: number;
+  /** Quiet minutes since the last update: time playing counts in full, time away at MARKET.awayChurnRate. */
+  quietMinutes: number;
   peak: number;
   /** The last ship or major version (ms); 0 before the first ship. */
   lastUpdateAt: number;
@@ -234,7 +236,7 @@ export const newStats = (): Stats => ({
 });
 
 export const newMarket = (): MarketState => ({
-  appName: MARKET.defaultName, users: 0, peak: 0, lastUpdateAt: 0, startedAt: 0, reviews: [], absorbed: {}, passed: [], rank: 0,
+  appName: MARKET.defaultName, users: 0, quietMinutes: 0, peak: 0, lastUpdateAt: 0, startedAt: 0, reviews: [], absorbed: {}, passed: [], rank: 0,
   staleNoticed: false, launch: null, nextLaunchAt: 0, press: [], base: { sprints: 0, bugs: 0, escaped: 0, incidents: 0 },
 });
 

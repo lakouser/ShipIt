@@ -3,7 +3,7 @@ import { squashBug, updateBugs } from './bugs';
 import { careerLevel } from './career';
 import { AUTOMATION, BUGS, CAREER, CRIT, FLOW, MAJOR, OFFLINE, PERK_VALUES, UNLOCKS, type ChallengeDef, type ChallengeId, type EffectDef, type EffectId, type IncidentKind, type PerkDef, type SkillDef, type StackId, type WorkflowDef, type WorkflowId } from './content';
 import { abandonChallenge, buySkill, chooseStack, cutMajor, startChallenge, type MajorResult } from './major';
-import { marketOnMajor, marketOnShip, renameApp, reviewScore, startReleaseCounters, updateMarket, type MarketNews, type ShipNews } from './market';
+import { addQuietTime, marketOnMajor, marketOnShip, renameApp, reviewScore, startReleaseCounters, updateMarket, type MarketNews, type ShipNews } from './market';
 import { applyDev, type DevAction } from './dev';
 import { addLines, buy, critChance, perSecond, perTap, type Purchase } from './economy';
 import { effectSum, pruneEffects, runScript } from './effects';
@@ -303,6 +303,7 @@ export class Game {
     const cap = OFFLINE.maxSeconds + PERK_VALUES.cronHours * 3600 * level;
     const seconds = Math.min(cap, Math.max(0, awaySeconds));
     if (awaySeconds >= 2 * 3600) s.flags.touchGrass = true;
+    addQuietTime(s, Math.max(0, awaySeconds), true);
     const lines = perSecond(s, this.clock()).mul(seconds * rate).floor();
     if (lines.lt(1)) return;
     addLines(s, lines, false);
@@ -330,6 +331,7 @@ export class Game {
       this.creditTimeAway(dt);
     } else if (dt > 0) {
       addLines(s, perSecond(s, now).mul(dt));
+      addQuietTime(s, dt, false);
       const autoTaps = effectSum(s, 'autoTapsPerSecond', now);
       if (autoTaps > 0) {
         this.autoTapBudget += autoTaps * dt;

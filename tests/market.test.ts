@@ -63,14 +63,36 @@ describe('users', () => {
       s.market.lastUpdateAt = 1_000_000;
       s.market.users = 100_000;
     });
-    expect(churnShare(t.state, t.now + 44 * MIN)).toBe(0);
-    expect(churnShare(t.state, t.now + 105 * MIN)).toBeCloseTo(1 - 0.99 ** 60);
-    expect(churnShare(t.state, t.now + 24 * 60 * MIN)).toBe(MARKET.maxChurn);
-    const later = t.now + 105 * MIN;
-    const lost = 100_000 - usersNow(t.state, later);
+    t.state.market.quietMinutes = 44;
+    expect(churnShare(t.state)).toBe(0);
+    t.state.market.quietMinutes = 24 * 60;
+    expect(churnShare(t.state)).toBe(MARKET.maxChurn);
+    t.state.market.quietMinutes = 105;
+    expect(churnShare(t.state)).toBeCloseTo(1 - 0.99 ** 60);
+    const lost = 100_000 - usersNow(t.state);
     const above = RIVALS.find((r) => r.id === 'bar')!; // 200k: the nearest rival above 55k users
-    const row = chart(t.state, later).find((r) => r.id === 'bar')!;
-    expect(row.users).toBeCloseTo(rivalUsers(t.state, above, later) + lost);
+    const row = chart(t.state, t.now).find((r) => r.id === 'bar')!;
+    expect(row.users).toBeCloseTo(rivalUsers(t.state, above, t.now) + lost);
+  });
+
+  it('count quiet time in full while playing and at 35% while away', () => {
+    const t = testGame((s) => {
+      s.market.startedAt = 1;
+      s.market.lastUpdateAt = 1_000_000;
+      s.market.users = 100_000;
+      s.market.nextLaunchAt = Infinity;
+    });
+    for (let i = 0; i < 30; i++) {
+      t.advance(2000);
+      t.game.tick(); // a minute of play, in normal ticks
+    }
+    expect(t.state.market.quietMinutes).toBeCloseTo(1);
+    t.advance(100 * MIN); // the game was closed
+    t.game.tick();
+    expect(t.state.market.quietMinutes).toBeCloseTo(1 + 100 * MARKET.awayChurnRate);
+    expect(churnShare(t.state)).toBe(0); // 36 quiet minutes: still inside the 45-minute grace
+    t.game.creditTimeAway(10 * 3600); // a night away: capped at half the users
+    expect(churnShare(t.state)).toBe(MARKET.maxChurn);
   });
 
   it('settle on the next release, and a well-reviewed one wins half of them back', () => {
@@ -80,8 +102,8 @@ describe('users', () => {
       s.market.users = 100_000;
       s.stats.sprints = 3; // polish for a 4+ review
     });
-    t.advance(105 * MIN);
-    const lost = 100_000 - usersNow(t.state, t.now);
+    t.state.market.quietMinutes = 105;
+    const lost = 100_000 - usersNow(t.state);
     t.state.thisRelease = D(16e6);
     const list = events(t);
     t.game.ship();
@@ -92,7 +114,8 @@ describe('users', () => {
     expect(news.news.regained).toBeCloseTo(lost / 2);
     expect(t.state.market.absorbed.bar).toBeCloseTo(lost / 2);
     expect(t.state.market.users).toBeCloseTo(100_000 - lost / 2 + news.news.newUsers);
-    expect(churnShare(t.state, t.now)).toBe(0);
+    expect(churnShare(t.state)).toBe(0);
+    expect(t.state.market.quietMinutes).toBe(0);
   });
 
   it('notice a quiet spell once, and a major version counts as an update', () => {
@@ -104,13 +127,14 @@ describe('users', () => {
       s.stars = 1000;
     });
     const list = events(t);
-    t.advance(50 * MIN);
+    t.state.market.quietMinutes = 46;
     t.game.tick();
     t.advance(1000);
     t.game.tick();
     expect(list.filter((e) => e.type === 'market' && e.news.kind === 'stale')).toHaveLength(1);
     t.game.cutMajor();
     expect(t.state.market.lastUpdateAt).toBe(t.now);
+    expect(t.state.market.quietMinutes).toBe(0);
     expect(t.state.market.users).toBeLessThan(100_000);
     expect(list.some((e) => e.type === 'news')).toBe(true);
   });
@@ -175,5 +199,11 @@ describe('app name and saves', () => {
     const back = deserialize(serialize(t.state, 0), 0)!;
     expect(back.market).toMatchObject({ appName: 'shiply', users: 1234, peak: 2000, reviews: [4.2, 3.1], absorbed: { foo: 50 }, passed: ['hello'], launch: { rival: 'foo', endsAt: 99 } });
     expect(back.market.press[0].text).toBe('hi');
+
+    const older = JSON.parse(serialize(t.state, 0));
+    delete older.market.quietMinutes;
+    older.market.lastUpdateAt = 1_000_000;
+    older.savedAt = 1_000_000 + 30 * MIN;
+    expect(deserialize(JSON.stringify(older), 0)!.market.quietMinutes).toBeCloseTo(30);
   });
 });

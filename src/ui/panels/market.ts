@@ -1,6 +1,6 @@
 import { MARKET, RIVALS } from '../../core/content';
 import type { Game } from '../../core/game';
-import { chart, chartMultiplier, churnShare, minutesSinceUpdate, rating, standing, usersNow } from '../../core/market';
+import { chart, chartMultiplier, churnShare, graceLeft, minutesSinceUpdate, rating, standing, usersNow } from '../../core/market';
 import { clock, fmt, fmtDuration, fmtMul } from '../../core/num';
 import { esc, setHtml } from '../dom';
 import { tint } from '../hl';
@@ -19,7 +19,7 @@ export function renderMarket(game: Game): string {
       ${row('chart', 'data-mk-rank')}
       <span class="k" data-mk-launch-k hidden>launch</span><span data-mk-launch hidden></span>
     </div>
-    <p class="caveat"># every release is reviewed: bigger releases with sprints merged and bugs squashed score better, and better reviews bring more users. users start drifting to rivals ${MARKET.graceMinutes} minutes after your last update (a ship or a major version), up to half of them; a release reviewed ${MARKET.winBackAt}★ or better wins back half of those. each rival behind you adds ${Math.round(MARKET.rankBonus * 100)}% to all output.</p>
+    <p class="caveat"># every release is reviewed: bigger releases with sprints merged and bugs squashed score better, and better reviews bring more users. users start drifting to rivals after ${MARKET.graceMinutes} minutes without an update (a ship or a major version), up to half of them; time away counts at ${Math.round(MARKET.awayChurnRate * 100)}%, so closing the game costs less than idling in it; a release reviewed ${MARKET.winBackAt}★ or better wins back half of those. each rival behind you adds ${Math.round(MARKET.rankBonus * 100)}% to all output.</p>
     <div class="cmd gap"><span><span class="ps">$</span> app-store top --category dev-tools</span><span class="aside">${RIVALS.length + 1} apps</span></div>
     <div class="chart" data-mk-chart></div>
     <div class="cmd gap"><span><span class="ps">$</span> curl -s news.feed | head</span></div>
@@ -30,14 +30,14 @@ export function refreshMarket(game: Game, root: HTMLElement): void {
   const s = game.state;
   const m = s.market;
   const now = game.now();
-  const users = usersNow(s, now);
-  const churn = churnShare(s, now);
+  const users = usersNow(s);
+  const churn = churnShare(s);
   const quiet = minutesSinceUpdate(s, now);
   const trend =
     churn > 0
       ? `<span class="bad">▼ ${Math.round(churn * 100)}% drifting to rivals · last update ${fmtDuration(quiet * 60)} ago</span>`
       : m.lastUpdateAt
-        ? `<span class="cm">last update ${fmtDuration(quiet * 60)} ago · drifting starts at ${MARKET.graceMinutes}m</span>`
+        ? `<span class="cm">last update ${fmtDuration(quiet * 60)} ago · drifting starts in ${fmtDuration(graceLeft(s) * 60)} of play</span>`
         : '<span class="cm">ship a release to launch</span>';
   setHtml(root.querySelector('[data-mk-users]'), `${tint('num', fmt(users))} ${trend}`);
   const r = rating(s);

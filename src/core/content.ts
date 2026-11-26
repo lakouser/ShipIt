@@ -271,10 +271,12 @@ export const MARKET = {
   defaultName: 'my-app',
   /** New users from a release = usersPerCubeRootLine × cbrt(release lines) × (review / 3)². */
   usersPerCubeRootLine: 10,
-  /** Users start drifting to rivals this long after the last update (ship or major version)... */
+  /** Users start drifting to rivals after this many quiet minutes since the last update (ship or major version)... */
   graceMinutes: 45,
-  /** ...losing this share of them each minute after that... */
+  /** ...losing this share of them each quiet minute after that... */
   churnPerMinute: 0.01,
+  /** Time away (game closed or asleep) counts as this share of quiet minutes, so being away costs less than idling in the game. */
+  awayChurnRate: 0.35,
   /** ...but one quiet spell never costs more than this share of the users at the last update. */
   maxChurn: 0.5,
   /** A release reviewed at least winBackAt wins back this share of the users lost since the last update. */

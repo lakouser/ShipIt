@@ -49,20 +49,29 @@ export const usersFromRelease = (lines: Decimal, review: number): number =>
 
 /* ---------- churn ---------- */
 
-/** Minutes since the last update (ship or major version). */
+/** Wall-clock minutes since the last update (ship or major version), for display. */
 export const minutesSinceUpdate = (s: GameState, now: number): number => (s.market.lastUpdateAt ? Math.max(0, (now - s.market.lastUpdateAt) / 60_000) : 0);
 
+/** Counts time without an update: in full while playing, at MARKET.awayChurnRate while away. */
+export function addQuietTime(s: GameState, seconds: number, away: boolean): void {
+  if (!s.market.lastUpdateAt || seconds <= 0) return;
+  s.market.quietMinutes += (seconds / 60) * (away ? MARKET.awayChurnRate : 1);
+}
+
+/** Quiet minutes left before users start drifting. */
+export const graceLeft = (s: GameState): number => Math.max(0, MARKET.graceMinutes - s.market.quietMinutes);
+
 /** Share of the users at the last update who have drifted to rivals since. */
-export function churnShare(s: GameState, now: number): number {
+export function churnShare(s: GameState): number {
   const m = s.market;
   if (!m.lastUpdateAt || m.users <= 0) return 0;
-  const over = minutesSinceUpdate(s, now) - MARKET.graceMinutes;
+  const over = m.quietMinutes - MARKET.graceMinutes;
   if (over <= 0) return 0;
   return Math.min(MARKET.maxChurn, 1 - (1 - MARKET.churnPerMinute) ** over);
 }
 
-export const usersNow = (s: GameState, now: number): number => s.market.users * (1 - churnShare(s, now));
-const usersLost = (s: GameState, now: number): number => s.market.users * churnShare(s, now);
+export const usersNow = (s: GameState): number => s.market.users * (1 - churnShare(s));
+const usersLost = (s: GameState): number => s.market.users * churnShare(s);
 
 /* ---------- rivals and the chart ---------- */
 
@@ -91,7 +100,7 @@ export interface ChartRow {
 
 /** Everyone in the chart, most users first, with users drifting right now shown at the rival taking them. */
 export function chart(s: GameState, now: number): ChartRow[] {
-  const you = usersNow(s, now);
+  const you = usersNow(s);
   const lost = s.market.users - you;
   const target = lost > 0 ? churnTarget(s, now, you) : null;
   const rows: ChartRow[] = RIVALS.map((r) => ({ id: r.id, name: r.name, app: r.app, users: rivalUsers(s, r, now) + (r === target ? lost : 0), you: false }));
@@ -144,7 +153,7 @@ const nextLaunch = (now: number, rng: Rng): number => now + MARKET.launch.minGap
 /** Locks in users lost since the last update: they now belong to the rival they went to. */
 function settleChurn(s: GameState, now: number, regainShare: number): { lost: number; regained: number } {
   const m = s.market;
-  const lost = usersLost(s, now);
+  const lost = usersLost(s);
   if (lost <= 0) return { lost: 0, regained: 0 };
   const target = churnTarget(s, now, m.users - lost);
   const regained = lost * regainShare;
@@ -171,6 +180,7 @@ export function marketOnShip(s: GameState, now: number, rng: Rng, review: number
   m.users += newUsers;
   m.peak = Math.max(m.peak, m.users);
   m.lastUpdateAt = now;
+  m.quietMinutes = 0;
   m.staleNoticed = false;
   m.reviews = [review, ...m.reviews].slice(0, MARKET.reviewsKept);
   if (review >= 5) s.stats.fiveStars++;
@@ -194,6 +204,7 @@ export function marketOnMajor(s: GameState, now: number, rng: Rng, version: stri
   if (!m.startedAt) return null;
   settleChurn(s, now, 0);
   m.lastUpdateAt = now;
+  m.quietMinutes = 0;
   m.staleNoticed = false;
   m.rank = standing(s, now).rank;
   return headline(s, now, rng, `${m.appName} ${version} arrives, rewritten from scratch in ${stack}`);
@@ -213,7 +224,7 @@ export function updateMarket(s: GameState, now: number, rng: Rng, canSpawn: bool
   if (!m.startedAt) return [];
   const news: MarketNews[] = [];
 
-  if (!m.staleNoticed && churnShare(s, now) > 0) {
+  if (!m.staleNoticed && churnShare(s) > 0) {
     m.staleNoticed = true;
     news.push({ kind: 'stale', headline: headline(s, now, rng, pick([`Is ${m.appName} still maintained? Users start to wonder`, `${m.appName} goes quiet as rivals ship`, `Users drift away from ${m.appName} after months without an update`], rng)) });
   }
@@ -227,7 +238,7 @@ export function updateMarket(s: GameState, now: number, rng: Rng, canSpawn: bool
       news.push({ kind: 'launched', rival: r, headline: headline(s, now, rng, `${r.name} launches a new ${r.app} to strong reviews`) });
     }
   } else if (!m.launch && canSpawn && now >= m.nextLaunchAt) {
-    const r = churnTarget(s, now, usersNow(s, now));
+    const r = churnTarget(s, now, usersNow(s));
     m.launch = { rival: r.id, endsAt: now + MARKET.launch.warningMs };
     news.push({ kind: 'launch', rival: r, endsAt: m.launch.endsAt, headline: headline(s, now, rng, `${r.name} teases a big ${r.app} launch`) });
   }
