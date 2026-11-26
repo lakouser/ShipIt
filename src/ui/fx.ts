@@ -2,20 +2,32 @@ import { prefersReducedMotion } from './dom';
 
 const PARTICLES = ['*', '+', '.', 'x', "'", '*', '+'];
 const SCRAMBLE = '!<>-_\\/[]{}=+*^?#%&';
+/** Shakes no closer together than this. */
+const SHAKE_GAP_MS = 350;
+/** Holds each offset until the next (step-end per keyframe, as the old CSS animation did). */
+const SHAKE: Keyframe[] = [
+  { transform: 'translateX(8px)', easing: 'step-end' },
+  { transform: 'translateX(-8px)', easing: 'step-end' },
+  { transform: 'translateY(4px)', easing: 'step-end' },
+  { transform: 'translateX(4px)', easing: 'step-end' },
+  { transform: 'none' },
+];
 
 /** Juice: screen shake, particle bursts and scrambled text. All of it skipped with reduced motion. */
 export class Fx {
   /** Elements being scrambled: their real text, and which run owns them (a newer run takes over). */
   private readonly scrambling = new WeakMap<HTMLElement, { text: string; run: number }>();
   private runs = 0;
+  private shookAt = -Infinity;
 
   constructor(private readonly ide: HTMLElement) {}
 
+  /** Shakes the editor; crits while mashing would otherwise restart it many times a second. */
   shake(): void {
-    if (prefersReducedMotion()) return;
-    this.ide.classList.remove('shake');
-    void this.ide.offsetWidth; // restart the animation
-    this.ide.classList.add('shake');
+    const now = performance.now();
+    if (prefersReducedMotion() || now - this.shookAt < SHAKE_GAP_MS || typeof this.ide.animate !== 'function') return;
+    this.shookAt = now;
+    this.ide.animate(SHAKE, { duration: 200 });
   }
 
   /** Characters flying out from (x, y) in `host`, snapped to a coarse grid so they look like text. */

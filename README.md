@@ -48,7 +48,7 @@ npm run preview    # serve dist/ locally
 | **Career** | A title by stars earned over the whole game, from intern to cto. |
 | **Achievements** | 93, each worth +1% output, including a few secrets. more/trophies lists the unearned ones closest to done first, with progress bars. |
 | **Commit streak** | Play on consecutive days for a daily bonus (scripts every 3rd and 7th day). more/stats shows a heatmap of the days you played. |
-| **Time away** | 25% of automation for up to 7 hours (raised by `crontab` and runway), shown on a welcome-back screen. |
+| **Time away** | 25% of automation for up to 7 hours (raised by `crontab` and runway), shown on a welcome-back screen after two minutes or more away. |
 
 The screen, top to bottom: the readout (lines, per tap, per second; a company line with users, chart rank and round after the first funding round), a goal line (progress to the next star with a time estimate, whether the release is ready to merge, and the next round or major version), the editor, a one-line event strip (achievements, new panels, mail, and whatever is running against the clock: a boss, an outage, coffee, a rival's launch, a sprint), the key (showing what a tap writes), four script slots, the tool pane and the tmux bar.
 

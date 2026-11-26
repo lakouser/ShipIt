@@ -31,6 +31,11 @@ declare const __APP_VERSION__: string;
 const TICK_MS = 200;
 const SAVE_MS = 5000;
 const TYPING_MS = 700;
+/** The line count bounces no closer together than this. */
+const BUMP_GAP_MS = 90;
+const BUMP: Keyframe[] = [{ transform: 'scale(1)' }, { transform: 'scale(1.035)' }, { transform: 'scale(1)' }];
+/** Shorter absences (a reload, a quick app switch) are credited without the welcome-back screen. */
+const WELCOME_MIN_S = 120;
 /** Idle time before the screensaver starts. */
 const SCREENSAVER_MS = 60_000;
 /** Characters per second each teammate types in the editor. */
@@ -79,6 +84,7 @@ export class App {
   private charBudget = 0;
   private lastFrame = 0;
   private lastTapAt = 0;
+  private bumpedAt = -Infinity;
   /** True while a splash (merge, welcome) is showing: pauses typing, bugs and incidents. */
   private dialogOpen = false;
   /** Set before a reload (import/reset) so the autosave can't overwrite the new save. */
@@ -172,7 +178,7 @@ export class App {
     g.tick();
 
     // Only worth a splash for a returning player with something to show.
-    const worthShowing = returning && (summary.away || (summary.streak && summary.streak.count > 1));
+    const worthShowing = returning && ((summary.away && summary.away.seconds >= WELCOME_MIN_S) || (summary.streak && summary.streak.count > 1));
     if (worthShowing && s.settings.welcome) {
       this.dialogOpen = true;
       void playWelcome(summary).then(() => (this.dialogOpen = false));
@@ -185,6 +191,14 @@ export class App {
       void this.saves.flush();
     });
     requestAnimationFrame((t) => this.frame(t));
+  }
+
+  /** Bounces the line count, at most every BUMP_GAP_MS. */
+  private bump(): void {
+    const now = performance.now();
+    if (now - this.bumpedAt < BUMP_GAP_MS || prefersReducedMotion() || typeof this.counter.animate !== 'function') return;
+    this.bumpedAt = now;
+    this.counter.animate(BUMP, { duration: 120, easing: 'ease-out' });
   }
 
   private tap(): void {
@@ -218,9 +232,7 @@ export class App {
           this.editor.flashLive();
           this.fx.shake();
         }
-        this.counter.classList.remove('bump');
-        void this.counter.offsetWidth; // restart the bump animation
-        this.counter.classList.add('bump');
+        this.bump();
         this.feedback(e.crit ? 'crit' : 'tap');
         break;
       case 'sprintStarted':

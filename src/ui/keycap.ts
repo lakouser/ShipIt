@@ -2,7 +2,13 @@ import { fmt, type Decimal } from '../core/num';
 import { prefersReducedMotion } from './dom';
 
 const IGNORED_KEYS = new Set(['Tab', 'Shift', 'Escape', 'CapsLock', 'Meta', 'Control', 'Alt']);
-const MAX_FLOATERS = 14;
+/** Floaters on screen at once; a new one reuses the oldest. */
+const MAX_FLOATERS = 10;
+const FLOAT_MS = 800;
+const FLOAT_UP: Keyframe[] = [
+  { transform: 'translateY(0)', opacity: 1 },
+  { transform: 'translateY(-40px)', opacity: 0 },
+];
 
 /**
  * The big key: pointer presses (several fingers at once work) and any key on a
@@ -10,7 +16,9 @@ const MAX_FLOATERS = 14;
  * key's release sound). Also draws the "+N" floaters.
  */
 export class Keycap {
-  private floaters = 0;
+  /** Made once and reused: creating and dropping an element per tap churned memory while mashing. */
+  private readonly pool: { el: HTMLSpanElement; anim: Animation | null }[] = [];
+  private next = 0;
 
   constructor(
     private readonly key: HTMLButtonElement,
@@ -74,16 +82,19 @@ export class Keycap {
   }
 
   floater(lines: Decimal, crit = false): void {
-    if (prefersReducedMotion() || this.floaters >= MAX_FLOATERS) return;
-    this.floaters++;
-    const el = document.createElement('span');
-    el.className = crit ? 'fl crit' : 'fl';
-    el.textContent = crit ? `CRIT +${fmt(lines)}` : `+${fmt(lines)}`;
-    el.style.left = `${12 + Math.random() * 66}%`;
-    this.wrap.appendChild(el);
-    el.addEventListener('animationend', () => {
-      el.remove();
-      this.floaters--;
-    });
+    if (prefersReducedMotion()) return;
+    if (this.pool.length < MAX_FLOATERS) {
+      const el = document.createElement('span');
+      el.setAttribute('aria-hidden', 'true');
+      this.wrap.appendChild(el);
+      this.pool.push({ el, anim: null });
+    }
+    const f = this.pool[this.next++ % this.pool.length];
+    if (typeof f.el.animate !== 'function') return;
+    f.anim?.cancel();
+    f.el.className = crit ? 'fl crit' : 'fl';
+    f.el.textContent = crit ? `CRIT +${fmt(lines)}` : `+${fmt(lines)}`;
+    f.el.style.left = `${12 + Math.random() * 66}%`;
+    f.anim = f.el.animate(FLOAT_UP, { duration: FLOAT_MS, easing: 'ease-out', fill: 'forwards' });
   }
 }

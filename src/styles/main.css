@@ -126,7 +126,6 @@ b { font-weight: 700; }
 .top { grid-area: top; display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 12px; align-items: end; padding: 2px 2px 0; }
 .count { display: flex; align-items: baseline; gap: 8px; }
 #loc { font-size: clamp(36px, 10vw, 54px); line-height: 1; font-weight: 800; letter-spacing: -.04em; font-variant-numeric: tabular-nums; white-space: nowrap; }
-#loc.bump { animation: bump .12s ease-out; }
 .unit { color: var(--c-loc); font-size: 14px; }
 .sub { color: var(--mut); font-size: 13px; margin-top: 4px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .sub .st { color: var(--c-star); }
@@ -211,7 +210,7 @@ b { font-weight: 700; }
 .key:active .leg, .key.down .leg, .key:active .prompt, .key.down .prompt, .key:active .hint, .key.down .hint { color: var(--on-coral); }
 .key:active .kcur, .key.down .kcur { background: var(--on-coral); }
 @media (hover: none), (max-width: 520px) { .key .hint { display: none; } }
-.fl { position: absolute; bottom: 10px; font-weight: 800; font-size: 15px; color: var(--c-tap); pointer-events: none; animation: float-up .8s ease-out forwards; z-index: 2; text-shadow: 0 0 6px var(--bg); }
+.fl { position: absolute; bottom: 10px; font-weight: 800; font-size: 15px; color: var(--c-tap); pointer-events: none; opacity: 0; z-index: 2; text-shadow: 0 0 6px var(--bg); }
 
 /* ---------- tool pane ---------- */
 .panel { grid-area: panel; display: flex; flex-direction: column; overflow: hidden; background: var(--pane); border: 1px solid var(--line); }
@@ -481,7 +480,6 @@ b { font-weight: 700; }
   html:not(.rm) .ln.live.crit { background: var(--ink); }
   html:not(.rm) .ln.live.crit .tx span { color: var(--bg); }
 }
-.ide.shake { animation: 0.2s step-end shake; }
 .ptc { z-index: 5; color: var(--c-loc); pointer-events: none; margin: -9px 0 0 -4px; font-size: 14px; font-weight: 800; animation: 0.55s steps(6, end) forwards burst; position: absolute; }
 .ptc.pbug { color: var(--c-bug); }
 .ptc.pwin { color: var(--c-star); }
@@ -619,7 +617,7 @@ b { font-weight: 700; }
 .g1 { display: flex; align-items: center; gap: 10px; white-space: nowrap; }
 .gk { color: var(--c-star); font-weight: 700; }
 .gbar { flex: 1; height: 8px; background: var(--line); position: relative; overflow: hidden; }
-.gbar i { position: absolute; inset: 0 auto 0 0; width: 0; background: var(--c-star); transition: width .2s; }
+.gbar i { position: absolute; inset: 0 auto 0 0; width: 0; background: var(--c-star); }
 .gpct { color: var(--ink); min-width: 4ch; text-align: right; }
 .geta { color: var(--mut); }
 .geta:empty { display: none; }
@@ -660,8 +658,7 @@ b { font-weight: 700; }
 .event.ev-err { border-left-color: var(--red); }
 .event.ev-err .et { color: var(--red); }
 .event.stale { opacity: .55; }
-/* Floating "+N" stay inside the key instead of rising over the editor's status line. */
-.keywrap { overflow: hidden; padding: 0 4px 4px 0; }
+/* Floating "+N" start low on the key and rise only 40px, so they stay on it (not over the editor's status line). */
 .kval { margin-left: auto; display: grid; justify-items: end; line-height: 1.15; max-width: 48%; }
 .kval b { color: var(--c-tap); font-size: 17px; font-weight: 800; }
 .kval small { color: var(--mut); font-size: 11px; max-width: 100%; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
@@ -788,8 +785,6 @@ b { font-weight: 700; }
 }
 
 @keyframes blink { 50% { opacity: 0; } }
-@keyframes bump { 50% { transform: scale(1.035); } }
-@keyframes float-up { to { transform: translateY(-40px); opacity: 0; } }
 @keyframes rise { to { transform: translateY(-34px); opacity: 0; } }
 @keyframes wiggle { 50% { transform: translateY(1px); } }
 @keyframes fade-in { from { opacity: 0; } }
@@ -799,7 +794,6 @@ b { font-weight: 700; }
 @keyframes pulse { 50% { box-shadow: 0 0 0 3px var(--c-loc); } }
 @keyframes bob { 50% { transform: translateY(-5px); } }
 @keyframes flash { 50% { background: var(--red); color: var(--pane); } }
-@keyframes shake { 0% { transform: translateX(8px); } 25% { transform: translateX(-8px); } 50% { transform: translateY(4px); } 75% { transform: translateX(4px); } 100% { transform: none; } }
 @keyframes burst { to { transform: translate(var(--dx), var(--dy)); opacity: 0; } }
 @keyframes sail { from { left: -150px; } }
 @keyframes waves { to { transform: translateX(-11ch); } }

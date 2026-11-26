@@ -38,7 +38,8 @@ interface Ghost {
 export class Editor {
   private readonly stream = new CodeStream();
   private live: LiveLine;
-  private readonly minimap: { width: number; indent: number; cls: string }[] = [];
+  /** A repaint of the typing line is waiting for the next frame. */
+  private liveQueued = false;
   private ghosts: Ghost[] = [];
   private ghostTurn = 0;
   private critTimer: ReturnType<typeof setTimeout> | undefined;
@@ -172,19 +173,31 @@ export class Editor {
     return out;
   }
 
+  /**
+   * Repaints the typing line on the next frame. Mashing the key (and automation typing) can call this
+   * several times a frame; rebuilding the line's spans each time made thousands of throwaway nodes a
+   * second, enough to run a phone's web view out of memory.
+   */
   private renderLive(): void {
-    this.els.live.innerHTML = `<span class="g">${this.counter.get()}</span><span class="tx">${this.paint(this.live, this.live.typed)}<i class="cur"></i></span>`;
+    if (this.liveQueued) return;
+    this.liveQueued = true;
+    requestAnimationFrame(() => {
+      this.liveQueued = false;
+      this.els.live.innerHTML = `<span class="g">${this.counter.get()}</span><span class="tx">${this.paint(this.live, this.live.typed)}<i class="cur"></i></span>`;
+    });
   }
 
+  /** Adds the finished line's bar to the minimap, dropping the oldest. */
   private pushMinimap(line: LiveLine): void {
     const first = line.tokens[0];
     const indent = first && first[0] === 'p' && first[1].trim() === '' ? first[1].length / 2 : 0;
     const main = line.tokens.find((t) => t[0] !== 'p');
-    this.minimap.push({ width: Math.min(100, line.length * 1.7), indent: indent * 14, cls: main ? `mm${main[0]}` : 'mmx' });
-    if (this.minimap.length > MINIMAP_ROWS) this.minimap.shift();
-    this.els.minimap.innerHTML = this.minimap
-      .map((m) => `<b class="${m.cls}" style="width:${m.width}%;margin-left:${m.indent}%"></b>`)
-      .join('');
+    const bar = document.createElement('b');
+    bar.className = main ? `mm${main[0]}` : 'mmx';
+    bar.style.width = `${Math.min(100, line.length * 1.7)}%`;
+    bar.style.marginLeft = `${indent * 14}%`;
+    this.els.minimap.appendChild(bar);
+    while (this.els.minimap.children.length > MINIMAP_ROWS) this.els.minimap.firstElementChild!.remove();
   }
 
   private finishLine(): void {
