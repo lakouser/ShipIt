@@ -49,7 +49,7 @@ npm run preview    # serve dist/ locally
 
 New players see only the pkgs tab at first; sprints, TODO, ship, major and market appear as they progress.
 
-Pacing (from `npm run simulate`): at 4 taps a second the first ship lands around 5½ minutes for 2 stars, then every 8–27 minutes; at 1 tap a second, around 11½ minutes. After two hours of active play the last tiers are still ahead. The first major version comes around hour 3 (hour 6 at 1 tap a second), then one every 35–90 minutes, each worth about half as much XP again. Waiting for a real jump pays: by hour 4, shipping on a 5-minute timer earns about a tenth of the stars and shipping at every star about a twentieth, and `tests/pacing.test.ts` fails if either catches up with the patient bot.
+Pacing (from `npm run simulate`): at 4 taps a second the first ship lands around 5½ minutes for 2 stars, then every 8–27 minutes; at 1 tap a second, around 11½ minutes. After two hours of active play the last tiers are still ahead. The first major version comes around hour 2½ (hour 6 at 1 tap a second), then one every 25–60 minutes, each worth about half as much XP again. Climbing the market chart to #1 takes about 15 hours at 4 taps a second. Waiting for a real jump pays: by hour 4, shipping on a 5-minute timer earns about a tenth of the stars and shipping at every star about a twentieth, and `tests/pacing.test.ts` fails if either catches up with the patient bot.
 
 ## How the code is organised
 
