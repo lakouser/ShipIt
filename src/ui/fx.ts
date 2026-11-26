@@ -5,6 +5,10 @@ const SCRAMBLE = '!<>-_\\/[]{}=+*^?#%&';
 
 /** Juice: screen shake, particle bursts and scrambled text. All of it skipped with reduced motion. */
 export class Fx {
+  /** Elements being scrambled: their real text, and which run owns them (a newer run takes over). */
+  private readonly scrambling = new WeakMap<HTMLElement, { text: string; run: number }>();
+  private runs = 0;
+
   constructor(private readonly ide: HTMLElement) {}
 
   shake(): void {
@@ -33,19 +37,28 @@ export class Fx {
     }
   }
 
-  /** Reveals an element's text left to right out of random characters. */
+  /**
+   * Reveals an element's text left to right out of random characters. Scrambling it again mid-way
+   * (two panels in one window unlocking together) restarts from the real text, never the garbage.
+   */
   scramble(el: HTMLElement, ms = 700): void {
-    const text = el.textContent ?? '';
+    const text = this.scrambling.get(el)?.text ?? el.textContent ?? '';
     if (prefersReducedMotion() || !text) return;
+    const run = ++this.runs;
+    this.scrambling.set(el, { text, run });
     const start = performance.now();
     const step = () => {
+      if (this.scrambling.get(el)?.run !== run) return;
       const t = Math.min(1, (performance.now() - start) / ms);
       const shown = Math.floor(t * text.length);
       let out = text.slice(0, shown);
       for (let i = shown; i < text.length; i++) out += text[i] === ' ' ? ' ' : SCRAMBLE[Math.floor(Math.random() * SCRAMBLE.length)];
       el.textContent = out;
       if (t < 1) window.setTimeout(step, 45);
-      else el.textContent = text;
+      else {
+        el.textContent = text;
+        this.scrambling.delete(el);
+      }
     };
     step();
   }

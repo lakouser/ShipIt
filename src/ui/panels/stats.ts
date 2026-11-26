@@ -73,6 +73,12 @@ export function renderStats(game: Game): string {
     <small class="dim">play each day for a bonus; every 3rd day adds turbo.sh, every 7th sudo.sh</small>`;
 }
 
+/** Changes when the stats page lists something new (a release, a title, a streak day, a teammate). */
+export const statsKey = (game: Game): string => {
+  const s = game.state;
+  return [s.releaseLog.length, s.releaseLog[0]?.at ?? 0, careerTitle(s), s.round, s.stats.sprints, s.stats.bugs, s.stats.bossesBeaten, s.stats.bossesFailed, s.team.length, s.streak.count, s.streak.days.length].join('|');
+};
+
 export function refreshStats(game: Game, root: HTMLElement): void {
   const s = game.state;
   setHtml(root.querySelector('[data-f-stars]'), `${tint('star', fmt(s.stars))} (${tint('loc', `x${fmtMul(starBonus(s.stars))} output`)})`);

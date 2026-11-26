@@ -46,7 +46,8 @@ export const groupOf = (tab: Tab): Group => GROUPS.find((g) => g.tabs.includes(t
 /** Where a newly unlocked panel lives, for the log and the notice: "work/backlog", "ship". */
 export function unlockPath(tab: UnlockTab): string {
   const group = groupOf(tab);
-  return group === TAB_LABEL[tab] || GROUPS.find((g) => g.id === group)!.tabs.length === 1 ? group : `${group}/${TAB_LABEL[tab]}`;
+  // The panel a window is named after (ship), or a window's only panel, is just the window.
+  return group === tab || group === TAB_LABEL[tab] || GROUPS.find((g) => g.id === group)!.tabs.length === 1 ? group : `${group}/${TAB_LABEL[tab]}`;
 }
 
 /** The funding round shows once it has started, or once a quarter of the stars for the first round are in. */
@@ -176,7 +177,9 @@ export function groupBadge(badges: (Badge | null)[]): Badge | null {
 /** Compact counts for tight spots: 150, 1.18K, 60K, then like fmt (1.23M). */
 export function short(n: number): string {
   if (n < 1000) return String(Math.floor(n));
-  if (n < 1e6) return `${(n / 1e3).toFixed(n < 1e4 ? 2 : n < 1e5 ? 1 : 0).replace(/\.?0+$/, '')}K`;
+  // Number() drops trailing zeros after the point only: 1.20 -> 1.2, but 150 stays 150.
+  if (n < 999_500) return `${Number((n / 1e3).toFixed(n < 1e4 ? 2 : n < 1e5 ? 1 : 0))}K`;
+  if (n < 1e6) return '1M';
   return fmt(n);
 }
 

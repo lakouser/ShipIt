@@ -119,7 +119,7 @@ export class App {
       },
     );
     this.fx = new Fx(this.ide);
-    this.events = new EventLine($('#event'), game);
+    this.events = new EventLine($('#event'), game, document.getElementById('eventSay'));
     this.scripts = new ScriptsRow($('#scripts'), game, () => this.feedback('click'));
     this.bug = new BugView(this.code, () => game.squashBug(), (x, y) => this.fx.burst(this.code, x, y, 12, 'pbug'));
     this.incidents = new IncidentView(this.code, game, (text, kind) => this.editor.log(text, kind), () => s.editorLine);

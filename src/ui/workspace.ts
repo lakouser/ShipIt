@@ -103,9 +103,15 @@ export class Workspace {
       this.el.tabs,
       (any ? tab('top', 'top', this.paneOpen && this.view === 'top') : '') +
         (s.team.length ? tab('team', 'team', this.desksOpen) : '') +
-        (ci ? tab('ci', `ci <span class="${this.building ? 'cm' : 'okc'}">${this.building ? '…' : 'ok'}</span>`, this.paneOpen && this.view === 'ci') : '') +
+        (ci ? tab('ci', 'ci <span data-ci></span>', this.paneOpen && this.view === 'ci') : '') +
         (files > 1 ? tab('top', `+${files}`, false) : ''),
     );
+    // The build status changes every step: updated in place, so a tap on the tabs is never lost to a rebuild.
+    const status = this.el.tabs.querySelector('[data-ci]');
+    if (status) {
+      setText(status, this.building ? '…' : 'ok');
+      status.className = this.building ? 'cm' : 'okc';
+    }
     // An outage banner or a merge conflict needs the whole code area.
     const busy = s.incident?.kind === 'outage' || s.incident?.kind === 'conflict';
     this.el.pane.hidden = !any || !this.paneOpen || busy;

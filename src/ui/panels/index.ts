@@ -28,10 +28,10 @@ import {
   type ShipView,
 } from './ship';
 import { refreshSprints, renderSprints, sprintsKey } from './sprints';
-import { refreshStats, renderStats } from './stats';
+import { refreshStats, renderStats, statsKey } from './stats';
 import { refreshTeam, renderTeam, teamKey } from './team';
 import { refreshTodo, renderTodo, todoKey } from './todo';
-import { renderTrophies, trophiesKey } from './trophies';
+import { refreshTrophies, renderTrophies, trophiesKey } from './trophies';
 import { refreshUpgrades, renderUpgrades, visibilityKey } from './upgrades';
 
 /** How long a destructive button stays armed for its second tap. */
@@ -171,7 +171,6 @@ export class Panels {
       b.classList.toggle('new', GROUPS.find((g) => g.id === group)!.tabs.some((t) => this.fresh.has(t)));
     });
     if (tabState(s, s.settings.tab) === 'hidden') s.settings.tab = 'upgrades';
-    this.subKey = '';
   }
 
   render(): void {
@@ -299,6 +298,8 @@ export class Panels {
         return manKey(g);
       case 'trophies':
         return trophiesKey(g);
+      case 'stats':
+        return statsKey(g);
       case 'major':
         return `${s.major}|${!!s.challenge}|${s.challengesDone.length}|${challengeReady(s)}|${s.round}|${s.unlocked.major}`;
       default:
@@ -331,6 +332,7 @@ export class Panels {
     else if (tab === 'major') refreshMajor(g, this.root, this.armedAction);
     else if (tab === 'market') refreshMarket(g, this.root, this.fullChart);
     else if (tab === 'stats') refreshStats(g, this.root);
+    else if (tab === 'trophies') refreshTrophies(g, this.root);
     else if (tab === 'settings') {
       const el = this.root.querySelector('[data-save-status]');
       const info = this.actions.saveInfo();

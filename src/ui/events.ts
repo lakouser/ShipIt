@@ -10,7 +10,10 @@ export type EventKind = 'ok' | 'warn' | 'err' | 'star';
 interface Notice {
   kind: EventKind;
   title: string;
+  /** Markup for the strip. */
   text: string;
+  /** The same as plain text, for screen readers. */
+  plain: string;
   ms: number;
 }
 
@@ -34,10 +37,12 @@ export class EventLine {
   constructor(
     private readonly el: HTMLElement,
     private readonly game: Game,
+    /** A visually hidden live region: screen readers hear each new notice once, not every countdown tick. */
+    private readonly say: HTMLElement | null = null,
   ) {}
 
   push(kind: EventKind, title: string, text: string, ms = 3200): void {
-    this.queue.push({ kind, title, text: esc(text), ms });
+    this.queue.push({ kind, title, text: esc(text), plain: text, ms });
     if (this.queue.length > MAX_QUEUED) this.queue.shift();
     this.update();
   }
@@ -54,6 +59,7 @@ export class EventLine {
     if (!this.current && this.queue.length) {
       this.current = this.queue.shift()!;
       this.shownAt = now;
+      if (this.say) this.say.textContent = `${this.current.title}: ${this.current.plain}`;
     }
     const n = this.current ?? this.running() ?? this.last;
     const stale = !this.current && n === this.last;
@@ -69,7 +75,7 @@ export class EventLine {
     const g = this.game;
     const s = g.state;
     const now = g.now();
-    const notice = (kind: EventKind, title: string, text: string): Notice => ({ kind, title, text, ms: 0 });
+    const notice = (kind: EventKind, title: string, text: string): Notice => ({ kind, title, text, plain: '', ms: 0 });
     if (s.boss) {
       const left = tint('time', clock((s.boss.endsAt - now) / 1000));
       return notice('err', 'incident', `${esc(BOSSES[s.boss.kind].name.toLowerCase())} · ${s.boss.phase === 'incoming' ? `incoming, ${left} to answer` : `stage ${s.boss.stage + 1} · ${left}`}`);

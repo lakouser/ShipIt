@@ -1,7 +1,7 @@
 import { ACHIEVEMENTS, ACHIEVEMENT_PROGRESS, type AchievementDef } from '../../core/achievements';
 import type { Game } from '../../core/game';
 import { fmt } from '../../core/num';
-import { esc } from '../dom';
+import { esc, setText } from '../dom';
 import { tint } from '../hl';
 
 /** [done, needed] for a countable trophy, or null. */
@@ -13,11 +13,24 @@ function row(game: Game, a: AchievementDef, done: boolean): string {
   const p = done ? null : progressOf(game, a);
   const f = p ? Math.max(0, Math.min(1, p[0] / p[1])) : done ? 1 : 0;
   const count = done ? '<span class="okc">earned</span>' : p ? `${fmt(Math.min(p[0], p[1]))}/${fmt(p[1])}` : '';
-  return `<div class="tro${done ? ' done' : ''}">
+  return `<div class="tro${done ? ' done' : ''}"${p ? ` data-tro="${a.id}"` : ''}>
     <div class="trh"><span class="nm">${esc(a.name)}</span><span class="trc">${count}</span></div>
     <small>${esc(a.description.toLowerCase())}</small>
     ${p || done ? `<div class="cbar"><i style="width:${(f * 100).toFixed(1)}%"></i></div>` : ''}
   </div>`;
+}
+
+/** Progress counts and bars, updated in place (the order only changes on the next visit). */
+export function refreshTrophies(game: Game, root: HTMLElement): void {
+  root.querySelectorAll<HTMLElement>('[data-tro]').forEach((el) => {
+    const a = ACHIEVEMENTS.find((x) => x.id === el.dataset.tro);
+    const p = a ? progressOf(game, a) : null;
+    if (!p) return;
+    setText(el.querySelector('.trc'), `${fmt(Math.min(p[0], p[1]))}/${fmt(p[1])}`);
+    const bar = el.querySelector<HTMLElement>('.cbar i');
+    const w = `${(Math.max(0, Math.min(1, p[0] / p[1])) * 100).toFixed(1)}%`;
+    if (bar && bar.style.width !== w) bar.style.width = w;
+  });
 }
 
 export function renderTrophies(game: Game, hideEarned: boolean): string {
