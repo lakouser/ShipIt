@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { simulate } from './sim';
+import { simulate, type ShipPolicy } from './sim';
 
 /**
  * Pacing guard rails. A bot plays the real game rules; these bounds catch balance
@@ -28,8 +28,18 @@ describe('pacing', () => {
     expect(r.ships[0].minute).toBeLessThan(35);
     if (minutes >= 120) {
       expect(r.ships.length).toBeGreaterThanOrEqual(3);
-      // Two hours in, the last tiers should still be ahead.
-      expect(['quantum', 'agents', 'neural']).not.toContain(r.topUpgrade);
+      // Two hours in, the last tiers should still be ahead (checked at minute 120, however long the run).
+      const atTwoHours = r.timeline.find((t) => t.minute === 120)?.top ?? r.topUpgrade;
+      expect(['quantum', 'agents', 'neural']).not.toContain(atTwoHours);
     }
+  }, 120_000);
+
+  it('pays more for a meaningful release than for shipping constantly', () => {
+    // The bounds above assume players wait for a real jump in stars. Check that the game agrees:
+    // under the old per-release curve, a 5-minute timer earned ~9x more stars than this by hour 4.
+    const stars = (ship?: ShipPolicy) => simulate({ minutes: 240, tapsPerSecond: 4, ship }).finalStars;
+    const patient = stars();
+    expect(stars({ kind: 'every', minutes: 5 })).toBeLessThan(patient / 2);
+    expect(stars({ kind: 'asap' })).toBeLessThan(patient / 2);
   }, 120_000);
 });

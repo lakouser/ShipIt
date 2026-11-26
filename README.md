@@ -33,7 +33,7 @@ npm run preview    # serve dist/ locally
 | **Bugs** | Crawl across the editor every 28–50s; squashing pays ~15s of automation plus 10 taps. `oncall.yml` squashes some for you. |
 | **Incidents** | Every 1–2.5 min: coffee (x3 everything for 20s), an outage (tap 30 times to hotfix) or a merge conflict (pick the side that compiles). Missing one never costs anything. |
 | **TODO.md** | Three small tasks at a time with small permanent bonuses (or scripts); a finished slot refills after 45s. Each release has a milestone that pays stars. |
-| **Ship** | Stars = floor(cbrt(lines this release / 2M)): 1 at 2M, 2 at 16M, 10 at 2B. Shipping resets lines and packages. Each star earned adds 10% output forever, even after it is spent. |
+| **Ship** | Stars come from every line ever shipped: floor(2·cbrt(all shipped lines / 2M)), so 2 at 2M, 4 at 16M, 20 at 2B in total. A release needs 2M lines and pays what it adds to that total, so one big release beats several small ones. The ship tab shows stars per minute (now and best this release), marks a release ready to merge once it would grow stars by 50%, and keeps a `git log` of the last 10 releases. Shipping resets lines and packages. Each star earned adds 10% output forever, even after it is spent. |
 | **dotfiles** | 10 permanent perks in `editor/`, `team/` and `system/`, bought with stars. |
 | **Achievements** | 56, each worth +1% output, including a few secrets. |
 | **Commit streak** | Play on consecutive days for a daily bonus (scripts every 3rd and 7th day). |
@@ -41,7 +41,7 @@ npm run preview    # serve dist/ locally
 
 New players see only the pkgs tab at first; sprints, TODO and ship appear as they progress.
 
-Pacing (from `npm run simulate`): at 4 taps a second the first ship lands around 6 minutes, then every 5–20 minutes; at 1 tap a second, around 14 minutes. After two hours of active play the last tiers are still ahead.
+Pacing (from `npm run simulate`): at 4 taps a second the first ship lands around 5½ minutes for 2 stars, then every 8–27 minutes; at 1 tap a second, around 11½ minutes. After two hours of active play the last tiers are still ahead. Waiting for a real jump pays: by hour 4, shipping on a 5-minute timer earns about a tenth of the stars and shipping at every star about a twentieth, and `tests/pacing.test.ts` fails if either catches up with the patient bot.
 
 ## How the code is organised
 

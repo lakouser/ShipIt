@@ -46,7 +46,7 @@ export class Header {
     setText(el.lines, fmt(s.lines));
     setText(el.perTap, `+${fmtRate(g.perTap())}`);
     setText(el.perSecond, fmtRate(g.perSecond()));
-    this.html('sub', el.sub, `release v${s.release}.0 · <span class="st">${s.stars}</span> star${s.stars === 1 ? '' : 's'}`);
+    this.html('sub', el.sub, `release v${s.release}.0 · <span class="st">${fmt(s.stars)}</span> star${s.stars === 1 ? '' : 's'}`);
 
     const fx = activeEffects(s, now);
     el.fx.hidden = fx.length === 0;

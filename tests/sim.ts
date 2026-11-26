@@ -8,10 +8,20 @@ import { starsAvailable } from '../src/core/ship';
 import { difficultyOf, requiredTapRate } from '../src/core/sprints';
 import { newGame } from '../src/core/state';
 
+/** When the bot ships. */
+export type ShipPolicy =
+  /** Once a release would grow stars by this fraction (how a patient player plays; the default, at 0.75). */
+  | { kind: 'gain'; fraction: number }
+  /** On a timer, whatever the release pays (as soon as it can, if it can't yet when the timer is up). */
+  | { kind: 'every'; minutes: number }
+  /** The moment any star is available. */
+  | { kind: 'asap' };
+
 export interface SimOptions {
   minutes: number;
   tapsPerSecond: number;
   seed?: number;
+  ship?: ShipPolicy;
 }
 
 export interface SimReport {
@@ -19,27 +29,31 @@ export interface SimReport {
   unlocks: Record<string, number>;
   finalPerSecond: string;
   finalPerTap: string;
+  finalStars: number;
   lifetime: string;
   achievements: number;
   quests: number;
   milestones: number;
   topUpgrade: string;
   perks: Record<string, number>;
-  timeline: { minute: number; lines: string; perSecond: string; perTap: string; release: number; stars: number }[];
+  timeline: { minute: number; lines: string; perSecond: string; perTap: string; release: number; stars: number; top: string }[];
 }
+
+const topUpgrade = (s: Game['state']): string => [...UPGRADES].reverse().find((u) => owned(s, u.id) > 0)?.id ?? 'none';
 
 /**
  * A bot that plays like a reasonably attentive player: taps steadily, buys the best-value
  * package, runs relaxed sprints, squashes most bugs, grabs incidents, runs scripts at once,
- * ships when the payoff is worth it and spends stars on the cheapest perk.
+ * ships when the payoff is worth it (or by another policy) and spends stars on the cheapest perk.
  */
-export function simulate({ minutes, tapsPerSecond, seed = 7 }: SimOptions): SimReport {
+export function simulate({ minutes, tapsPerSecond, seed = 7, ship = { kind: 'gain', fraction: 0.75 } }: SimOptions): SimReport {
   let now = 0;
   const rng = seededRng(seed);
   const botRng = seededRng(seed + 1000);
   const game = new Game(newGame(now), { clock: () => now, rng });
   const s = game.state;
-  const report: SimReport = { ships: [], unlocks: {}, finalPerSecond: '', finalPerTap: '', lifetime: '', achievements: 0, quests: 0, milestones: 0, topUpgrade: '', perks: {}, timeline: [] };
+  let lastShipAt = 0;
+  const report: SimReport = { ships: [], unlocks: {}, finalPerSecond: '', finalPerTap: '', finalStars: 0, lifetime: '', achievements: 0, quests: 0, milestones: 0, topUpgrade: '', perks: {}, timeline: [] };
   game.on((e) => {
     if (e.type === 'unlocked') report.unlocks[e.tab] = Math.round(now / 600) / 100;
     if (e.type === 'shipped') report.ships.push({ minute: Math.round(now / 600) / 100, release: e.result.release, stars: e.totalStars });
@@ -83,22 +97,26 @@ export function simulate({ minutes, tapsPerSecond, seed = 7 }: SimOptions): SimR
     }
 
     const available = starsAvailable(s);
-    // Ship when it would grow stars by ~75% (players usually wait for a meaningful jump).
-    if (available >= Math.max(1, Math.ceil(s.stars * 0.75))) game.ship();
+    const due =
+      ship.kind === 'gain' ? available >= Math.max(1, Math.ceil(s.stars * ship.fraction))
+      : ship.kind === 'every' ? available >= 1 && now - lastShipAt >= ship.minutes * 60_000
+      : available >= 1;
+    if (due && game.ship()) lastShipAt = now;
     for (const p of [...PERKS].sort((a, b) => a.baseCost - b.baseCost)) if (perkStatus(s, p) === 'affordable') game.buyPerk(p.id);
 
     if (step % (4 * 60 * 10) === 0) {
-      report.timeline.push({ minute: Math.round(now / 60000), lines: fmt(s.lifetime), perSecond: fmt(perSecond(s, now)), perTap: fmt(perTap(s, now)), release: s.release, stars: s.stars });
+      report.timeline.push({ minute: Math.round(now / 60000), lines: fmt(s.lifetime), perSecond: fmt(perSecond(s, now)), perTap: fmt(perTap(s, now)), release: s.release, stars: s.stars, top: topUpgrade(s) });
     }
   }
 
   report.finalPerSecond = fmt(perSecond(s, now));
   report.finalPerTap = fmt(perTap(s, now));
+  report.finalStars = s.stars;
   report.lifetime = fmt(s.lifetime);
   report.achievements = s.achievements.length;
   report.quests = s.stats.quests;
   report.milestones = s.stats.milestones;
-  report.topUpgrade = [...UPGRADES].reverse().find((u) => owned(s, u.id) > 0)?.id ?? 'none';
+  report.topUpgrade = topUpgrade(s);
   report.perks = { ...s.perks };
   return report;
 }

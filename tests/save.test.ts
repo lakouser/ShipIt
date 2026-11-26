@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { D } from '../src/core/num';
 import { deserialize, exportSave, importSave, SAVE_VERSION, serialize } from '../src/core/save';
+import { ship, starsAvailable, starsForShipped, starsPerMinute } from '../src/core/ship';
 import { newGame } from '../src/core/state';
 
 describe('saves', () => {
@@ -20,6 +21,10 @@ describe('saves', () => {
     s.settings.buyAmount = 'max';
     s.settings.skin = 'amber';
     s.settings.tab = 'ship';
+    s.shipped = D('4.2e40');
+    s.releaseStartedAt = 777;
+    s.releasePeak = 1.5;
+    s.releaseLog = [{ release: 3, lines: D('2e40'), stars: 3, seconds: 95.5, at: 600 }];
     const back = deserialize(serialize(s, 1234), 5000)!;
     expect(back.lines.eq(s.lines)).toBe(true);
     expect(back.lifetime.eq(s.lifetime)).toBe(true);
@@ -32,6 +37,36 @@ describe('saves', () => {
     expect(back.settings.skin).toBe('amber');
     expect(back.settings.tab).toBe('ship');
     expect(back.savedAt).toBe(1234);
+    expect(back.shipped.eq(s.shipped)).toBe(true);
+    expect(back.releaseStartedAt).toBe(777);
+    expect(back.releasePeak).toBe(1.5);
+    expect(back.releaseLog).toHaveLength(1);
+    expect(back.releaseLog[0].lines.eq(D('2e40'))).toBe(true);
+    expect(back.releaseLog[0]).toMatchObject({ release: 3, stars: 3, seconds: 95.5, at: 600 });
+  });
+
+  it('migrates a version 2 save onto the shipped-lines star curve without losing stars', () => {
+    const v2 = { v: 2, lines: '500', lifetime: '9e12', thisRelease: '3000000', stars: 20, starsSpent: 15, release: 9 };
+    const back = deserialize(JSON.stringify(v2), 0)!;
+    expect(back.stars).toBe(20);
+    expect(back.starsSpent).toBe(15);
+    // The curve starts where the player's stars are: 20 stars ↔ 2B lines shipped.
+    expect(back.shipped.toNumber()).toBeCloseTo(2e9, -3);
+    expect(starsForShipped(back.shipped)).toBe(20);
+    // 3M more lines on top of 2B adds nothing yet; the old curve would have paid 1 star.
+    expect(starsAvailable(back)).toBe(0);
+    expect(back.releaseLog).toEqual([]);
+    // The release in progress began before releases were timed: no made-up duration or rate.
+    expect(back.releaseStartedAt).toBe(-1);
+    expect(starsPerMinute(back, 10 * 60_000)).toBe(0);
+    back.thisRelease = D(2e10);
+    const ship1 = ship(back, 10 * 60_000, () => 0.5)!;
+    expect(ship1.stars).toBe(24); // 2B + 20B shipped: 2·cbrt(11000) = 44.5
+    expect(ship1.seconds).toBeNull();
+    expect(back.releaseLog[0].seconds).toBeNull();
+    expect(back.releaseStartedAt).toBe(10 * 60_000); // the next release is timed
+    const again = deserialize(serialize(back, 0), 0)!;
+    expect(again.releaseLog[0].seconds).toBeNull();
   });
 
   it('keeps an active sprint, the backlog, tasks and the milestone', () => {

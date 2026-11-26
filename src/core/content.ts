@@ -189,10 +189,22 @@ export const INCIDENTS = {
 /* ---------- prestige, offline, quests, streak, unlocks ---------- */
 
 export const SHIP = {
-  /** Stars available = floor(cbrt(lines this release / linesPerStar)): 1 star at 2M, 2 at 16M, 10 at 2B. */
+  /**
+   * Stars come from every line ever shipped, not just this release:
+   * stars from shipping = floor(starScale · cbrt(all shipped lines / linesPerStar)), so 2 at 2M, 4 at 16M, 20 at 2B in total.
+   * A release pays the difference it makes to that total, which means shipping the same size of release again pays less,
+   * and many tiny releases pay far less than one big one.
+   */
   linesPerStar: 2_000_000,
+  starScale: 2,
+  /** A release needs at least this many lines before it can ship. */
+  minRelease: 2_000_000,
   /** Each star earned (spent or not) adds this fraction to all output. */
   bonusPerStar: 0.1,
+  /** The ship panel calls a release ready once it would grow stars by this fraction (or it's the first release). */
+  readyAt: 0.5,
+  /** Releases kept in the release log. */
+  logSize: 10,
 };
 
 export const OFFLINE = {

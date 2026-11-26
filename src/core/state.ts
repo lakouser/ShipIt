@@ -48,6 +48,18 @@ export interface Quest {
   reward: QuestReward;
 }
 
+/** A shipped release, for the release log. */
+export interface ReleaseEntry {
+  /** The version that was shipped (v{release}.0). */
+  release: number;
+  lines: Decimal;
+  stars: number;
+  /** How long the release took, wall-clock seconds (time away included); null if it began before releases were timed. */
+  seconds: number | null;
+  /** When it shipped (ms). */
+  at: number;
+}
+
 export type MilestoneTaskKind = 'lines' | 'owned' | 'sprints';
 export interface Milestone {
   release: number;
@@ -99,8 +111,16 @@ export interface GameState {
   lines: Decimal;
   /** Every line ever written, across releases. */
   lifetime: Decimal;
-  /** Lines written since the last ship; drives stars. */
+  /** Lines written since the last ship. */
   thisRelease: Decimal;
+  /** Lines of every release shipped so far. Stars come from this plus thisRelease; never reset. */
+  shipped: Decimal;
+  /** When the current release started (ms), for stars per minute; -1 if it began before releases were timed. */
+  releaseStartedAt: number;
+  /** Best stars per minute seen during the current release. */
+  releasePeak: number;
+  /** The last few shipped releases, newest first. */
+  releaseLog: ReleaseEntry[];
   owned: Record<string, number>;
   /** Stars ever earned. The output bonus counts all of them, spent or not. */
   stars: number;
@@ -151,6 +171,10 @@ export function newGame(now: number): GameState {
     lines: D(0),
     lifetime: D(0),
     thisRelease: D(0),
+    shipped: D(0),
+    releaseStartedAt: now,
+    releasePeak: 0,
+    releaseLog: [],
     owned: {},
     stars: 0,
     starsSpent: 0,

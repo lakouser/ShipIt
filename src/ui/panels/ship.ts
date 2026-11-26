@@ -1,14 +1,15 @@
 import { PERKS, SHIP, type PerkBranch } from '../../core/content';
+import { starMultiplier } from '../../core/economy';
 import type { Game } from '../../core/game';
-import { fmt, fmtRate } from '../../core/num';
+import { fmt, fmtDuration, fmtMul, fmtRate } from '../../core/num';
 import { perkCost, perkLevel, perkStatus, spendableStars } from '../../core/perks';
-import { linesForStars, starsAvailable } from '../../core/ship';
+import { linesForStars, shipGain, starsAvailable, starsPerMinute } from '../../core/ship';
+import type { GameState, ReleaseEntry } from '../../core/state';
 import { setHtml, setText } from '../dom';
 import { hl, tint } from '../hl';
 import { barHtml } from '../messages';
 
 const SESSION_START = Date.now();
-const bonus = (stars: number): string => (stars * SHIP.bonusPerStar).toFixed(2);
 
 const LOGO = String.raw`      |\
       | \
@@ -24,14 +25,36 @@ const BRANCHES: { id: PerkBranch; dir: string }[] = [
   { id: 'system', dir: 'system/' },
 ];
 
+/** Stars per minute: two decimals below 1 ("0.42"), one below 10, then like fmt. */
+const starRate = (perMinute: number): string => (perMinute < 1 ? perMinute.toFixed(2) : perMinute < 10 ? perMinute.toFixed(1) : fmt(perMinute));
+const pct = (fraction: number): string => `${fmt(Math.round(fraction * 100))}%`;
+const entryRate = (r: ReleaseEntry): number | null => (r.seconds ? r.stars / (r.seconds / 60) : null);
+/** A stable fake commit hash for a tagged release. */
+const sha = (r: ReleaseEntry): string => ((Math.imul(r.release, 2654435761) ^ Math.floor(r.at / 1000)) >>> 0).toString(16).padStart(8, '0').slice(0, 7);
+
 function uptime(): string {
   const m = Math.floor((Date.now() - SESSION_START) / 60000);
   return m < 60 ? `${m}m` : `${Math.floor(m / 60)}h ${m % 60}m`;
 }
 
+/** `git log` of the last few releases, so players can compare a run with the ones before it. */
+function releaseLog(s: GameState): string {
+  if (!s.releaseLog.length) return '';
+  const rates = s.releaseLog.map(entryRate).filter((r): r is number => r !== null);
+  const best = rates.length > 1 ? Math.max(...rates) : null;
+  const rows = s.releaseLog
+    .map((r) => {
+      const rate = entryRate(r);
+      const timing = rate !== null && r.seconds !== null ? ` in ${tint('time', fmtDuration(r.seconds))} · ${tint('star', starRate(rate))}/min` : '';
+      return `<div class="rl"><span class="sha">${sha(r)}</span> <span class="tg">(tag: v${r.release}.0)</span> ${tint('star', `+${fmt(r.stars)}★`)}${timing} · ${tint('loc', fmt(r.lines))} lines${rate !== null && rate === best ? ' <span class="cm">← best</span>' : ''}</div>`;
+    })
+    .join('');
+  return `<div class="cmd gap"><span><span class="ps">$</span> git log --oneline --tags</span><span class="aside">last ${s.releaseLog.length} release${s.releaseLog.length === 1 ? '' : 's'}</span></div><div class="rlog">${rows}</div>`;
+}
+
 function dotfilesTree(game: Game): string {
   const s = game.state;
-  let html = `<div class="cmd gap"><span><span class="ps">$</span> tree ~/dotfiles</span><span class="aside"><b class="st" data-spend>${spendableStars(s)}</b> stars to spend</span></div><div class="tree"><div class="root">~/dotfiles</div>`;
+  let html = `<div class="cmd gap"><span><span class="ps">$</span> tree ~/dotfiles</span><span class="aside"><b class="st" data-spend>${fmt(spendableStars(s))}</b> stars to spend</span></div><div class="tree"><div class="root">~/dotfiles</div>`;
   BRANCHES.forEach((b, bi) => {
     const lastBranch = bi === BRANCHES.length - 1;
     html += `<div class="dir"><span class="tr">${lastBranch ? '└──' : '├──'}</span> ${b.dir}</div>`;
@@ -59,24 +82,27 @@ export function renderShip(game: Game): string {
         <div class="chips"><span>main</span> ← <span>release/v${next}</span></div>
         <div class="chk"><span>lines this release</span><b data-run-text></b></div>
         <div class="tbar" data-run-bar></div>
+        <div class="chk"><span>stars per minute</span><b data-rate></b></div>
+        <div class="chk"><span>checks</span><b data-ready></b></div>
       </div>
       <div class="diff">
         <div class="fn">config/release.ts</div>
-        <div class="dl m">- export const stars = ${s.stars};</div>
+        <div class="dl m" data-diff-stars-was></div>
         <div class="dl a" data-diff-stars></div>
-        <div class="dl m">- export const outputBonus = ${bonus(s.stars)};</div>
-        <div class="dl a" data-diff-bonus></div>
+        <div class="dl m" data-diff-mul-was></div>
+        <div class="dl a" data-diff-mul></div>
       </div>
-      <p class="caveat"># shipping resets lines and packages. stars, dotfiles, achievements and TODO bonuses carry over. each star adds ${Math.round(SHIP.bonusPerStar * 100)}% to all output, even after you spend it.</p>
+      <p class="caveat"># stars count every line you've ever shipped: one big release beats several small ones. lines and packages reset; stars, dotfiles, achievements and TODO bonuses stay. each star adds ${Math.round(SHIP.bonusPerStar * 100)}% output, even once spent.</p>
       <button class="shipbtn" data-ship></button>
     </div>
+    ${releaseLog(s)}
     ${dotfilesTree(game)}
     <div class="fetch">
       <pre aria-hidden="true">${LOGO}</pre>
       <div class="info">
         <span class="who">dev@ship-it</span><span class="rule">───────────</span>
         ${row('release', `v${s.release}.0`)}
-        ${row('stars', `${tint('star', s.stars)} (${tint('loc', `+${Math.round(s.stars * SHIP.bonusPerStar * 100)}%`)})`)}
+        ${row('stars', `${tint('star', fmt(s.stars))} (${tint('loc', `x${fmtMul(starMultiplier(s.stars))} output`)})`, ' data-f-stars')}
         ${row('lines', fmt(s.lifetime), ' class="h h-loc" data-f-lines')}
         ${row('loc/s', fmtRate(game.perSecond()), ' class="h h-auto" data-f-rate')}
         ${row('taps', fmt(s.stats.taps), ' class="h h-tap" data-f-taps')}
@@ -87,24 +113,45 @@ export function renderShip(game: Game): string {
     </div>`;
 }
 
+/** The "checks" line: whether this release is worth merging yet, by the +50% rule of thumb. */
+function readyText(s: GameState, stars: number): string {
+  if (stars < 1) return `<span class="cm">○</span> waiting for the first star`;
+  const gain = shipGain(s);
+  if (gain === Infinity) return `<span class="ok">✓</span> ready to merge · first stars`;
+  if (gain >= SHIP.readyAt) return `<span class="ok">✓</span> ready to merge · ${tint('star', `+${pct(gain)}`)} stars`;
+  return `<span class="cm">○</span> ${tint('star', `+${pct(gain)}`)} stars · ready at ${tint('star', `+${pct(SHIP.readyAt)}`)}`;
+}
+
 export function refreshShip(game: Game, root: HTMLElement, armed: boolean): void {
   const s = game.state;
+  const now = game.now();
   const stars = starsAvailable(s);
-  const target = linesForStars(stars + 1);
+  const target = linesForStars(s, stars + 1);
   setHtml(root.querySelector('[data-run-text]'), stars >= 1 ? `${tint('loc', fmt(s.thisRelease))} · next ${tint('star', '★')} at ${tint('loc', fmt(target))}` : `${tint('loc', fmt(s.thisRelease))} / ${tint('loc', fmt(target))}`);
   const bar = root.querySelector<HTMLElement>('[data-run-bar]');
-  const prev = linesForStars(stars);
+  const prev = linesForStars(s, stars);
   const html = barHtml(s.thisRelease.sub(prev).div(target.sub(prev)).toNumber(), 22);
   if (bar && bar.innerHTML !== html) bar.innerHTML = html;
 
+  const rate = starsPerMinute(s, now);
+  const timed = s.releaseStartedAt >= 0;
+  setHtml(root.querySelector('[data-rate]'), stars >= 1 && timed ? `${tint('star', starRate(rate))} now · best ${tint('star', starRate(Math.max(rate, s.releasePeak)))}` : `<span class="cm">${timed ? '—' : '— (from your next release)'}</span>`);
+  setHtml(root.querySelector('[data-ready]'), readyText(s, stars));
+
   const preview = s.stars + Math.max(1, stars);
-  setText(root.querySelector('[data-diff-stars]'), `+ export const stars = ${preview};`);
-  setText(root.querySelector('[data-diff-bonus]'), `+ export const outputBonus = ${bonus(preview)};`);
+  const mulBefore = starMultiplier(s.stars);
+  const mulAfter = starMultiplier(preview);
+  setText(root.querySelector('[data-diff-stars-was]'), `- export const stars = ${fmt(s.stars)};`);
+  setText(root.querySelector('[data-diff-stars]'), `+ export const stars = ${fmt(preview)};`);
+  setText(root.querySelector('[data-diff-mul-was]'), `- export const outputMul = ${fmtMul(mulBefore)};`);
+  setText(root.querySelector('[data-diff-mul]'), `+ export const outputMul = ${fmtMul(mulAfter)}; // x${(mulAfter / mulBefore).toFixed(2)}`);
+
+  setHtml(root.querySelector('[data-f-stars]'), `${tint('star', fmt(s.stars))} (${tint('loc', `x${fmtMul(mulBefore)} output`)})`);
   setText(root.querySelector('[data-f-lines]'), fmt(s.lifetime));
   setText(root.querySelector('[data-f-rate]'), fmtRate(game.perSecond()));
   setText(root.querySelector('[data-f-taps]'), fmt(s.stats.taps));
   setText(root.querySelector('[data-f-up]'), uptime());
-  setText(root.querySelector('[data-spend]'), String(spendableStars(s)));
+  setText(root.querySelector('[data-spend]'), fmt(spendableStars(s)));
 
   for (const p of PERKS) {
     const row = root.querySelector<HTMLElement>(`[data-perk="${p.id}"]`);
@@ -126,12 +173,13 @@ export function refreshShip(game: Game, root: HTMLElement, armed: boolean): void
   if (!btn) return;
   btn.disabled = stars < 1;
   btn.classList.toggle('arm', armed && stars >= 1);
+  btn.classList.toggle('ready', !armed && shipGain(s) >= SHIP.readyAt);
   setText(
     btn,
     stars < 1
-      ? `needs ${fmt(linesForStars(1).sub(s.thisRelease))} more lines`
+      ? `needs ${fmt(linesForStars(s, 1).sub(s.thisRelease))} more lines`
       : armed
         ? 'confirm: merge and reset lines?'
-        : `merge & ship v${s.release + 1}.0 → +${stars} star${stars > 1 ? 's' : ''}`,
+        : `merge & ship v${s.release + 1}.0 → +${fmt(stars)} star${stars > 1 ? 's' : ''}`,
   );
 }

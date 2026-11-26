@@ -1,6 +1,6 @@
 import { hl } from './hl';
-import { SHIP } from '../core/content';
-import { fmt } from '../core/num';
+import { starMultiplier } from '../core/economy';
+import { fmt, fmtMul } from '../core/num';
 import type { ShipResult } from '../core/ship';
 import { prefersReducedMotion } from './dom';
 import { LOG_TAGS, textBar } from './messages';
@@ -51,8 +51,8 @@ export function playMergeSplash(r: ShipResult, options: MergeSplashOptions = {})
         <div class="mlog" data-log></div>
         <div class="mstars" data-stars hidden>
           ${STAR_SVG}
-          <div><div class="mnum" data-mnum><span data-num>${r.starsBefore}</span><span class="mplus">+${r.stars}</span></div>
-          <div class="mlabel">stars · output +${Math.round(starsAfter * SHIP.bonusPerStar * 100)}%</div></div>
+          <div><div class="mnum" data-mnum><span data-num>${fmt(r.starsBefore)}</span><span class="mplus">+${fmt(r.stars)}</span></div>
+          <div class="mlabel">stars · output x${fmtMul(starMultiplier(starsAfter))}</div></div>
         </div>
         <div class="mhint" data-hint>tap to skip</div>
       </div>
@@ -90,7 +90,7 @@ export function playMergeSplash(r: ShipResult, options: MergeSplashOptions = {})
       },
       // …then the count jumps to the new total with a bounce.
       () => {
-        starNum.textContent = String(starsAfter);
+        starNum.textContent = fmt(starsAfter);
         starRow.classList.add('pop');
         options.onStars?.();
       },

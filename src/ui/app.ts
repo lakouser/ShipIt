@@ -1,7 +1,7 @@
 import type { Game, GameEvent } from '../core/game';
 import { clock, D, fmt, setNotation, type Decimal } from '../core/num';
 import { deserialize, exportSave, importSave, serialize } from '../core/save';
-import { starsAvailable } from '../core/ship';
+import { shipReady } from '../core/ship';
 import type { Platform } from '../platform';
 import type { SaveStore } from '../platform/saves';
 import { BugView } from './bug';
@@ -227,9 +227,9 @@ export class App {
     this.game.tick({ canSpawn: this.platform.isVisible() && !this.dialogOpen });
     this.panels.refresh();
     this.incidents.update();
-    // tmux-style window flags: # activity (sprint running), ! bell (ready to ship)
+    // tmux-style window flags: # activity (sprint running), ! bell (a release worth shipping)
     this.tabButtons.sprints.classList.toggle('act', !!s.sprint);
-    this.tabButtons.ship.classList.toggle('bell', starsAvailable(s) >= 1);
+    this.tabButtons.ship.classList.toggle('bell', shipReady(s));
     const d = new Date();
     $('#clock').textContent = `${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`;
   }

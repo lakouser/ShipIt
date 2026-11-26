@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { BUGS, CRIT, EFFECTS, FLOW, INCIDENTS, OFFLINE, SPRINT_TIERS, UNLOCKS } from '../src/core/content';
 import type { GameEvent } from '../src/core/game';
 import { D } from '../src/core/num';
+import { linesForStars, shippedForStars, shipReady, starsAvailable, starsPerMinute } from '../src/core/ship';
 import { fixedRng, testGame } from './helpers';
 
 const types = (events: GameEvent[]) => events.map((e) => e.type);
@@ -294,24 +295,86 @@ describe('streak', () => {
 });
 
 describe('ship', () => {
-  it('needs 2M lines for the first star (cube root after that) and resets the release', () => {
+  it('needs 2M lines to ship, pays 2·cbrt(lines / 2M) stars and resets the release', () => {
     const t = testGame((s) => {
       s.owned.kb = 10;
       s.thisRelease = D(1_999_999);
     });
+    expect(starsAvailable(t.state)).toBe(0); // the curve alone would pay 1 here
     expect(t.game.ship()).toBeNull();
     t.state.thisRelease = D(16_000_000);
     t.state.lines = D(5_000);
     const result = t.game.ship()!;
-    expect(result.stars).toBe(2);
+    expect(result.stars).toBe(4);
     expect(result.starsBefore).toBe(0);
     expect(result.linesBefore.toNumber()).toBe(5_000);
     expect(result.releaseLines.toNumber()).toBe(16_000_000);
     expect(result.release).toBe(2);
     expect(t.state.lines.toNumber()).toBe(0);
+    expect(t.state.shipped.toNumber()).toBe(16_000_000);
     expect(t.state.owned).toEqual({});
-    expect(t.game.perTap().toNumber()).toBeCloseTo(1.2);
+    expect(t.game.perTap().toNumber()).toBeCloseTo(1.4);
     expect(t.state.milestone?.release).toBe(2);
+  });
+
+  it('pays for what a release adds to everything shipped, so the same release again pays less', () => {
+    const t = testGame((s) => (s.thisRelease = D(16_000_000)));
+    expect(t.game.ship()?.stars).toBe(4); // 16M shipped: 2·cbrt(8) = 4
+    t.state.thisRelease = D(16_000_000);
+    expect(t.game.ship()?.stars).toBe(1); // 32M: 2·cbrt(16) = 5.04
+    t.state.thisRelease = D(96_000_000);
+    expect(t.game.ship()?.stars).toBe(3); // 128M: 2·cbrt(64) = 8
+    expect(t.state.stars).toBe(8);
+  });
+
+  it('knows how many lines the next stars need', () => {
+    const t = testGame((s) => (s.shipped = D(16_000_000)));
+    expect(linesForStars(t.state, 0).toNumber()).toBe(0);
+    for (let n = 1; n <= 6; n++) {
+      const needed = linesForStars(t.state, n);
+      t.state.thisRelease = needed;
+      expect(starsAvailable(t.state)).toBe(n);
+      t.state.thisRelease = needed.sub(1);
+      expect(starsAvailable(t.state)).toBe(n - 1);
+    }
+    // Early on, the 2M-line minimum is what decides.
+    const fresh = testGame();
+    expect(linesForStars(fresh.state, 1).toNumber()).toBe(2_000_000);
+    expect(linesForStars(fresh.state, 2).toNumber()).toBe(2_000_000);
+    expect(linesForStars(fresh.state, 3).toNumber()).toBeCloseTo(6_750_000, -1);
+  });
+
+  it('logs each release and tracks stars per minute', () => {
+    const t = testGame();
+    t.advance(10 * 60_000);
+    t.state.thisRelease = D(16_000_000);
+    t.game.tick();
+    expect(starsPerMinute(t.state, t.now)).toBeCloseTo(0.4); // 4 stars over 10 minutes
+    expect(t.state.releasePeak).toBeCloseTo(0.4, 1);
+    t.game.ship();
+    expect(t.state.releaseLog).toHaveLength(1);
+    expect(t.state.releaseLog[0]).toMatchObject({ release: 2, stars: 4, seconds: 600 });
+    expect(t.state.releaseStartedAt).toBe(t.now);
+    expect(t.state.releasePeak).toBe(0);
+    for (let i = 0; i < 12; i++) {
+      t.state.thisRelease = D(1e12);
+      t.game.ship();
+    }
+    expect(t.state.releaseLog).toHaveLength(10);
+    expect(t.state.releaseLog[0].release).toBe(14);
+  });
+
+  it('calls a release ready once it would grow stars by half', () => {
+    const t = testGame((s) => {
+      s.stars = 8;
+      s.shipped = shippedForStars(8);
+    });
+    t.state.thisRelease = linesForStars(t.state, 3);
+    expect(shipReady(t.state)).toBe(false);
+    t.state.thisRelease = linesForStars(t.state, 4);
+    expect(shipReady(t.state)).toBe(true);
+    const fresh = testGame((s) => (s.thisRelease = D(2_000_000)));
+    expect(shipReady(fresh.state)).toBe(true); // any first star is worth it
   });
 
   it('bootstrap.sh starts the next release with packages', () => {

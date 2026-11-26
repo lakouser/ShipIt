@@ -15,9 +15,12 @@ export const nextDoublingAt = (count: number): number => (Math.floor(count / DOU
 
 export const totalOwned = (s: GameState): number => Object.values(s.owned).reduce((a, b) => a + b, 0);
 
+/** Output multiplier from stars: each one ever earned adds SHIP.bonusPerStar, spent or not. */
+export const starMultiplier = (stars: number): number => 1 + SHIP.bonusPerStar * stars;
+
 /** Stars, achievements and coffee: applies to everything the player writes. */
 export function globalMultiplier(s: GameState, now: number): Decimal {
-  return D(1 + SHIP.bonusPerStar * s.stars)
+  return D(starMultiplier(s.stars))
     .mul(1 + ACHIEVEMENT_BONUS * s.achievements.length)
     .mul(effectProduct(s, 'allMul', now));
 }

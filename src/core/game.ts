@@ -9,7 +9,7 @@ import type { Decimal } from './num';
 import { buyPerk, perkLevel } from './perks';
 import { makeMilestone, updateMilestone, updateQuests } from './quests';
 import type { Rng } from './rng';
-import { ship, type ShipResult } from './ship';
+import { ship, starsPerMinute, type ShipResult } from './ship';
 import { makeBacklog, refreshBacklog, resolveSprint, startSprint } from './sprints';
 import type { ActiveSprint, GameState, Incident, Milestone, Quest, SprintResult } from './state';
 import { checkIn, type CheckIn } from './streak';
@@ -281,6 +281,7 @@ export class Game {
     if (s.unlocked.todo) for (const quest of updateQuests(s, now, this.rng)) this.emit({ type: 'questDone', quest });
     const milestone = updateMilestone(s);
     if (milestone) this.emit({ type: 'milestoneDone', milestone });
+    s.releasePeak = Math.max(s.releasePeak, starsPerMinute(s, now));
 
     const hour = new Date(now).getHours();
     if (hour >= 2 && hour < 5 && s.stats.taps > 0) s.flags.nightOwl = true;

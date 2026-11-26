@@ -1,5 +1,6 @@
-import { EFFECTS, PERKS, type EffectId } from './content';
+import { EFFECTS, PERKS, SHIP, type EffectId } from './content';
 import { D, isFiniteDecimal, type Decimal } from './num';
+import { shippedForStars } from './ship';
 import {
   defaultSettings,
   newGame,
@@ -10,13 +11,14 @@ import {
   type Milestone,
   type Quest,
   type QuestReward,
+  type ReleaseEntry,
   type Settings,
   type SprintResult,
   type Stats,
   type Ticket,
 } from './state';
 
-export const SAVE_VERSION = 2;
+export const SAVE_VERSION = 3;
 export const SAVE_KEY = 'shipit.save';
 /** Prefix for exported save strings, so pasted text is recognisable. */
 export const EXPORT_PREFIX = 'SHIPIT:';
@@ -33,6 +35,10 @@ const MIGRATIONS: Record<number, (save: Raw) => Raw> = {
     const { bugsSquashed, sprintsMerged, boost: _boost, ...rest } = save;
     return { ...rest, v: 2, stats: { bugs: bugsSquashed ?? 0, sprints: sprintsMerged ?? 0 } };
   },
+  // v2 → v3: stars now come from every line ever shipped. Start the curve where the player's stars already are,
+  // so nobody loses a star; the next stars come at the same pace as for anyone else holding that many.
+  // The release in progress began before releases were timed, so its start is unknown (-1).
+  2: (save) => ({ ...save, v: 3, shipped: shippedForStars(Math.max(0, int(save.stars))).toString(), releaseStartedAt: -1 }),
 };
 
 export function serialize(s: GameState, now: number): string {
@@ -123,6 +129,11 @@ function milestone(x: unknown): Milestone | null {
   return { release: Math.max(1, int(x.release, 1)), stars: Math.max(0, int(x.stars)), done: x.done === true, tasks };
 }
 
+function releaseEntry(x: unknown): ReleaseEntry | null {
+  if (!isObj(x)) return null;
+  return { release: Math.max(1, int(x.release, 1)), lines: dec(x.lines, D(0)), stars: Math.max(0, int(x.stars)), seconds: typeof x.seconds === 'number' && Number.isFinite(x.seconds) ? Math.max(0, x.seconds) : null, at: num(x.at) };
+}
+
 function stats(x: unknown): Stats {
   const base = newStats();
   if (!isObj(x)) return base;
@@ -176,6 +187,10 @@ export function deserialize(text: string, now: number): GameState | null {
     lines: dec(raw.lines, base.lines),
     lifetime: dec(raw.lifetime, base.lifetime),
     thisRelease: dec(raw.thisRelease, base.thisRelease),
+    shipped: dec(raw.shipped, base.shipped),
+    releaseStartedAt: Math.max(-1, num(raw.releaseStartedAt, now)),
+    releasePeak: Math.max(0, num(raw.releasePeak)),
+    releaseLog: Array.isArray(raw.releaseLog) ? raw.releaseLog.map(releaseEntry).filter((r): r is ReleaseEntry => r !== null).slice(0, SHIP.logSize) : [],
     owned: counts(raw.owned),
     stars: Math.max(0, int(raw.stars)),
     starsSpent: Math.max(0, int(raw.starsSpent)),

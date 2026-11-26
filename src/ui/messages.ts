@@ -1,6 +1,7 @@
-import { EFFECTS, SHIP, packageName, type EffectId } from '../core/content';
+import { EFFECTS, packageName, type EffectId } from '../core/content';
+import { starMultiplier } from '../core/economy';
 import type { GameEvent } from '../core/game';
-import { clock, fmt } from '../core/num';
+import { clock, fmt, fmtDuration, fmtMul } from '../core/num';
 import { questText } from '../core/quests';
 import type { QuestReward, SprintResult } from '../core/state';
 
@@ -73,7 +74,7 @@ export function describe(e: GameEvent): LogLine[] {
     case 'checkIn':
       return [{ kind: 'ok', text: `day ${e.checkIn.count} streak: +${fmt(e.checkIn.lines)} lines${e.checkIn.script ? ` and ${scriptFile(e.checkIn.script)}` : ''}` }];
     case 'shipped':
-      return [{ kind: 'ok', text: `shipped v${e.result.release}.0, +${e.result.stars} star${e.result.stars > 1 ? 's' : ''}, output +${Math.round(e.totalStars * SHIP.bonusPerStar * 100)}%` }];
+      return [{ kind: 'ok', text: `shipped v${e.result.release}.0${e.result.seconds !== null ? ` after ${fmtDuration(e.result.seconds)}` : ''}, +${fmt(e.result.stars)} star${e.result.stars > 1 ? 's' : ''}, output x${fmtMul(starMultiplier(e.totalStars))}` }];
     case 'offline':
       return [{ kind: 'info', text: `while you were away your team wrote ${fmt(e.lines)} lines` }];
     default:
