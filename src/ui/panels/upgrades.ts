@@ -25,7 +25,7 @@ export interface UpgradesView {
 
 /** What the panel shows; it re-renders when this changes. */
 export const visibilityKey = (game: Game): string =>
-  UPGRADES.map((u, i) => (isUpgradeVisible(game.state, i) ? `${+(owned(game.state, u.id) > 0)}${forksPending(game.state, u.id) > 0 ? 'f' : ''}` : '-')).join('') +
+  UPGRADES.map((u, i) => (isUpgradeVisible(game.state, i) ? `${+(owned(game.state, u.id) > 0)}${forksPending(game.state, u.id) > 0 ? `f${forksPending(game.state, u.id)}` : ''}` : '-')).join('') +
   (debtVisible(game.state) ? 'd' : '') +
   (game.state.owned.duck ? 'q' : '');
 
@@ -48,8 +48,9 @@ function forkPicker(game: Game, u: UpgradeDef): string {
   const options = forkOptions(game.state, u.id);
   if (!options) return '';
   const at = ((game.state.forks[u.id]?.length ?? 0) + 1) * FORK_STEP;
+  const more = forksPending(game.state, u.id) - 1;
   return `<div class="fork" role="group" aria-label="Pick an upgrade for ${u.name}">
-    <div class="fh">${hl(`${at} installed: pick one upgrade`)}</div>
+    <div class="fh">${hl(`${at} installed: pick one upgrade${more > 0 ? ` · ${more} more after this` : ''}`)}</div>
     ${options
       .map(
         (f) => `<button class="fopt" data-fork="${u.id}" data-opt="${f.id}">
@@ -74,14 +75,15 @@ export function renderUpgrades(game: Game, view: UpgradesView): string {
     UPGRADES.forEach((u, i) => {
       if (u.kind !== group.kind || !isUpgradeVisible(s, i)) return;
       const n = owned(s, u.id);
-      const forkReady = forksPending(s, u.id) > 0;
+      const pending = forksPending(s, u.id);
+      const forkReady = pending > 0;
       const open = forkReady && view.openFork === u.id;
       html += `<div class="pkg">
         <div><span class="nm">${packageName(u.name)}</span><span class="qty">[${n}]</span>${n === 0 ? ' <span class="nw">new</span>' : ''}</div>
         ${view.help ? `<small class="cm"># ${u.blurb.toLowerCase()}</small>` : ''}
         ${
           forkReady
-            ? `<button class="fready" data-openfork="${u.id}" aria-expanded="${open}">fork ready: pick an upgrade ${open ? '▾' : '▸'}</button>`
+            ? `<button class="fready" data-openfork="${u.id}" aria-expanded="${open}">${pending > 1 ? `${pending} forks ready: pick upgrades` : 'fork ready: pick an upgrade'} ${open ? '▾' : '▸'}</button>`
             : `<small>${hl(`+${fmtRate(unitOutput(s, u, now))}${group.unit} each`)} · <span data-eta="${u.id}"></span></small>`
         }
         <button class="buy" data-buy="${u.id}" aria-label="Install ${u.name}"><span class="bq"></span><span class="bc"></span></button>

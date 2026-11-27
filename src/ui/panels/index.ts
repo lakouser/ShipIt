@@ -1,6 +1,7 @@
 import type { ChallengeId, EffectId, ForkId, ForkPolicy, IncidentKind, LanguageId, ProjectId, RoleId, WorkflowId } from '../../core/content';
 import type { DevAction } from '../../core/dev';
 import type { Game, UnlockTab } from '../../core/game';
+import { forksPending } from '../../core/economy';
 import { challengeReady } from '../../core/major';
 import { nextProjects } from '../../core/ship';
 import { workflowOn } from '../../core/workflows';
@@ -386,7 +387,8 @@ export class Panels {
       this.render();
     } else if (d.fork) {
       if (this.game.chooseFork(d.fork, d.opt as ForkId)) {
-        this.openFork = null;
+        // Several forks can stack up (buying many copies at once): the picker stays open until the last is picked.
+        if (forksPending(s, d.fork) < 1) this.openFork = null;
         this.done();
       }
     } else if ('refactor' in d) {
