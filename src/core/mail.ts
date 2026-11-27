@@ -1,4 +1,4 @@
-import { ASSUMED_TAPS_PER_SECOND, EFFECTS, FUNDING, MAIL, type EffectId } from './content';
+import { ASSUMED_TAPS_PER_SECOND, EFFECTS, FUNDING, MAIL, RIVALS, type EffectId } from './content';
 import { addDebt } from './debt';
 import { addLines, typicalOutput } from './economy';
 import { applyEffect, grantScript } from './effects';
@@ -50,7 +50,7 @@ export const STORY_MAIL: readonly MailDef[] = [
     subject: '4,812 warnings (was: 3)',
     body: [
       'This is an automated message. The codebase now contains functions that call themselves by accident.',
-      'Tech debt slows your automation once it passes 10%. Run a refactor from 0:pkgs before it gets worse.',
+      'Tech debt slows your automation once it passes 10%. Run a refactor from pkgs before it gets worse.',
       'This message will repeat until morale improves.',
     ],
     when: (s) => s.debt >= 30,
@@ -60,7 +60,7 @@ export const STORY_MAIL: readonly MailDef[] = [
     from: 'hr@ship-it',
     subject: 'headcount approved',
     body: [
-      'Good news: finance found budget for actual people. Applicants will show up in 4:team.',
+      'Good news: finance found budget for actual people. Applicants will show up in co/team.',
       'Each developer has one thing they are unusually good at. Put them there.',
       'Please stop listing the rubber duck as a reference.',
     ],
@@ -88,6 +88,27 @@ export const STORY_MAIL: readonly MailDef[] = [
     when: (s) => s.stats.bossesBeaten >= 1,
   },
   {
+    id: 'qa',
+    from: 'qa@ship-it',
+    subject: 'we have tests now (some)',
+    body: [
+      'Good news: the test runner works. Bad news: it found things.',
+      'In work/tests you can send part of what we write to tests instead. It costs lines now, but covered code lets fewer bugs escape, slows the debt and gets us better reviews.',
+      'Reviews bring users. Users bring everything else.',
+    ],
+    when: (s) => s.unlocked.tests,
+  },
+  {
+    id: 'issues',
+    from: 'support@ship-it',
+    subject: 'users have opinions',
+    body: [
+      'We have enough users now that some of them write to us. A lot of them. About one every five minutes.',
+      'They pile up in co/issues and wait for you, an hour or so of them at most. Closing them is one click: bug reports pay, feature requests make the next release look better, support questions keep people around.',
+    ],
+    when: (s) => s.unlocked.issues,
+  },
+  {
     id: 'dave',
     from: 'unknown sender',
     subject: '(no subject)',
@@ -100,7 +121,7 @@ export const STORY_MAIL: readonly MailDef[] = [
     subject: 'loved the repo, quick call?',
     body: [
       'We have been watching your star count. It is going up and to the right, which is the direction we like.',
-      'When you have enough stars, the ship tab will let you raise a round. Fair warning: the new CTO will want to rewrite everything in another language.',
+      'When you have enough stars, ship/round will let you raise. Fair warning: every round comes with a rewrite. You get to pick the language, and each one plays by its own rules.',
     ],
     when: (s) => s.round < FUNDING.maxRounds && s.stars >= FUNDING.starsPerRound[s.round] * 0.6,
   },
@@ -110,8 +131,8 @@ export const STORY_MAIL: readonly MailDef[] = [
     subject: 'the rewrite',
     body: [
       'Hello team. I am the new CTO. I have read the codebase and I have notes.',
-      'We are starting over in a better language. Stars and dotfiles are gone, but everything you write now counts for far more, and there are new packages nobody could afford before.',
-      'Also, who is Dave, and why does he still have commit access?',
+      'We are starting over in the language you picked. Stars and dotfiles are gone, but everything you write now counts for far more, and there are new packages nobody could afford before.',
+      'Every round from here is another rewrite, and another choice of stack. Also, who is Dave, and why does he still have commit access?',
     ],
     when: (s) => s.round >= 1,
   },
@@ -121,6 +142,136 @@ export const STORY_MAIL: readonly MailDef[] = [
     subject: 'quack',
     body: ['Quack.', '(Attached: a 40-page architecture document. It is correct. It predates the company.)'],
     when: (s) => (s.owned.duck ?? 0) >= 50 || s.round >= 2,
+  },
+  {
+    // For a run that began before stacks had rules (saves from before v0.6): its language keeps going, now with rules.
+    id: 'stacks',
+    from: 'cto@ship-it',
+    subject: 'the language matters now',
+    body: [
+      'Small process change: every language we write in now plays by its own rules. Some type faster, some automate better, some keep the debt down.',
+      'You will pick the language at every funding round and every major version from now on. The rules are on ship/round, next to the raise button.',
+    ],
+    when: (s) => s.round >= 1 && s.stacksUsed.length === 1 && s.stack !== 'ts',
+  },
+  {
+    id: 'seriesa',
+    from: 'board@ship-it',
+    subject: 'Series A: a few asks',
+    body: [
+      'Congratulations on the round. The board has a few small asks: a roadmap, a growth plan, and a slide that explains what the product does.',
+      'We read the slide. We still do not know what the product does. Keep shipping.',
+    ],
+    when: (s) => s.round >= 2,
+  },
+  {
+    id: 'seriesb',
+    from: 'cto@ship-it',
+    subject: 'time for a v1.0',
+    body: [
+      'We are big enough that "0.x" makes customers nervous. Ship/major can cut a real major version now.',
+      'It banks every star for xp, and xp makes every star after it worth more. Funding and equity stay. It is the reset that never runs out, and each one is a rewrite in whatever stack you like.',
+    ],
+    when: (s) => s.round >= 3,
+  },
+  {
+    id: 'firstmajor',
+    from: 'cto@ship-it',
+    subject: 're: v1.0',
+    body: [
+      'v1.0 is out. Two things came with it. First: someone convinced the team to try Haskell. It is now on the list of stacks.',
+      'Second: challenge releases. Restart a release with one hand tied behind your back and ship it anyway. Each one pays forever, and the first clear automates something you have been doing by hand.',
+    ],
+    when: (s) => s.stats.majors >= 1,
+  },
+  {
+    id: 'dave2',
+    from: 'unknown sender',
+    subject: 're: (no subject)',
+    body: ['the legacy folder came with you to v1.0.', 'it always does. it was there before the first commit.', '- D'],
+    when: (s) => s.stats.majors >= 1 && s.mailSeen.includes('firstmajor'),
+  },
+  {
+    id: 'automation',
+    from: 'intern@ship-it',
+    subject: 'i automated you',
+    body: [
+      'Hi! I watched you clear that challenge and wrote a workflow that does the boring part for you. It is in ship/auto. You can switch it off if it gets weird.',
+      'Each challenge can be cleared five times. It asks for more each time, and the reward grows. I am told this is called "career development".',
+    ],
+    when: (s) => s.stats.challenges >= 1,
+  },
+  {
+    id: 'seriesc',
+    from: 'ceo@ship-it',
+    subject: 'bankers in the lobby',
+    body: [
+      'There are people in very good suits in the lobby. They say the next round is not a round. It is the bell.',
+      'One more push and we go public. I have already bought the vest.',
+    ],
+    when: (s) => s.round >= 4,
+  },
+  {
+    id: 'ipo',
+    from: 'ceo@ship-it',
+    subject: 'WE RANG THE BELL',
+    body: [
+      'We are a public company. I would like to thank the team, the investors, and Dave, wherever he is.',
+      'The board now measures us in quarters: twenty minutes of play each. Beat the guidance and the stock goes up and so does everything we write. Miss it and the stock dips, that is all.',
+      'Cash from users buys rivals off the chart (co/market). The board calls this "inorganic growth". I call it shopping.',
+    ],
+    when: (s) => s.corp.ipoAt > 0,
+  },
+  {
+    id: 'firstbeat',
+    from: 'cfo@ship-it',
+    subject: 'Q1: we beat',
+    body: [
+      'Revenue came in above guidance. The stock is up. The analysts used the word "momentum", twice.',
+      'The board has raised next quarter\'s guidance to match. Every beat in a row raises it a little more. This is apparently what winning looks like.',
+    ],
+    when: (s) => s.corp.beats >= 1,
+  },
+  {
+    id: 'firstmiss',
+    from: 'cfo@ship-it',
+    subject: 'about the quarter',
+    body: [
+      'We missed guidance. The stock dipped. Nobody has been fired, yet.',
+      'The board has reset expectations to "a bit more than last time". A good release or two will fix it. So would buying someone.',
+    ],
+    when: (s) => s.corp.reports.some((r) => !r.beat),
+  },
+  {
+    id: 'acquired',
+    from: 'legal@ship-it',
+    subject: 'we own a company now',
+    body: [
+      'The acquisition closed. Their users are our users, their office is our office, and their codebase is our problem.',
+      'Each company we buy adds to everything we write and still counts as behind us in the chart. The next one will cost more. They always do.',
+    ],
+    when: (s) => s.stats.acquisitions >= 1,
+  },
+  {
+    id: 'cobol',
+    from: 'mainframe@legacy-systems.example',
+    subject: 'IEFBR14 COMPLETED',
+    body: [
+      'GREETINGS NEW OWNER. THIS MAINFRAME HAS RUN WITHOUT INTERRUPTION SINCE 1987.',
+      'COBOL IS NOW AVAILABLE AS A STACK. IT IS SLOW TO TYPE AND IT NEVER STOPS. YOUR USERS WILL NOT NOTICE IT IS THERE. THEY NEVER DO.',
+    ],
+    when: (s) => s.market.acquired.includes('legacy'),
+  },
+  {
+    id: 'monopoly',
+    from: 'unknown sender',
+    subject: 'no one left',
+    body: [
+      'you bought all of them. there is nobody left in the chart but you.',
+      'the board still wants next quarter to be bigger than this one. it always will. that part never ends.',
+      'the build is green. you are doing fine. quack. - D',
+    ],
+    when: (s) => s.market.acquired.length >= RIVALS.length,
   },
 ];
 

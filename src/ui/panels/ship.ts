@@ -1,17 +1,20 @@
-import { AUTOMATION, COMPANY_PERKS, FUNDING, LANGUAGES, MAJOR, PERKS, ROUNDS, SHIP, WORKFLOWS, type PerkBranch, type ProjectId } from '../../core/content';
+import { AUTOMATION, CHALLENGES, COMPANY_PERKS, CORP, FUNDING, MAJOR, PERKS, ROUNDS, SHIP, STACKS, WORKFLOWS, type LanguageId, type PerkBranch, type ProjectId } from '../../core/content';
+import { corpMultiplier, quarterLeft, quarterProjection, quarterRunRate } from '../../core/corp';
+import { coverage } from '../../core/coverage';
 import { companyLevel, projectOf, starBonus } from '../../core/economy';
 import { canRaise, companyPerkCost, companyPerkStatus, equityAvailable, equityFor, roundName, starsForNextRound } from '../../core/funding';
 import type { Game } from '../../core/game';
 import { findChallenge, majorsUnlocked, starsForNextXp, xpAvailable } from '../../core/major';
-import { fmt, fmtMul } from '../../core/num';
+import { clock, fmt, fmtMoney, fmtMul } from '../../core/num';
 import { perkCost, perkLevel, perkStatus, spendableStars } from '../../core/perks';
 import { milestoneBonus } from '../../core/quests';
 import { linesForStars, nextProjects, nextVersion, shipGain, starsAvailable, starsPerMinute } from '../../core/ship';
 import type { GameState } from '../../core/state';
-import { releasesShipped, workflowOn } from '../../core/workflows';
+import { releasesShipped, workflowOn, workflowUnlocked } from '../../core/workflows';
 import { esc, setHtml, setText } from '../dom';
 import { hl, tint } from '../hl';
 import { fundingVisible, nextStarProgress } from '../nav';
+import { pickedStack, stackPicker } from './stack';
 
 /** What the release panel remembers between renders: the project picked for the next release, and the armed merge button. */
 export interface ShipView {
@@ -83,6 +86,7 @@ export function renderShip(game: Game, view: ShipView): string {
         ${cssBar('data-run-bar', 'star')}
         <div class="chk"><span>★ per minute</span><b data-rate></b></div>
         <div class="chk"><span>checks</span><b data-ready></b></div>
+        ${s.unlocked.tests ? `<div class="chk"><span>tests</span><b data-cov></b></div>` : ''}
         ${s.challenge ? `<div class="chk"><span>challenge/${findChallenge(s.challenge.id).branch}</span><b data-chal></b></div>` : ''}
       </div>
       <div class="diff">
@@ -115,6 +119,10 @@ export function refreshShip(game: Game, root: HTMLElement, view: ShipView): void
   const timed = s.releaseStartedAt >= 0;
   setHtml(root.querySelector('[data-rate]'), stars >= 1 && timed ? `${tint('star', starRate(rate))} now · best ${tint('star', starRate(Math.max(rate, s.releasePeak)))}` : `<span class="cm">${timed ? '—' : '— from your next release'}</span>`);
   setHtml(root.querySelector('[data-ready]'), readyText(s, stars));
+  if (s.unlocked.tests) {
+    const cov = coverage(s);
+    setHtml(root.querySelector('[data-cov]'), cov > 0 ? `${tint('loc', `${Math.round(cov * 100)}% coverage`)} · ${tint('star', `+${cov.toFixed(2)}★`)} review` : `<span class="cm">no tests · set a budget in work/tests</span>`);
+  }
   if (s.challenge) {
     const met = s.thisRelease.gte(s.challenge.goal);
     setHtml(root.querySelector('[data-chal]'), met ? `<span class="ok">✓</span> goal met: ship for ${hl(findChallenge(s.challenge.id).reward)}` : `goal ${tint('loc', fmt(s.challenge.goal))} lines (${Math.floor(s.thisRelease.div(s.challenge.goal).toNumber() * 100)}%)`);
@@ -132,10 +140,10 @@ export function refreshShip(game: Game, root: HTMLElement, view: ShipView): void
     setHtml(
       round,
       s.round >= FUNDING.maxRounds
-        ? '<span class="cm">public · only quarters to beat</span>'
+        ? `<span>Q${s.corp.quarter} · ${tint('time', clock(quarterLeft(s)))} left · ${quarterProjection(s) >= s.corp.guidance ? '<span class="ok">on pace</span>' : '<span class="cm">behind</span>'}</span>`
         : `${cssBar('', 'star')}<span>${canRaise(s) ? `<span class="ok">✓</span> ${roundName(s.round + 1).toLowerCase()} ready` : `${roundName(s.round + 1).toLowerCase()} at ${fmt(needed)}★ · ${fmt(s.stars)}`}</span>`,
     );
-    setBar(round.querySelector('.cbar i'), s.stars / needed);
+    if (s.round < FUNDING.maxRounds) setBar(round.querySelector('.cbar i'), s.stars / needed);
   }
   const major = root.querySelector('[data-sum-major]');
   if (major) {
@@ -160,7 +168,7 @@ export function refreshShip(game: Game, root: HTMLElement, view: ShipView): void
 
 /** Changes when the release panel's layout (not just its numbers) needs rebuilding. */
 export const shipKey = (game: Game): string =>
-  `${nextProjects(game.state).length}|${game.state.round}|${game.state.release}|${game.state.major}|${!!game.state.challenge}|${game.state.project}`;
+  `${nextProjects(game.state).length}|${game.state.round}|${game.state.release}|${game.state.major}|${!!game.state.challenge}|${game.state.project}|${game.state.unlocked.tests}`;
 
 /* ---------- dotfiles ---------- */
 
@@ -220,39 +228,82 @@ export function renderAuto(game: Game): string {
   const shipped = releasesShipped(s);
   const on = WORKFLOWS.filter((w) => workflowOn(s, w.id)).length;
   const rows = WORKFLOWS.map((w) => {
-    const open = shipped >= w.releases;
+    const open = workflowUnlocked(s, w.id);
     const active = workflowOn(s, w.id);
-    const trigger =
-      w.id === 'release' && open
-        ? `<div class="row2 wfopt"><span class="lbl">ship at stars</span>${AUTOMATION.shipAtOptions
-            .map((f) => `<button class="chip2" data-autoship="${f}" aria-pressed="${s.autoShipAt === f}">${s.autoShipAt === f ? '(•)' : '( )'} +${Math.round(f * 100)}%</button>`)
-            .join('')}</div>`
-        : '';
-    return `<button class="opt" data-workflow="${w.id}" aria-pressed="${active}"${open ? '' : ' disabled'}><span class="box">[${active ? 'x' : ' '}]</span> <span class="h h-name">${w.file}</span> <small>${open ? hl(w.summary) : `unlocks after ${w.releases} releases (${shipped} so far)`}</small></button>${trigger}`;
+    let trigger = '';
+    if (w.id === 'release' && open)
+      trigger = `<div class="row2 wfopt"><span class="lbl">ship at stars</span>${AUTOMATION.shipAtOptions
+        .map((f) => `<button class="chip2" data-autoship="${f}" aria-pressed="${s.autoShipAt === f}">${s.autoShipAt === f ? '(•)' : '( )'} +${Math.round(f * 100)}%</button>`)
+        .join('')}</div>`;
+    if (w.id === 'forks' && open)
+      trigger = `<div class="row2 wfopt"><span class="lbl">pick</span>${(
+        [
+          ['alt', 'plugin or lts'],
+          ['major', 'major rewrite'],
+        ] as const
+      )
+        .map(([p, label]) => `<button class="chip2" data-forkpolicy="${p}" aria-pressed="${s.forkPolicy === p}">${s.forkPolicy === p ? '(•)' : '( )'} ${label}</button>`)
+        .join('')}</div>`;
+    const challenge = w.challenge ? CHALLENGES.find((c) => c.id === w.challenge) : undefined;
+    const locked = challenge ? `unlocks when you clear challenge/${challenge.branch}` : `unlocks after ${w.releases} releases (${shipped} so far)`;
+    return `<button class="opt" data-workflow="${w.id}" aria-pressed="${active}"${open ? '' : ' disabled'}><span class="box">[${active ? 'x' : ' '}]</span> <span class="h h-name">${w.file}</span> <small>${open ? hl(w.summary) : locked}</small></button>${trigger}`;
   });
   return `<div class="cmd"><span><span class="ps">$</span> ls .github/workflows</span><span class="aside">${on} of ${WORKFLOWS.length} on</span></div><div class="opts wfs">${rows.join('')}</div>`;
 }
 
-export const autoKey = (game: Game): string => `${releasesShipped(game.state)}|${WORKFLOWS.map((w) => +workflowOn(game.state, w.id)).join('')}|${game.state.autoShipAt}`;
+export const autoKey = (game: Game): string =>
+  `${releasesShipped(game.state)}|${WORKFLOWS.map((w) => `${+workflowUnlocked(game.state, w.id)}${+workflowOn(game.state, w.id)}`).join('')}|${game.state.autoShipAt}|${game.state.forkPolicy}`;
 
-export const autoHelp = (): string => hl('workflows are automation earned by shipping releases. each one can be switched off here. bugs and coffee are left to you and the team.');
+export const autoHelp = (): string =>
+  hl('workflows are automation earned by shipping releases, and by clearing each challenge release once (they open with your first major version). each one can be switched off here. bugs and coffee are left to you and the team.');
 
 /* ---------- round: funding and the cap table ---------- */
 
-export function renderRound(game: Game): string {
+const stackName = (id: LanguageId): string => STACKS.find((x) => x.id === id)?.name ?? id;
+
+/** After the IPO: the quarter in progress, the stock and the last few reports. */
+function earnings(game: Game): string {
+  const s = game.state;
+  const c = s.corp;
+  const reports = c.reports.length
+    ? c.reports
+        .slice(0, 4)
+        .map((r) => {
+          const pctOff = r.guidance > 0 ? Math.round((r.revenue / r.guidance - 1) * 100) : 0;
+          return `<div class="chk"><span>Q${r.quarter} ${r.beat ? '<span class="ok">beat</span>' : '<span class="bad">miss</span>'} ${pctOff >= 0 ? '+' : ''}${pctOff}%</span><b>${fmtMoney(r.revenue)} · stock ${fmt(r.stock)}</b></div>`;
+        })
+        .join('')
+    : '<div class="chk"><span class="cm">no quarters reported yet</span></div>';
+  return `<div class="cmd"><span><span class="ps">$</span> cat ~/earnings/q${c.quarter}.md</span><span class="aside" data-q-stock></span></div><!--help-->
+    <div class="pr fund">
+      <div class="prh">
+        <div class="prt"><h3>Q${c.quarter}</h3><span class="h h-time" data-q-left></span></div>
+        <div class="chk"><span>revenue / guidance</span><b data-q-rev></b></div>
+        ${cssBar('data-q-bar', 'star')}
+        <div class="chk"><span>on pace for</span><b data-q-pace></b></div>
+        <div class="chk"><span>run rate</span><b data-q-rate></b></div>
+        <div class="rules">${hl(`beat: the stock rises and +${Math.round(CORP.beatBonus * 100)}% output for good · miss: the stock falls · every beat in a row raises the bar`)}</div>
+      </div>
+    </div>
+    <div class="mkt"><span class="k">cash</span><span data-q-cash></span><span class="k">beats</span><span data-q-beats></span></div>
+    <div class="grp"># last quarters</div>${reports}`;
+}
+
+export function renderRound(game: Game, stack: LanguageId | null = null): string {
   const s = game.state;
   const public_ = s.round >= FUNDING.maxRounds;
-  const nextLanguage = LANGUAGES[(s.round + 1) % LANGUAGES.length].name;
-  let html = `<div class="cmd"><span><span class="ps">$</span> cat ~/cap-table.md</span><span class="aside">${roundName(s.round).toLowerCase()}</span></div>`;
+  let html = '';
   html += public_
-    ? `<p class="caveat">${hl('# the company is public. there are no more rounds to raise: only quarters to beat.')}</p>`
-    : `<div class="pr fund">
+    ? earnings(game)
+    : `<div class="cmd"><span><span class="ps">$</span> cat ~/cap-table.md</span><span class="aside">${roundName(s.round).toLowerCase()}</span></div>
+    <div class="pr fund">
       <div class="prh">
         <h3>${roundName(s.round + 1)} round</h3>
         <div class="chk"><span>stars since the last round</span><b data-fund-text></b></div>
         ${cssBar('data-fund-bar', 'star')}
-        <div class="rules">${hl(`x${FUNDING.outputPerRound} output for good · equity · new packages · a rewrite in ${nextLanguage}`)}</div>
+        <div class="rules">${hl(`x${FUNDING.outputPerRound} output for good · equity · new packages · a rewrite in the stack you pick`)}</div>
       </div>
+      ${stackPicker(s, stack, 'the rewrite is in')}
       <button class="shipbtn" data-raise></button>
     </div>`;
   if (s.round > 0 || s.equity > 0 || fundingVisible(s)) {
@@ -266,15 +317,20 @@ export function renderRound(game: Game): string {
   return html;
 }
 
-export const roundKey = (game: Game): string => `${game.state.round}|${fundingVisible(game.state)}`;
+export const roundKey = (game: Game): string => `${game.state.round}|${fundingVisible(game.state)}|${game.state.corp.quarter}|${game.state.corp.reports.length}`;
 
 export const roundHelp = (game: Game): string =>
-  hl(
-    `a round resets stars, dotfiles, releases and packages. you keep the team, achievements, TODO bonuses and scripts, and get x${FUNDING.outputPerRound} output for good, equity for company perks, new packages, and a rewrite in ${LANGUAGES[(game.state.round + 1) % LANGUAGES.length].name}. rounds go seed, series a, b, c, then the ipo.`,
-  );
+  game.state.round >= FUNDING.maxRounds
+    ? hl(
+        `every ${CORP.quarterMinutes} minutes of play is a quarter (time away doesn't run the clock, but its revenue still comes in). each user brings in $${CORP.revenuePerUser} a quarter. the board's guidance is the last quarter's revenue (or the run rate, if higher) plus ${Math.round((CORP.growth - 1) * 100)}%, and ${Math.round(CORP.streakStep * 100)}% more for every beat in a row. a beat raises the stock and adds ${Math.round(CORP.beatBonus * 100)}% to all output for good; a miss only costs the stock. cash buys rivals in co/market, cheaper when the stock is high.`,
+      )
+    : hl(
+        `a round resets stars, dotfiles, releases and packages. you keep the team, achievements, TODO bonuses and scripts, and get x${FUNDING.outputPerRound} output for good, equity for company perks, new packages, and a rewrite in the stack you pick: each has its own rules, for the whole run. rounds go seed, series a, b, c, then the ipo.`,
+      );
 
-export function refreshRound(game: Game, root: HTMLElement, armed: boolean): void {
+export function refreshRound(game: Game, root: HTMLElement, armed: boolean, stack: LanguageId | null = null): void {
   const s = game.state;
+  if (s.round >= FUNDING.maxRounds) return refreshEarnings(game, root);
   const needed = starsForNextRound(s);
   setHtml(root.querySelector('[data-fund-text]'), `${tint('star', fmt(s.stars))} / ${tint('star', fmt(needed))}`);
   setBar(root.querySelector('[data-fund-bar]'), s.stars / needed);
@@ -286,9 +342,34 @@ export function refreshRound(game: Game, root: HTMLElement, armed: boolean): voi
     raise.classList.toggle('ready', !armed && ready);
     setText(
       raise,
-      ready ? (armed ? 'confirm: reset stars, dotfiles and releases?' : `raise the ${roundName(s.round + 1)} round → +${equityFor(s.stars)} equity`) : `needs ${fmt(needed - s.stars)} more stars`,
+      ready
+        ? armed
+          ? `confirm: reset stars, dotfiles and releases for ${stackName(pickedStack(s, stack))}?`
+          : `raise the ${roundName(s.round + 1)} round → +${equityFor(s.stars)} equity`
+        : `needs ${fmt(needed - s.stars)} more stars`,
     );
   }
+  refreshCompany(game, root);
+}
+
+function refreshEarnings(game: Game, root: HTMLElement): void {
+  const s = game.state;
+  const c = s.corp;
+  const pace = quarterProjection(s);
+  const off = c.guidance > 0 ? Math.round((pace / c.guidance - 1) * 100) : 0;
+  setHtml(root.querySelector('[data-q-stock]'), `stock ${tint('star', fmt(c.stock))}`);
+  setText(root.querySelector('[data-q-left]'), `${clock(quarterLeft(s))} left`);
+  setHtml(root.querySelector('[data-q-rev]'), `${tint('star', fmtMoney(c.revenue))} / ${fmtMoney(c.guidance)}`);
+  setBar(root.querySelector('[data-q-bar]'), c.guidance > 0 ? c.revenue / c.guidance : 0);
+  setHtml(root.querySelector('[data-q-pace]'), `${fmtMoney(pace)} ${off >= 0 ? `<span class="ok">beat by ${off}%</span>` : `<span class="bad">miss by ${-off}%</span>`}`);
+  setHtml(root.querySelector('[data-q-rate]'), `${fmtMoney(quarterRunRate(s))} a quarter <span class="cm">· ${fmt(s.market.users)} users × $${CORP.revenuePerUser}</span>`);
+  setHtml(root.querySelector('[data-q-cash]'), `${tint('star', fmtMoney(c.cash))} <span class="cm">· buys rivals in co/market</span>`);
+  setHtml(root.querySelector('[data-q-beats]'), `${fmt(c.beats)} · ${c.streak} in a row · output x${fmtMul(corpMultiplier(s))} <span class="cm">with acquisitions</span>`);
+  refreshCompany(game, root);
+}
+
+function refreshCompany(game: Game, root: HTMLElement): void {
+  const s = game.state;
   setText(root.querySelector('[data-equity]'), String(equityAvailable(s)));
   for (const p of COMPANY_PERKS) {
     const row = root.querySelector<HTMLElement>(`[data-co="${p.id}"]`);

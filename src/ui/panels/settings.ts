@@ -71,6 +71,7 @@ export function renderSettings(game: Game, view: SettingsView): string {
       ${dev('incident', 'coffee', ' data-kind="coffee"')}${dev('incident', 'outage', ' data-kind="outage"')}${dev('incident', 'conflict', ' data-kind="conflict"')}
       ${dev('sprint', 'finish sprint')}${dev('scripts', '+1 every script')}${dev('quests', 'complete tasks')}
       ${dev('debt', '+30 debt')}${dev('applicant', 'new applicant')}${dev('boss', 'boss incident')}${dev('mail', 'send mail')}
+      ${dev('issues', 'file issues')}${dev('quarter', 'end quarter')}${dev('cash', 'cash x10')}
       ${dev('unlock', 'unlock tabs')}${dev('warp', '+1h away')}${dev('off', 'dev mode off')}
     </div></div>`;
   }

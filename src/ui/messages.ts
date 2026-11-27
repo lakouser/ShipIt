@@ -1,9 +1,9 @@
-import { BOSSES, DEBT, EFFECTS, FUNDING, LANGUAGES, MARKET, MILESTONE, ROLES, TRAITS, packageName, type EffectId, type ForkDef, type UpgradeKind } from '../core/content';
+import { BOSSES, CHALLENGE, CORP, DEBT, EFFECTS, FUNDING, MARKET, MILESTONE, ROLES, STACKS, TRAITS, packageName, type EffectId, type ForkDef, type LanguageId, type UpgradeKind } from '../core/content';
 import { starBonus } from '../core/economy';
 import type { GameEvent } from '../core/game';
 import { mailDef } from '../core/mail';
 import { findChallenge } from '../core/major';
-import { clock, fmt, fmtDuration, fmtMul } from '../core/num';
+import { clock, fmt, fmtDuration, fmtMul, fmtMoney } from '../core/num';
 import { questText } from '../core/quests';
 import type { ShipResult } from '../core/ship';
 import type { QuestReward, SprintResult } from '../core/state';
@@ -29,10 +29,19 @@ export function rewardText(r: QuestReward): string {
   return { tap: `+${pct}% per tap`, auto: `+${pct}% automation`, bug: `+${pct}% bug rewards`, sprint: `+${pct}% sprint rewards` }[r.kind];
 }
 
+export const stackName = (id: LanguageId): string => STACKS.find((x) => x.id === id)?.name ?? id;
+
 function challengeLines(c: ShipResult['challenge']): LogLine[] {
   if (!c) return [];
   const def = findChallenge(c.id);
-  return [c.done ? { kind: 'ok', text: `challenge complete: ${def.name}. ${def.reward}` } : { kind: 'info', text: `${def.name} shipped short of its goal: no reward this time` }];
+  if (!c.done) return [{ kind: 'info', text: `${def.name} shipped short of its goal: no reward this time` }];
+  const lines: LogLine[] = [
+    c.first
+      ? { kind: 'ok', text: `challenge complete: ${def.name}. ${def.reward}` }
+      : { kind: 'ok', text: `${def.name} cleared again (${c.level}/${CHALLENGE.maxLevel}): its reward grows` },
+  ];
+  if (c.record && !c.first) lines.push({ kind: 'ok', text: `new fastest clear of challenge/${def.branch}` });
+  return lines;
 }
 
 /** Turns game events into log lines printed in the editor. */
@@ -43,7 +52,7 @@ export function describe(e: GameEvent): LogLine[] {
     case 'purchase': {
       const { upgrade, count, upgradeAt } = e.purchase;
       const lines: LogLine[] = [{ kind: 'cmd', text: `npm i ${packageName(upgrade.name)}${count > 1 ? ` --count ${count}` : ''}` }];
-      if (upgradeAt) lines.push({ kind: 'info', text: `${packageName(upgrade.name)} reached ${upgradeAt} installed: pick its upgrade in 0:pkgs` });
+      if (upgradeAt) lines.push({ kind: 'info', text: `${packageName(upgrade.name)} reached ${upgradeAt} installed: pick its upgrade in pkgs` });
       return lines;
     }
     case 'perk':
@@ -64,6 +73,8 @@ export function describe(e: GameEvent): LogLine[] {
       return [{ kind: 'ok', text: `${e.auto ? 'on-call squashed' : 'squashed'} bug #${e.total}, +${fmt(e.reward)} lines` }];
     case 'bugEscaped':
       return [{ kind: 'warn', text: 'a bug slipped into production' }];
+    case 'bugCaught':
+      return [{ kind: 'ok', text: 'the test suite caught a bug before it reached production' }];
     case 'incidentSpawned':
       if (e.incident.kind === 'coffee') return [{ kind: 'info', text: 'someone brewed coffee. grab it before it goes cold' }];
       if (e.incident.kind === 'outage') return [{ kind: 'warn', text: `prod is down! tap the key ${e.incident.needed} times to hotfix` }];
@@ -83,7 +94,8 @@ export function describe(e: GameEvent): LogLine[] {
     case 'checkIn':
       return [{ kind: 'ok', text: `day ${e.checkIn.count} streak: +${fmt(e.checkIn.lines)} lines${e.checkIn.script ? ` and ${scriptFile(e.checkIn.script)}` : ''}` }];
     case 'shipped': {
-      const lines: LogLine[] = [...challengeLines(e.result.challenge), { kind: 'ok', text: `${e.auto ? 'release.yml ' : ''}shipped v${e.result.version}${e.result.seconds !== null ? ` after ${fmtDuration(e.result.seconds)}` : ''}, +${fmt(e.result.stars)} star${e.result.stars > 1 ? 's' : ''}, output x${fmtMul(starBonus(e.totalStars))}` }];
+      const cov = e.result.coverage !== null ? ` at ${Math.round(e.result.coverage * 100)}% coverage` : '';
+      const lines: LogLine[] = [...challengeLines(e.result.challenge), { kind: 'ok', text: `${e.auto ? 'release.yml ' : ''}shipped v${e.result.version}${e.result.seconds !== null ? ` after ${fmtDuration(e.result.seconds)}` : ''}${cov}, +${fmt(e.result.stars)} star${e.result.stars > 1 ? 's' : ''}, output x${fmtMul(starBonus(e.totalStars))}` }];
       if (e.result.next.id !== 'webapp' || e.result.shipped.id !== 'webapp') lines.push({ kind: 'cmd', text: `git init ~/${e.result.next.dir} (${e.result.next.rules.join(', ')})` });
       return lines;
     }
@@ -92,9 +104,9 @@ export function describe(e: GameEvent): LogLine[] {
     case 'refactored':
       return [{ kind: 'ok', text: `refactored: ${Math.round(e.refactor.cleared)}% tech debt cleared for ${fmt(e.refactor.cost)} lines` }];
     case 'debtHigh':
-      return [{ kind: 'warn', text: `tech debt passed ${DEBT.warnAt}%: automation is slowing down. refactor from 0:pkgs` }];
+      return [{ kind: 'warn', text: `tech debt passed ${DEBT.warnAt}%: automation is slowing down. refactor from pkgs` }];
     case 'applicant':
-      return [{ kind: 'info', text: `${e.dev.name} (${TRAITS[e.dev.trait].label}) applied to join the team: see 4:team` }];
+      return [{ kind: 'info', text: `${e.dev.name} (${TRAITS[e.dev.trait].label}) applied to join the team: see co/team` }];
     case 'hired':
       return [{ kind: 'ok', text: `${e.dev.name} joined the team for ${fmt(e.cost)} lines` }];
     case 'assigned':
@@ -119,9 +131,12 @@ export function describe(e: GameEvent): LogLine[] {
     case 'promoted':
       return [{ kind: 'ok', text: `promoted to ${e.title}` }];
     case 'workflowUnlocked':
-      return [{ kind: 'ok', text: `new workflow: .github/workflows/${e.workflow.file} (${e.workflow.summary}). switch it off in 3:ship` }];
+      return [{ kind: 'ok', text: `new workflow: .github/workflows/${e.workflow.file} (${e.workflow.summary}). switch it off in ship/auto` }];
     case 'majorCut':
-      return [{ kind: 'ok', text: `cut v${e.result.version}: ${fmt(e.result.starsBanked)} stars banked for +${fmt(e.result.xp)} xp` }];
+      return [
+        { kind: 'ok', text: `cut v${e.result.version}: ${fmt(e.result.starsBanked)} stars banked for +${fmt(e.result.xp)} xp` },
+        { kind: 'cmd', text: `git init --lang ${stackName(e.result.stack).toLowerCase()} (v${e.result.version} is written in ${stackName(e.result.stack)})` },
+      ];
     case 'skill':
       return [{ kind: 'cmd', text: `echo "${e.skill.name} (level ${e.level})" >> ~/resume.md` }];
     case 'challengeStarted':
@@ -147,18 +162,45 @@ export function describe(e: GameEvent): LogLine[] {
     case 'raised':
       return [
         { kind: 'ok', text: `${e.result.name} round closed: x${FUNDING.outputPerRound} output for good, +${e.result.equity} equity` },
-        { kind: 'cmd', text: `git init --lang ${LANGUAGES[e.result.round % LANGUAGES.length].name.toLowerCase()} (the rewrite begins)` },
+        { kind: 'cmd', text: `git init --lang ${stackName(e.result.stack).toLowerCase()} (${e.result.ipo ? 'the company is public' : 'the rewrite begins'})` },
       ];
     case 'companyPerk':
       return [{ kind: 'cmd', text: `board approve ${e.perk.name} --level ${e.level}` }];
     case 'mail': {
       const def = mailDef(e.item.id);
-      return def ? [{ kind: 'info', text: `new mail from ${def.from}: "${def.subject}" (5:mail)` }] : [];
+      return def ? [{ kind: 'info', text: `new mail from ${def.from}: "${def.subject}" (co/mail)` }] : [];
     }
     case 'mailAnswered':
       return [{ kind: 'cmd', text: `reply "${e.answer.option.label}" (${e.answer.outcome})` }];
     case 'offline':
       return [{ kind: 'info', text: `while you were away your team wrote ${fmt(e.lines)} lines` }];
+    case 'issuesFiled':
+      return e.kinds.length > 1 ? [{ kind: 'info', text: `users filed ${e.kinds.length} issues: co/issues` }] : [];
+    case 'triaged': {
+      const t = e.triage;
+      const parts = [`+${fmt(t.lines)} lines`];
+      if (t.debt) parts.push(`${t.debt} tech debt`);
+      if (t.review > 0) parts.push(`+${t.review.toFixed(1)}★ on the next review`);
+      if (t.users >= 1) parts.push(`+${fmt(t.users)} users`);
+      return [{ kind: e.auto ? 'info' : 'ok', text: `${e.auto ? 'triage.yml ' : ''}closed ${t.closed} issue${t.closed === 1 ? '' : 's'}: ${parts.join(', ')}` }];
+    }
+    case 'quarter': {
+      const r = e.report;
+      const surprise = r.guidance > 0 ? Math.round((r.revenue / r.guidance - 1) * 100) : 0;
+      return [
+        r.beat
+          ? { kind: 'ok', text: `Q${r.quarter}: ${fmtMoney(r.revenue)} revenue, beat guidance by ${surprise}%. stock ${fmt(r.stock)}, +${Math.round(CORP.beatBonus * 100)}% output for good` }
+          : { kind: 'warn', text: `Q${r.quarter}: ${fmtMoney(r.revenue)} revenue, missed guidance by ${-surprise}%. stock ${fmt(r.stock)}` },
+        { kind: 'info', text: `${e.headline.outlet}: ${e.headline.text}` },
+      ];
+    }
+    case 'acquired':
+      return [
+        { kind: 'ok', text: `acquired ${e.acquisition.rival.name} for ${fmtMoney(e.acquisition.price)}: +${fmt(e.acquisition.users)} users` },
+        { kind: 'info', text: `${e.headline.outlet}: ${e.headline.text}` },
+      ];
+    case 'autoForked':
+      return [];
     default:
       return [];
   }

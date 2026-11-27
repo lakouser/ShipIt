@@ -7,7 +7,6 @@ import {
   FORKS,
   forkChoices,
   FUNDING,
-  LANGUAGES,
   PERK_VALUES,
   PROJECTS,
   SHIP,
@@ -16,15 +15,16 @@ import {
   UPGRADES,
   type ForkDef,
   type ForkId,
-  type LanguageId,
   type ProjectDef,
   type RoleId,
+  type StackDef,
   type UpgradeDef,
   type UpgradeKind,
 } from './content';
+import { corpMultiplier } from './corp';
 import { effectProduct, effectSum } from './effects';
 import { chartMultiplier } from './market';
-import { mods } from './mods';
+import { mods, stackOf } from './mods';
 import { D, Decimal } from './num';
 import { perkEffect } from './perks';
 import type { Developer, GameState } from './state';
@@ -77,8 +77,8 @@ export const isUpgradeAvailable = (s: GameState, u: UpgradeDef): boolean => (u.m
 /** Each funding round raised multiplies all output. */
 export const roundMultiplier = (s: GameState): number => FUNDING.outputPerRound ** s.round;
 
-/** The language the editor writes, which changes with each round. */
-export const language = (s: GameState): { id: LanguageId; name: string } => LANGUAGES[s.round % LANGUAGES.length];
+/** The language the editor writes: this run's stack. */
+export const language = (s: GameState): StackDef => stackOf(s);
 
 /** devrel: bigger bug, incident and boss rewards. */
 export const devrelMultiplier = (s: GameState): number => 1 + COMPANY_VALUES.devrelReward * companyLevel(s, 'devrel');
@@ -119,12 +119,13 @@ export function chooseFork(s: GameState, id: string, fork: ForkId): { upgrade: U
 /** Output multiplier from stars: each one held adds SHIP.bonusPerStar, spent or not. */
 export const starBonus = (stars: number): number => 1 + SHIP.bonusPerStar * stars;
 
-/** Stars, .zshrc, skills, the chart, achievements, funding and coffee: applies to everything the player writes. */
+/** Stars, .zshrc, skills, the chart, the public company, achievements, funding and coffee: applies to everything the player writes. */
 export function globalMultiplier(s: GameState, now: number): Decimal {
   return D(starBonus(s.stars))
     .mul(PERK_VALUES.zshrcMul ** perkEffect(s, 'zshrc'))
     .mul(mods(s).allMul)
     .mul(chartMultiplier(s, now))
+    .mul(corpMultiplier(s))
     .mul(1 + ACHIEVEMENT_BONUS * s.achievements.length)
     .mul(roundMultiplier(s))
     .mul(effectProduct(s, 'allMul', now));

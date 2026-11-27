@@ -42,6 +42,9 @@ export function fmtMul(value: number): string {
   return value < 100 ? String(Math.round(value * 100) / 100) : fmt(value);
 }
 
+/** Money: "$950", "$1.23M". */
+export const fmtMoney = (value: number): string => `$${fmt(Math.max(0, value))}`;
+
 /** Durations for logs: "45s", "38m", "2h 5m". */
 export function fmtDuration(seconds: number): string {
   const s = Math.max(0, Math.round(seconds));

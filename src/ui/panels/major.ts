@@ -1,6 +1,8 @@
-import { CHALLENGES, MAJOR, ROUNDS, SKILLS } from '../../core/content';
+import { CHALLENGE, CHALLENGES, MAJOR, ROUNDS, SKILLS, STACKS, type LanguageId } from '../../core/content';
 import type { Game } from '../../core/game';
 import {
+  challengeGoal,
+  challengeOpen,
   challengeReady,
   challengesUnlocked,
   linesForChallenges,
@@ -15,12 +17,14 @@ import {
   xpForStars,
   xpToSpend,
 } from '../../core/major';
-import { mods, skillLevel } from '../../core/mods';
-import { fmt, fmtMul } from '../../core/num';
+import { challengeLevel, challengeReward, mods, skillLevel } from '../../core/mods';
+import { fmt, fmtDuration, fmtMul } from '../../core/num';
+import { workflowForChallenge } from '../../core/workflows';
 import { currentVersion, starsAvailable } from '../../core/ship';
 import { setHtml, setText } from '../dom';
 import { hl, tint } from '../hl';
 import { barHtml } from '../messages';
+import { pickedStack, stackPicker } from './stack';
 
 /** Star gain multiplier from XP and skills with this much XP (before projects, brand and challenge rewards). */
 const gainWithXp = (game: Game, xp: number): number => (mods(game.state).starGain / (1 + MAJOR.starGainPerXp * game.state.xp)) * (1 + MAJOR.starGainPerXp * xp);
@@ -37,31 +41,54 @@ function resume(game: Game): string {
     <div class="md"><div class="mdh">## skills <span class="cm">kept forever</span></div>${rows}</div>`;
 }
 
+/** What clearing a challenge again adds, in words: "automation x1.5 → x1.63". */
+function nextReward(c: (typeof CHALLENGES)[number], level: number): string {
+  const now = challengeReward(c, level);
+  const next = challengeReward(c, level + 1);
+  const keys = ['tapMul', 'autoMul', 'costMul', 'sprintReward', 'bugReward', 'starGain'] as const;
+  const names: Record<(typeof keys)[number], string> = { tapMul: 'per tap', autoMul: 'automation', costMul: 'package prices', sprintReward: 'sprints', bugReward: 'bugs', starGain: 'stars from shipping' };
+  return keys
+    .filter((k) => now[k] !== undefined && now[k] !== next[k])
+    .map((k) => `${names[k]} x${fmtMul(now[k]!)} → x${fmtMul(next[k]!)}`)
+    .join(', ');
+}
+
 function challengeList(game: Game, armed: string | null): string {
   const s = game.state;
-  const head = `<div class="cmd gap"><span><span class="ps">$</span> git branch --list 'challenge/*'</span><span class="aside">${s.challengesDone.length} of ${CHALLENGES.length} done</span></div>`;
-  if (!challengesUnlocked(s)) return `${head}<p class="caveat"># challenge releases unlock with your first major version: restart a release under a restriction for a permanent reward.</p>`;
+  const cleared = CHALLENGES.filter((c) => challengeLevel(s, c.id) > 0).length;
+  const head = `<div class="cmd gap"><span><span class="ps">$</span> git branch --list 'challenge/*'</span><span class="aside">${cleared} of ${CHALLENGES.length} cleared</span></div>`;
+  if (!challengesUnlocked(s)) return `${head}<p class="caveat"># challenge releases unlock with your first major version: restart a release under a restriction for a permanent reward and a workflow.</p>`;
   const rows = CHALLENGES.map((c) => {
-    const done = s.challengesDone.includes(c.id);
+    const level = challengeLevel(s, c.id);
+    const maxed = !challengeOpen(s, c.id);
     const active = s.challenge?.id === c.id;
+    const best = s.challengeBest[c.id];
+    const wf = workflowForChallenge(c.id);
     let action = '';
     if (active) action = `<button class="act" data-abandon>abandon</button>`;
-    else if (!done && !s.challenge && challengeReady(s))
-      action = `<button class="act${armed === `challenge:${c.id}` ? ' danger' : ''}" data-challenge="${c.id}">${armed === `challenge:${c.id}` ? 'restart this release?' : 'start'}</button>`;
-    const status = done ? ' <span class="okc">done</span>' : active ? ' <span class="h h-time">in progress</span>' : '';
-    return `<div class="chal${done ? ' done' : ''}">
+    else if (!maxed && !s.challenge && challengeReady(s))
+      action = `<button class="act${armed === `challenge:${c.id}` ? ' danger' : ''}" data-challenge="${c.id}">${armed === `challenge:${c.id}` ? 'restart this release?' : level ? 'again' : 'start'}</button>`;
+    const status =
+      maxed ? ' <span class="okc">done</span>'
+      : active ? ' <span class="h h-time">in progress</span>'
+      : level ? ` <span class="okc">${level}/${CHALLENGE.maxLevel}</span>`
+      : '';
+    const reward = level === 0 ? `<span class="okc">${hl(c.reward)}</span>${wf ? ` · ${hl(`unlocks ${wf.file}`)}` : ''}` : maxed ? `<span class="okc">${hl(c.reward)}, at full strength</span>` : `next clear: <span class="okc">${hl(nextReward(c, level))}</span>`;
+    const goal = !maxed && !active && challengeReady(s) ? ` · goal ${fmt(challengeGoal(s, c.id))} lines` : '';
+    return `<div class="chal${maxed ? ' done' : ''}">
       <div class="row2"><span><span class="h h-name">challenge/${c.branch}</span> ${c.name}${status}</span>${action}</div>
-      <small>${hl(c.restriction)} → <span class="okc">${hl(c.reward)}</span></small>
+      <small>${hl(c.restriction)} → ${reward}</small>
+      ${best !== undefined || goal ? `<small class="cm">${[best !== undefined ? `fastest clear ${fmtDuration(best)}` : '', goal.slice(3)].filter(Boolean).join(' · ')}</small>` : ''}
       ${active ? `<div class="tbar" data-chal-bar></div>` : ''}
     </div>`;
   }).join('');
   const note = challengeReady(s)
-    ? '# starting one restarts the current release. the goal: about twice the lines shipped so far this run, in that one release. meet it and ship for the reward; shipping short just ends it.'
+    ? `# starting one restarts the current release. the goal: about twice the lines shipped so far this run, in that one release (more for each clear). meet it and ship for the reward; shipping short just ends it. each can be cleared ${CHALLENGE.maxLevel} times.`
     : `# ship ${fmt(linesForChallenges())} lines this run to open challenges (${fmt(s.shipped)} so far): they need a codebase worth restricting.`;
-  return `${head}<p class="caveat">${note}</p><div class="chals">${rows}</div>`;
+  return `${head}<p class="caveat">${hl(note)}</p><div class="chals">${rows}</div>`;
 }
 
-export function renderMajor(game: Game, armed: string | null): string {
+export function renderMajor(game: Game, armed: string | null, stack: LanguageId | null = null): string {
   const s = game.state;
   const next = nextMajorVersion(s);
   if (!majorsUnlocked(s))
@@ -77,6 +104,7 @@ export function renderMajor(game: Game, armed: string | null): string {
         <div class="chk"><span>xp</span><b data-mj-xp></b></div>
         <div class="chk"><span>stars from shipping</span><b data-mj-gain></b></div>
       </div>
+      ${stackPicker(s, stack, `v${next} is written in`)}
       <button class="shipbtn" data-major></button>
     </div>
     ${resume(game)}
@@ -86,10 +114,12 @@ export function renderMajor(game: Game, armed: string | null): string {
 /** What the `?` in major explains. */
 export const majorHelp = (): string =>
   hl(
-    `a major version banks your stars, and the release in progress, for xp. each xp earned adds ${Math.round(MAJOR.starGainPerXp * 100)}% to stars from shipping, even after you spend it. stars, dotfiles, releases and packages reset; funding, equity, xp, skills, the team, achievements, workflows, challenge rewards and users stay. majors open with the ${ROUNDS[MAJOR.unlockRound]} round and never run out.`,
+    `a major version banks your stars, and the release in progress, for xp. each xp earned adds ${Math.round(MAJOR.starGainPerXp * 100)}% to stars from shipping, even after you spend it. stars, dotfiles, releases and packages reset; funding, equity, xp, skills, the team, achievements, workflows, challenge rewards and users stay. each major is a rewrite in the stack you pick. majors open with the ${ROUNDS[MAJOR.unlockRound]} round and never run out.`,
   );
 
-export function refreshMajor(game: Game, root: HTMLElement, armed: string | null): void {
+const stackName = (id: LanguageId): string => STACKS.find((x) => x.id === id)?.name ?? id;
+
+export function refreshMajor(game: Game, root: HTMLElement, armed: string | null, stack: LanguageId | null = null): void {
   const s = game.state;
   if (!majorsUnlocked(s)) return;
   const pending = starsAvailable(s);
@@ -134,7 +164,7 @@ export function refreshMajor(game: Game, root: HTMLElement, armed: string | null
     gain < 1
       ? `needs ${fmt(Math.max(0, target - bank))} more stars to bank`
       : isArmed
-        ? `confirm: reset stars and dotfiles for ${fmt(gain)} xp?`
+        ? `confirm: reset stars and dotfiles for ${fmt(gain)} xp, in ${stackName(pickedStack(s, stack))}?`
         : `cut v${nextMajorVersion(s)} → +${fmt(gain)} xp`,
   );
 }

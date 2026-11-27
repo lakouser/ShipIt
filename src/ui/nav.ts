@@ -1,4 +1,6 @@
-import { FUNDING, PERKS, WORKFLOWS } from '../core/content';
+import { FUNDING, ISSUES, PERKS, WORKFLOWS } from '../core/content';
+import { acquirePrice, isPublic, quarterLeft, rivalsLeft } from '../core/corp';
+import { testShare } from '../core/coverage';
 import { upgradesWithForks } from '../core/economy';
 import { canRaise, starsForNextRound } from '../core/funding';
 import type { Game, UnlockTab } from '../core/game';
@@ -17,9 +19,9 @@ export type Group = 'pkgs' | 'work' | 'ship' | 'co' | 'more';
 
 export const GROUPS: readonly { id: Group; tabs: readonly Tab[] }[] = [
   { id: 'pkgs', tabs: ['upgrades'] },
-  { id: 'work', tabs: ['sprints', 'todo'] },
+  { id: 'work', tabs: ['sprints', 'todo', 'tests'] },
   { id: 'ship', tabs: ['ship', 'dotfiles', 'auto', 'major', 'round'] },
-  { id: 'co', tabs: ['team', 'mail', 'market'] },
+  { id: 'co', tabs: ['team', 'mail', 'issues', 'market'] },
   { id: 'more', tabs: ['man', 'trophies', 'stats', 'settings'] },
 ];
 
@@ -27,6 +29,7 @@ export const TAB_LABEL: Record<Tab, string> = {
   upgrades: 'pkgs',
   sprints: 'backlog',
   todo: 'todo',
+  tests: 'tests',
   ship: 'release',
   dotfiles: 'dotfiles',
   auto: 'auto',
@@ -34,6 +37,7 @@ export const TAB_LABEL: Record<Tab, string> = {
   round: 'round',
   team: 'team',
   mail: 'mail',
+  issues: 'issues',
   market: 'market',
   man: 'man',
   trophies: 'trophies',
@@ -43,9 +47,12 @@ export const TAB_LABEL: Record<Tab, string> = {
 
 export const groupOf = (tab: Tab): Group => GROUPS.find((g) => g.tabs.includes(tab))!.id;
 
+/** A panel's label: once the company is public, the round panel reports the quarter in progress ("q5"). */
+export const tabLabel = (s: GameState, tab: Tab): string => (tab === 'round' && isPublic(s) ? `q${Math.max(1, s.corp.quarter)}` : TAB_LABEL[tab]);
+
 /** Where a newly unlocked panel lives, for the log and the notice: "work/backlog", "ship". */
 export function unlockPath(tab: UnlockTab): string {
-  const group = groupOf(tab);
+  const group = groupOf(tab as Tab);
   // The panel a window is named after (ship), or a window's only panel, is just the window.
   return group === tab || group === TAB_LABEL[tab] || GROUPS.find((g) => g.id === group)!.tabs.length === 1 ? group : `${group}/${TAB_LABEL[tab]}`;
 }
@@ -68,15 +75,17 @@ export function tabState(s: GameState, tab: Tab): TabState {
       return 'open';
     case 'sprints':
     case 'todo':
+    case 'tests':
     case 'team':
     case 'mail':
+    case 'issues':
     case 'market':
     case 'ship':
       return u[tab] ? 'open' : 'hidden';
     case 'dotfiles':
       return u.ship ? 'open' : 'hidden';
     case 'auto':
-      return releasesShipped(s) >= WORKFLOWS[0].releases ? 'open' : shipping;
+      return releasesShipped(s) >= (WORKFLOWS[0].releases ?? 0) ? 'open' : shipping;
     case 'major':
       return u.major ? 'open' : shipping;
     case 'round':
@@ -141,14 +150,20 @@ export function tabBadge(game: Game, tab: Tab, seen: Seen): Badge | null {
       return xp >= 1 ? { text: `+${xp}`, kind: 'star' } : null;
     }
     case 'round':
+      if (isPublic(s)) return s.corp.ipoAt ? { text: clock(quarterLeft(s)), kind: 'prog' } : null;
       return canRaise(s) ? { text: '✓', kind: 'ok' } : null;
+    case 'issues':
+      // Only once the queue is half full: issues arrive every few minutes, and a box that never goes away means nothing.
+      return s.issues.open.length >= ISSUES.max / 2 ? { text: String(s.issues.open.length), kind: 'count' } : null;
     case 'team':
       return count(s.applicant ? 1 : 0);
     case 'mail':
       return count(mailWaiting(s));
     case 'market':
       if (s.market.launch) return { text: clock((s.market.launch.endsAt - now) / 1000), kind: 'prog' };
-      return churnShare(s) > 0 ? { text: '▼', kind: 'count' } : null;
+      if (churnShare(s) > 0) return { text: '▼', kind: 'count' };
+      // After the IPO: a rival the cash can buy.
+      return s.corp.ipoAt && rivalsLeft(s).some((r) => acquirePrice(s, r, now) <= s.corp.cash) ? { text: '$', kind: 'star' } : null;
     case 'man':
       return manUnreadCount(s) > 0 ? { text: 'new', kind: 'new' } : null;
     case 'trophies': {
@@ -183,8 +198,8 @@ export function short(n: number): string {
   return fmt(n);
 }
 
-/** Lines coming in per second right now: automation plus the player's recent tapping. */
-export const incomeNow = (game: Game): Decimal => game.perSecond().add(game.perTap().mul(game.tapRate(5000)));
+/** Lines coming in per second right now: automation plus the player's recent tapping, less the share going to tests. */
+export const incomeNow = (game: Game): Decimal => game.perSecond().add(game.perTap().mul(game.tapRate(5000))).mul(1 - testShare(game.state));
 
 /**
  * "~40s", "~9 min"; null past an hour (or never). Income grows as you buy, so longer guesses

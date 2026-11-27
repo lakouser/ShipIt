@@ -1,6 +1,8 @@
-import { COMPANY_VALUES, DEBT, TEAM, TRAITS } from './content';
+import { COMPANY_VALUES, DEBT, TEAM, TESTS, TRAITS } from './content';
+import { coverage } from './coverage';
 import { companyLevel, perSecondBeforeDebt, projectOf, roleStrength } from './economy';
 import { activeEffects } from './effects';
+import { mods } from './mods';
 import { Decimal } from './num';
 import type { GameState } from './state';
 
@@ -14,14 +16,16 @@ export function addDebt(s: GameState, amount: number): void {
 }
 
 /**
- * Debt built per minute: a base rate plus more for each timed effect running, scaled by the project and
- * the platform team, plus 10x developers' share, minus what refactoring developers pay off.
+ * Debt built per minute: a base rate plus more for each timed effect running, scaled by the project, the stack, test
+ * coverage and the platform team, plus 10x developers' share, minus what refactoring developers pay off.
  */
 export function debtPerMinute(s: GameState, now: number): number {
   if (!s.lifetime.gte(DEBT.startsAtLifetime) || perSecondBeforeDebt(s, now).lte(0)) return 0;
   return (
     (DEBT.perMinute + DEBT.perMinutePerEffect * activeEffects(s, now).length) *
       (projectOf(s).debtMul ?? 1) *
+      mods(s).debtMul *
+      (1 - TESTS.debtCut * coverage(s)) *
       Math.max(0, 1 - COMPANY_VALUES.platformDebt * companyLevel(s, 'platform')) +
     s.team.reduce((sum, d) => sum + (TRAITS[d.trait].debtPerMinute ?? 0), 0) -
     TEAM.refactorPerMinute * roleStrength(s, 'refactor')

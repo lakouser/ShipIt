@@ -1,12 +1,13 @@
-import { COMPANY_VALUES, PERK_VALUES, PROJECTS, SHIP, type ChallengeId, type ProjectDef, type ProjectId } from './content';
+import { CHALLENGE, COMPANY_VALUES, PERK_VALUES, PROJECTS, SHIP, type ChallengeId, type ProjectDef, type ProjectId } from './content';
+import { coverage, resetCoverage } from './coverage';
 import { companyLevel, projectOf } from './economy';
-import { mods } from './mods';
+import { challengeLevel, mods } from './mods';
 import { D, Decimal } from './num';
 import { perkEffect } from './perks';
 import { makeMilestone, milestoneBonus } from './quests';
 import type { Rng } from './rng';
 import { makeBacklog } from './sprints';
-import type { GameState } from './state';
+import type { GameState, ReleaseEntry } from './state';
 
 /* ---------- the star curve ---------- */
 
@@ -96,8 +97,13 @@ export interface ShipResult {
   releaseLines: Decimal;
   /** How long the release took, in seconds (null if it began before releases were timed). */
   seconds: number | null;
-  /** The challenge release this was, if any, and whether it met its goal. */
-  challenge: { id: ChallengeId; done: boolean } | null;
+  /**
+   * The challenge release this was, if any: whether it met its goal, the times it has now been cleared, whether this was
+   * the first clear (which unlocks its workflow) and whether it beat the fastest clear.
+   */
+  challenge: { id: ChallengeId; done: boolean; level: number; first: boolean; record: boolean } | null;
+  /** Test coverage the release shipped with (null before the test suite opens). */
+  coverage: number | null;
   /** The project that shipped, and the one the new release builds. */
   shipped: ProjectDef;
   next: ProjectDef;
@@ -114,20 +120,30 @@ export function ship(s: GameState, now: number, rng: Rng, next: ProjectId = 'web
   const seconds = releaseSeconds(s, now);
   let challenge: ShipResult['challenge'] = null;
   if (s.challenge) {
-    challenge = { id: s.challenge.id, done: s.thisRelease.gte(s.challenge.goal) };
-    if (challenge.done && !s.challengesDone.includes(challenge.id)) {
-      s.challengesDone.push(challenge.id);
+    const id = s.challenge.id;
+    const before = challengeLevel(s, id);
+    const done = s.thisRelease.gte(s.challenge.goal);
+    const best = s.challengeBest[id];
+    const record = done && seconds !== null && (best === undefined || seconds < best);
+    challenge = { id, done, level: done ? Math.min(CHALLENGE.maxLevel, before + 1) : before, first: done && before === 0, record };
+    if (done) {
+      s.challengeLevels[id] = challenge.level;
+      if (!s.challengesDone.includes(id)) s.challengesDone.push(id);
+      if (record) s.challengeBest[id] = Math.round(seconds!);
       s.stats.challenges++;
     }
     s.challenge = null;
   }
   const version = versionTag(s.major, s.minor + 1);
+  const cov = s.unlocked.tests ? coverage(s) : null;
   const result: ShipResult = {
     stars, bonus, starsBefore: s.stars, release: s.release + 1, version, linesBefore: s.lines, releaseLines: s.thisRelease, seconds, challenge,
-    shipped: shippedProject, next: project,
+    coverage: cov, shipped: shippedProject, next: project,
   };
   if (!s.projectsShipped.includes(shippedProject.id)) s.projectsShipped.push(shippedProject.id);
-  s.releaseLog = [{ version, lines: s.thisRelease, stars, seconds, at: now }, ...s.releaseLog].slice(0, SHIP.logSize);
+  const entry: ReleaseEntry = { version, lines: s.thisRelease, stars, seconds, at: now };
+  if (cov !== null) entry.coverage = cov;
+  s.releaseLog = [entry, ...s.releaseLog].slice(0, SHIP.logSize);
   s.stars += stars;
   s.stats.starsEarned += stars;
   s.stats.ships++;
@@ -155,6 +171,7 @@ export function resetRelease(s: GameState, now: number, rng: Rng): void {
   s.lastSprint = null;
   s.backlog = makeBacklog(s, now, rng);
   s.milestone = makeMilestone(s);
+  resetCoverage(s);
 }
 
 /** Starts a fresh run (a funding round or a major version): the star curve and the milestone's last release start over. */

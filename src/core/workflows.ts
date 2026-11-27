@@ -1,6 +1,8 @@
-import { AUTOMATION, ASSUMED_TAPS_PER_SECOND, UPGRADES, WORKFLOWS, type EffectDef, type EffectId, type UpgradeKind, type WorkflowDef, type WorkflowId } from './content';
-import { buy, costOf, isUpgradeVisible, type Purchase } from './economy';
+import { AUTOMATION, ASSUMED_TAPS_PER_SECOND, PERKS, UPGRADES, WORKFLOWS, type EffectDef, type EffectId, type ForkPolicy, type PerkDef, type UpgradeKind, type WorkflowDef, type WorkflowId } from './content';
+import { buy, chooseFork, costOf, forkOptions, isUpgradeVisible, upgradesWithForks, type Purchase } from './economy';
 import { effectActive, runScript } from './effects';
+import { challengeLevel } from './mods';
+import { buyPerk, perkCost, perkLevel, perkStatus } from './perks';
 import type { GameState } from './state';
 
 /** Releases shipped over the whole game. */
@@ -8,14 +10,57 @@ export const releasesShipped = (s: GameState): number => s.stats.ships;
 
 export const findWorkflow = (id: WorkflowId): WorkflowDef => WORKFLOWS.find((w) => w.id === id)!;
 
-export const workflowUnlocked = (s: GameState, id: WorkflowId): boolean => releasesShipped(s) >= findWorkflow(id).releases;
+/** Earned by shipping enough releases, or by clearing its challenge once. */
+export function workflowUnlocked(s: GameState, id: WorkflowId): boolean {
+  const w = findWorkflow(id);
+  return w.challenge ? challengeLevel(s, w.challenge) >= 1 : releasesShipped(s) >= (w.releases ?? Infinity);
+}
 
 /** Unlocked and not switched off. */
 export const workflowOn = (s: GameState, id: WorkflowId): boolean => workflowUnlocked(s, id) && s.workflows[id] !== false;
 
-/** Workflows that unlocked between two release counts (for announcing them after a ship). */
+/** Workflows earned by shipping that unlocked between two release counts (for announcing them after a ship). */
 export const workflowsUnlockedBetween = (before: number, after: number): WorkflowDef[] =>
-  WORKFLOWS.filter((w) => w.releases > before && w.releases <= after);
+  WORKFLOWS.filter((w) => w.releases !== undefined && w.releases > before && w.releases <= after);
+
+/** The workflow a challenge's first clear unlocks. */
+export const workflowForChallenge = (id: string): WorkflowDef | undefined => WORKFLOWS.find((w) => w.challenge === id);
+
+/** Releases shipped in all when the last workflow earned by shipping unlocks. */
+export const lastShippingWorkflow = (): number => Math.max(...WORKFLOWS.map((w) => w.releases ?? 0));
+
+/** forks.yml: picks every pending package upgrade by the player's policy. Returns how many it picked. */
+export function autoForks(s: GameState): number {
+  if (!workflowOn(s, 'forks')) return 0;
+  let picked = 0;
+  for (const u of upgradesWithForks(s)) {
+    for (let guard = 0; guard < 400; guard++) {
+      const options = forkOptions(s, u.id);
+      if (!options) break;
+      const choice = s.forkPolicy === 'major' ? options.find((f) => f.id === 'major') : options.find((f) => f.id !== 'major');
+      if (!chooseFork(s, u.id, (choice ?? options[0]).id)) break;
+      picked++;
+    }
+  }
+  return picked;
+}
+
+export function setForkPolicy(s: GameState, policy: ForkPolicy): void {
+  if (policy === 'major' || policy === 'alt') s.forkPolicy = policy;
+}
+
+/** dotfiles.yml: buys the cheapest dotfile the player can afford, again and again. Returns what it bought. */
+export function autoDotfiles(s: GameState): { perk: PerkDef; level: number }[] {
+  if (!workflowOn(s, 'dotfiles')) return [];
+  const bought: { perk: PerkDef; level: number }[] = [];
+  for (let guard = 0; guard < 50; guard++) {
+    const cheapest = PERKS.filter((p) => perkStatus(s, p) === 'affordable').sort((a, b) => perkCost(a, perkLevel(s, a.id)) - perkCost(b, perkLevel(s, b.id)))[0];
+    const result = cheapest && buyPerk(s, cheapest.id);
+    if (!result) break;
+    bought.push(result);
+  }
+  return bought;
+}
 
 /**
  * deps.yml and dev-deps.yml: install the best-value affordable package, one copy at a time,

@@ -105,6 +105,50 @@ export const MAN_PAGES: readonly ManPage[] = [
     ],
   },
   {
+    id: 'coverage',
+    title: 'coverage(1)',
+    summary: 'how much of the code is checked',
+    hint: 'open the test suite',
+    unlocked: (s) => s.unlocked.tests,
+    body: [
+      'coverage reports the share of the codebase that some test, somewhere, has looked at. It does not report whether the test was right.',
+      'The oldest test in the suite is legacy/core.test.js. It has one assertion: "expect(dave).toBeDefined()". It has never failed.',
+    ],
+  },
+  {
+    id: 'rewrite',
+    title: 'rewrite(7)',
+    summary: 'starting over, on purpose',
+    hint: 'pick a stack for a new run',
+    unlocked: (s) => s.stacksUsed.length >= 2,
+    body: [
+      'Every rewrite promises to fix everything the last one got wrong, and does, and gets new things wrong in their place.',
+      'Whatever the language, legacy/core arrives already translated: legacy/core.rs, legacy/core.go, legacy/core.py. Nobody ports it. The commit is always signed "D."',
+    ],
+  },
+  {
+    id: 'earnings',
+    title: 'earnings(5)',
+    summary: 'the quarterly file format',
+    hint: 'take the company public',
+    unlocked: (s) => s.corp.ipoAt > 0,
+    body: [
+      'An earnings file has three fields: what we said we would make, what we made, and the difference. Only the third one is read.',
+      'There is a fourth field in the format, undocumented, always set to "quack". Investor relations has asked that nobody mention it on the call.',
+    ],
+  },
+  {
+    id: 'merger',
+    title: 'merger(8)',
+    summary: 'combine two companies into one',
+    hint: 'acquire a rival',
+    unlocked: (s) => s.stats.acquisitions >= 1,
+    body: [
+      'merger takes two companies and returns one, with the larger logo. The smaller company\'s users are migrated; about half of them notice.',
+      'Every company we have bought had a rubber duck on a desk nobody used. Facilities has started keeping them in a box. The box is getting heavy.',
+    ],
+  },
+  {
     id: 'quack',
     title: 'duck(9)',
     summary: 'kernel internals',

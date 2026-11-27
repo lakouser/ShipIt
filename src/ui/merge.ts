@@ -1,5 +1,5 @@
 import { hl } from './hl';
-import { FUNDING, LANGUAGES } from '../core/content';
+import { CORP, FUNDING, STACKS } from '../core/content';
 import { starBonus } from '../core/economy';
 import type { RaiseResult } from '../core/funding';
 import type { MajorResult } from '../core/major';
@@ -225,7 +225,7 @@ export function playMergeSplash(r: ShipResult, options: MergeSplashOptions = {})
 export function playRoundSplash(r: RaiseResult): Promise<void> {
   return new Promise((resolve) => {
     const reduced = prefersReducedMotion();
-    const lang = LANGUAGES[r.round % LANGUAGES.length].name;
+    const lang = STACKS.find((x) => x.id === r.stack)?.name ?? 'TypeScript';
     const root = document.createElement('div');
     root.className = 'merge';
     root.setAttribute('role', 'dialog');
@@ -243,7 +243,7 @@ export function playRoundSplash(r: RaiseResult): Promise<void> {
           ${ok(`${fmt(r.starsBefore)} stars and every dotfile traded in`)}
           ${ok(`x${FUNDING.outputPerRound} output, permanently`)}
           ${ok(`+${r.equity} equity to spend on the company`)}
-          ${ok(`new packages unlocked. rewriting everything in ${lang}`)}
+          ${ok(r.round >= FUNDING.maxRounds ? `the company is public. this run is written in ${lang}` : `new packages unlocked. rewriting everything in ${lang}`)}
         </div>
         <div class="mhint">press any key or tap to continue</div>
       </div>
@@ -331,4 +331,104 @@ export function playMajorSplash(r: MajorResult, xpAfter: number): Promise<void> 
       });
     }, 350);
   });
+}
+
+/** What the ending at the IPO sums up. */
+export interface EndingSummary {
+  /** Wall-clock seconds since the game began. */
+  seconds: number;
+  releases: number;
+  stars: number;
+  lines: string;
+  users: number;
+  rank: number;
+  bosses: number;
+  achievements: number;
+  majors: number;
+  app: string;
+}
+
+/** A splash that closes on a key or tap (after a short pause, so the tap that opened it doesn't close it). */
+function plainSplash(label: string, html: string): Promise<void> {
+  return new Promise((resolve) => {
+    const reduced = prefersReducedMotion();
+    const root = document.createElement('div');
+    root.className = 'merge';
+    root.setAttribute('role', 'dialog');
+    root.setAttribute('aria-modal', 'true');
+    root.setAttribute('aria-label', label);
+    root.tabIndex = -1;
+    root.innerHTML = html;
+    document.body.appendChild(root);
+    root.focus({ preventScroll: true });
+    let closed = false;
+    const close = () => {
+      if (closed) return;
+      closed = true;
+      window.removeEventListener('keydown', onKey, true);
+      root.classList.add('out');
+      window.setTimeout(() => {
+        root.remove();
+        resolve();
+      }, reduced ? 0 : 180);
+    };
+    const onKey = (e: KeyboardEvent) => {
+      if (e.metaKey || e.ctrlKey || e.altKey) return;
+      e.preventDefault();
+      e.stopPropagation();
+      if (!e.repeat) close();
+    };
+    window.setTimeout(() => {
+      window.addEventListener('keydown', onKey, true);
+      root.addEventListener('pointerdown', (e) => {
+        e.preventDefault();
+        close();
+      });
+    }, 600);
+  });
+}
+
+/** "6h 12m", "3d 4h". */
+function playedFor(seconds: number): string {
+  const m = Math.max(1, Math.round(seconds / 60));
+  if (m < 60) return `${m}m`;
+  const h = Math.floor(m / 60);
+  if (h < 48) return `${h}h ${m % 60}m`;
+  return `${Math.floor(h / 24)}d ${h % 24}h`;
+}
+
+/**
+ * The ending, shown once when the company goes public: a summary of the whole campaign, then what the endless game
+ * after it is about. Nothing is reset. Press a key or tap to close.
+ */
+export function playEndingSplash(e: EndingSummary): Promise<void> {
+  const row = (k: string, v: string) => `<div class="erow"><span>${k}</span><b>${v}</b></div>`;
+  const ok = (text: string) => `<div><span class="tag tag-ok">${LOG_TAGS.ok}</span> ${hl(text)}</div>`;
+  return plainSplash(
+    'The company went public',
+    `<div class="mwin">
+      <div class="mt"><span>nyse</span><span>${esc(e.app)} · ticker ${esc(e.app.replace(/[^a-z]/gi, '').slice(0, 4).toUpperCase() || 'SHIP')}</span></div>
+      <div class="mbody">
+        <div class="mline"><span class="tag tag-cmd">${LOG_TAGS.cmd}</span> ring --bell</div>
+        <div class="mround">IPO</div>
+        <div class="mlabel">you took ${esc(e.app)} public. that's the campaign</div>
+        <div class="esum">
+          ${row('played', playedFor(e.seconds))}
+          ${row('releases shipped', fmt(e.releases))}
+          ${row('stars earned', fmt(e.stars))}
+          ${row('lines written', e.lines)}
+          ${row('users', `${fmt(e.users)} · #${e.rank}`)}
+          ${row('incidents beaten', fmt(e.bosses))}
+          ${row('major versions', fmt(e.majors))}
+          ${row('trophies', fmt(e.achievements))}
+        </div>
+        <div class="mlog">
+          ${ok('nothing resets: the game carries on as a public company')}
+          ${ok(`every ${CORP.quarterMinutes} minutes of play is a quarter: users bring in revenue, the board sets guidance`)}
+          ${ok('beat it for the stock and +' + Math.round(CORP.beatBonus * 100) + '% output for good; cash buys rivals off the chart')}
+        </div>
+        <div class="mhint">press any key or tap to continue</div>
+      </div>
+    </div>`,
+  );
 }

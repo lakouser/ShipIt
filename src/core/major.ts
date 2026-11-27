@@ -1,9 +1,10 @@
-import { CHALLENGE, CHALLENGES, MAJOR, SHIP, SKILL_VALUES, SKILLS, type ChallengeDef, type ChallengeId, type SkillDef } from './content';
-import { skillLevel } from './mods';
+import { CHALLENGE, CHALLENGES, MAJOR, SHIP, SKILL_VALUES, SKILLS, type ChallengeDef, type ChallengeId, type LanguageId, type SkillDef } from './content';
+import { challengeLevel, skillLevel } from './mods';
 import type { Decimal } from './num';
 import { perkCost } from './perks';
 import type { Rng } from './rng';
 import { releaseSeconds, resetRelease, resetRun, shippedForStars, starsAvailable, starsForShipped, versionTag } from './ship';
+import { pickStack, useStack } from './stacks';
 import type { GameState } from './state';
 
 /* ---------- XP: the currency of major versions, the endless reset from Series B on ---------- */
@@ -43,19 +44,22 @@ export interface MajorResult {
   /** Spendable lines cleared (for the splash). */
   linesBefore: Decimal;
   releaseLines: Decimal;
+  /** The language the new major version is written in. */
+  stack: LanguageId;
 }
 
 /**
- * Bank every star (and the release in progress) for XP, then start v{major+1}.0. Stars, dotfiles (unless muscle memory),
- * releases, lines and packages reset; funding, equity, XP, skills, achievements, workflows, challenge rewards,
- * the team and users stay.
+ * Bank every star (and the release in progress) for XP, then start v{major+1}.0 in `stack` (the current one if not given
+ * or not open). Stars, dotfiles (unless muscle memory), releases, lines and packages reset; funding, equity, XP, skills,
+ * achievements, workflows, challenge rewards, the team and users stay.
  */
-export function cutMajor(s: GameState, now: number, rng: Rng): MajorResult | null {
+export function cutMajor(s: GameState, now: number, rng: Rng, stack?: LanguageId): MajorResult | null {
   const xp = xpAvailable(s);
   if (xp < 1) return null;
   const banked = starsToBank(s);
   const version = versionTag(s.major + 1, 0);
-  const result: MajorResult = { xp, version, starsBanked: banked, linesBefore: s.lines, releaseLines: s.thisRelease };
+  const next = pickStack(s, stack);
+  const result: MajorResult = { xp, version, starsBanked: banked, linesBefore: s.lines, releaseLines: s.thisRelease, stack: next };
   s.releaseLog = [{ version, lines: s.thisRelease, stars: 0, seconds: releaseSeconds(s, now), at: now, xp }, ...s.releaseLog].slice(0, SHIP.logSize);
   s.banked += banked;
   s.xp += xp;
@@ -68,6 +72,7 @@ export function cutMajor(s: GameState, now: number, rng: Rng): MajorResult | nul
   s.stars = SKILL_VALUES.headstartStars * skillLevel(s, 'headstart');
   s.starsSpent = 0;
   if (skillLevel(s, 'muscle') < 1) s.perks = {};
+  useStack(s, next);
   resetRun(s);
   resetRelease(s, now, rng);
   return result;
@@ -110,19 +115,26 @@ export const challengeReady = (s: GameState): boolean => curveSoFar(s) >= CHALLE
 /** Lines shipped this run before challenges open. */
 export const linesForChallenges = (): Decimal => shippedForStars(CHALLENGE.minCurve);
 
-/** Lines a challenge started now would need: one release that grows this run's curve by CHALLENGE.goalGain. */
-export function challengeGoal(s: GameState): Decimal {
+/**
+ * Lines a challenge started now would need: one release that grows this run's curve by CHALLENGE.goalGain, plus
+ * CHALLENGE.goalStep more for each time that challenge has been cleared.
+ */
+export function challengeGoal(s: GameState, id?: ChallengeId): Decimal {
   const curve = Math.max(curveSoFar(s), CHALLENGE.minCurve);
-  return shippedForStars(Math.ceil(curve * (1 + CHALLENGE.goalGain))).sub(s.shipped).max(SHIP.minRelease);
+  const gain = CHALLENGE.goalGain + CHALLENGE.goalStep * (id ? challengeLevel(s, id) : 0);
+  return shippedForStars(Math.ceil(curve * (1 + gain))).sub(s.shipped).max(SHIP.minRelease);
 }
 
+/** True while a challenge can still be cleared again (up to CHALLENGE.maxLevel times). */
+export const challengeOpen = (s: GameState, id: ChallengeId): boolean => challengeLevel(s, id) < CHALLENGE.maxLevel;
+
 /**
- * Restarts the current release under a challenge's restriction. Ship it with at least the goal for the reward;
- * shipping short of the goal, or abandoning, just ends it.
+ * Restarts the current release under a challenge's restriction. Ship it with at least the goal for the reward (or the
+ * next level of it); shipping short of the goal, or abandoning, just ends it.
  */
 export function startChallenge(s: GameState, id: ChallengeId, now: number, rng: Rng): ChallengeDef | null {
-  if (!challengesUnlocked(s) || !challengeReady(s) || s.challenge || s.challengesDone.includes(id) || !CHALLENGES.some((c) => c.id === id)) return null;
-  s.challenge = { id, goal: challengeGoal(s) };
+  if (!challengesUnlocked(s) || !challengeReady(s) || s.challenge || !challengeOpen(s, id) || !CHALLENGES.some((c) => c.id === id)) return null;
+  s.challenge = { id, goal: challengeGoal(s, id) };
   resetRelease(s, now, rng);
   return findChallenge(id);
 }

@@ -1,7 +1,9 @@
-import { COMPANY_PERKS, FUNDING, ROUNDS, type CompanyPerkDef } from './content';
+import { COMPANY_PERKS, FUNDING, ROUNDS, type CompanyPerkDef, type LanguageId } from './content';
+import { goPublic } from './corp';
 import { companyLevel } from './economy';
 import type { Rng } from './rng';
 import { resetRelease, resetRun } from './ship';
+import { pickStack, useStack } from './stacks';
 import type { GameState } from './state';
 
 /* ---------- funding rounds: trade every star and perk for equity and a permanent multiplier ---------- */
@@ -20,12 +22,20 @@ export interface RaiseResult {
   name: string;
   equity: number;
   starsBefore: number;
+  /** The language the next run is written in. */
+  stack: LanguageId;
+  /** True for the IPO: the company goes public and quarters begin. */
+  ipo: boolean;
 }
 
-/** Raises the next round: stars, dotfiles, releases, packages, forks and debt start over; equity and the round multiplier stay. */
-export function raiseRound(s: GameState, now: number, rng: Rng): RaiseResult | null {
+/**
+ * Raises the next round: stars, dotfiles, releases, packages, forks and debt start over; equity and the round multiplier
+ * stay. The next run is written in `stack` (the current one if not given or not open). The IPO starts the quarters.
+ */
+export function raiseRound(s: GameState, now: number, rng: Rng, stack?: LanguageId): RaiseResult | null {
   if (!canRaise(s)) return null;
-  const result: RaiseResult = { round: s.round + 1, name: roundName(s.round + 1), equity: equityFor(s.stars), starsBefore: s.stars };
+  const next = pickStack(s, stack);
+  const result: RaiseResult = { round: s.round + 1, name: roundName(s.round + 1), equity: equityFor(s.stars), starsBefore: s.stars, stack: next, ipo: s.round + 1 >= FUNDING.maxRounds };
   s.round++;
   s.equity += result.equity;
   s.stars = 0;
@@ -34,9 +44,11 @@ export function raiseRound(s: GameState, now: number, rng: Rng): RaiseResult | n
   s.release = 1;
   s.project = 'webapp';
   s.boss = null;
+  useStack(s, next);
   resetRun(s);
   resetRelease(s, now, rng);
   s.owned = {};
+  if (result.ipo) goPublic(s, now);
   return result;
 }
 

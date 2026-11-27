@@ -367,6 +367,10 @@ b { font-weight: 700; }
 .mnum.pop [data-num] { animation: bounce .6s cubic-bezier(.3, 1.6, .5, 1) both; }
 .mnum.pop .mplus { opacity: 1; animation: plus-in .4s .15s ease-out both; }
 .mhint { margin-top: 14px; color: var(--dim); font-size: 13px; }
+/* The ending at the IPO: the campaign in numbers. */
+.esum { margin-top: 12px; font-size: 13px; display: grid; gap: 2px; }
+.erow { display: flex; justify-content: space-between; gap: 12px; color: var(--mut); border-bottom: 1px dashed var(--line); padding: 2px 0; }
+.erow b { color: var(--ink); font-weight: 400; white-space: nowrap; }
 .sub .st { display: inline-block; }
 .sub .st.pop { animation: bounce .6s cubic-bezier(.3, 1.6, .5, 1); }
 
@@ -565,6 +569,8 @@ b { font-weight: 700; }
 .pj { min-height: 36px; padding: 0 10px; border: 1px solid var(--line2); color: var(--ink); }
 .pj[aria-checked="true"] { background: var(--ink); border-color: var(--ink); color: var(--bg); font-weight: 700; }
 .pj.more { color: var(--mut); }
+.pj small { color: inherit; opacity: .7; font-size: 11px; }
+.pj.lk, .pj:disabled { border-style: dashed; color: var(--dim); cursor: default; }
 .proj small { display: block; color: var(--mut); font-size: 13px; }
 .fund .shipbtn { margin-top: 2px; }
 .aside2 { float: right; color: var(--mut); }

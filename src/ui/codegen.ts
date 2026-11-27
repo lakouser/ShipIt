@@ -338,6 +338,66 @@ const SYNTAX: Record<LanguageId, Syntax> = {
       (w) => [[w.id(), w.p(': '), w.type(), w.p(' = '), w.type(), w.p('()')]],
     ],
   },
+  hs: {
+    ext: 'hs',
+    quote: '"',
+    comment: '--',
+    blocks: [
+      (w) => {
+        const f = w.fn();
+        return [
+          [f, w.p(' :: '), w.type(), w.p(' -> '), w.type('IO'), SP, w.type()],
+          [f, SP, w.id(), w.p(' = '), w.fn('pure'), w.p(' . '), w.fn(), w.p(' $ '), w.id()],
+        ];
+      },
+      (w) => [
+        [w.id(), w.p(' <- '), w.fn(), SP, w.str(), SP, w.num()],
+      ],
+      (w) => [
+        [w.kw('case'), SP, w.id(), SP, w.kw('of')],
+        [1, w.type('Just'), w.p(' x  -> '), w.fn(), w.p(' x')],
+        [1, w.type('Nothing'), w.p(' -> '), w.fn('error'), SP, w.str()],
+      ],
+      (w) => [[w.comment()]],
+      (w) => [[w.kw('import'), SP, w.kw('qualified'), w.p(' Data.'), w.type(), SP, w.kw('as'), SP, w.type()]],
+      (w) => [[w.kw('data'), SP, w.type(), w.p(' = '), w.type(), w.p(' { '), w.prop(), w.p(' :: '), w.type('Int'), w.p(' }')]],
+      (w) => [[w.fn('mapM_'), w.p(' ('), w.fn(), w.p(' . '), w.fn(), w.p(') ['), w.num('1'), w.p('..'), w.num(), w.p(']')]],
+      (w) => [
+        [w.kw('where'), SP, w.id(), w.p(' = '), w.fn('foldr'), w.p(' (+) '), w.num('0'), SP, w.id()],
+      ],
+      (w) => [[w.kw('instance'), SP, w.type('Monad'), SP, w.type(), SP, w.kw('where')]],
+      (w) => [[w.kw('let'), SP, w.id(), w.p(' = '), w.fn('fmap'), SP, w.fn(), SP, w.id(), SP, w.kw('in'), SP, w.id()]],
+    ],
+  },
+  cob: {
+    ext: 'cbl',
+    quote: "'",
+    comment: '*>',
+    blocks: [
+      (w) => [[w.kw('MOVE'), SP, w.num(), SP, w.kw('TO'), SP, w.id(), w.p('-'), w.prop(), w.p('.')]],
+      (w) => [
+        [w.kw('IF'), SP, w.id(), SP, w.kw('GREATER THAN'), SP, w.num()],
+        [1, w.kw('PERFORM'), SP, w.fn(), w.p('-PARA')],
+        [w.kw('END-IF'), w.p('.')],
+      ],
+      (w) => [
+        [w.fn(), w.p('-PARA.')],
+        [1, w.kw('ADD'), SP, w.num(), SP, w.kw('TO'), SP, w.id(), w.p('-'), w.prop()],
+        [1, w.kw('DISPLAY'), SP, w.str(), w.p('.')],
+      ],
+      (w) => [[w.comment()]],
+      (w) => [[w.num('01'), SP, w.id(), w.p('-'), w.prop(), SP, w.kw('PIC'), SP, w.type('9(9)'), SP, w.kw('VALUE'), SP, w.num('0'), w.p('.')]],
+      (w) => [
+        [w.kw('PERFORM'), SP, w.kw('VARYING'), w.p(' I '), w.kw('FROM'), SP, w.num('1'), SP, w.kw('BY'), SP, w.num('1')],
+        [1, w.kw('UNTIL'), w.p(' I > '), w.num()],
+        [1, w.kw('CALL'), SP, w.str(), SP, w.kw('USING'), SP, w.id()],
+        [w.kw('END-PERFORM'), w.p('.')],
+      ],
+      (w) => [[w.kw('COMPUTE'), SP, w.id(), w.p(' = '), w.id(), w.p(' * '), w.num(), w.p('.')]],
+      (w) => [[w.kw('EXEC SQL'), SP, w.kw('SELECT'), w.p(' * '), w.kw('FROM'), SP, w.type(), SP, w.kw('END-EXEC'), w.p('.')]],
+      (w) => [[w.kw('STOP RUN'), w.p('.')]],
+    ],
+  },
 };
 
 export const languageExt = (id: LanguageId): string => SYNTAX[id].ext;

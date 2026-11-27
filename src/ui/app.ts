@@ -1,8 +1,9 @@
 import { BOSSES, MILESTONE, TRAITS } from '../core/content';
 import { language } from '../core/economy';
+import { standing } from '../core/market';
 import type { Game, GameEvent } from '../core/game';
 import { mailDef } from '../core/mail';
-import { clock, D, fmt, fmtRate, setNotation, type Decimal } from '../core/num';
+import { clock, D, fmt, fmtMoney, fmtRate, setNotation, type Decimal } from '../core/num';
 import { deserialize, exportSave, importSave, serialize } from '../core/save';
 import { currentVersion } from '../core/ship';
 import type { Platform } from '../platform';
@@ -16,7 +17,7 @@ import { Fx } from './fx';
 import { Header } from './header';
 import { IncidentView } from './incidents';
 import { Keycap } from './keycap';
-import { playMajorSplash, playMergeSplash, playRoundSplash } from './merge';
+import { playEndingSplash, playMajorSplash, playMergeSplash, playRoundSplash } from './merge';
 import { describe, scriptFile, type LogKind } from './messages';
 import { groupOf, unlockPath } from './nav';
 import { Panels } from './panels';
@@ -181,8 +182,11 @@ export class App {
     const worthShowing = returning && ((summary.away && summary.away.seconds >= WELCOME_MIN_S) || (summary.streak && summary.streak.count > 1));
     if (worthShowing && s.settings.welcome) {
       this.dialogOpen = true;
-      void playWelcome(summary).then(() => (this.dialogOpen = false));
-    }
+      void playWelcome(summary).then(() => {
+        this.dialogOpen = false;
+        this.showEnding();
+      });
+    } else this.showEnding();
 
     window.setInterval(() => this.tick(), TICK_MS);
     window.setInterval(() => this.save(), SAVE_MS);
@@ -191,6 +195,29 @@ export class App {
       void this.saves.flush();
     });
     requestAnimationFrame((t) => this.frame(t));
+  }
+
+  /** The ending at the IPO, once: right after going public, or on the first load of a save that already had. */
+  private showEnding(): void {
+    const g = this.game;
+    const s = g.state;
+    if (!s.corp.ipoAt || s.corp.endingSeen || this.dialogOpen) return;
+    g.markEndingSeen();
+    this.save();
+    this.dialogOpen = true;
+    this.feedback('reward');
+    void playEndingSplash({
+      seconds: Math.max(0, (g.now() - s.createdAt) / 1000),
+      releases: s.stats.ships,
+      stars: s.stats.starsEarned,
+      lines: fmt(s.lifetime),
+      users: s.market.users,
+      rank: s.market.startedAt ? standing(s, g.now()).rank : 0,
+      bosses: s.stats.bossesBeaten,
+      achievements: s.achievements.length,
+      majors: s.stats.majors,
+      app: s.market.appName,
+    }).then(() => (this.dialogOpen = false));
   }
 
   /** Bounces the line count, at most every BUMP_GAP_MS. */
@@ -310,6 +337,7 @@ export class App {
       case 'majorCut':
         this.save();
         void this.saves.flush();
+        this.editor.setLanguage(language(this.game.state).id);
         this.panels.syncTabs();
         this.panels.render();
         this.dialogOpen = true;
@@ -333,7 +361,31 @@ export class App {
         this.panels.render();
         this.dialogOpen = true;
         this.feedback('reward');
-        void playRoundSplash(e.result).then(() => (this.dialogOpen = false));
+        // The IPO ends the campaign: its round splash leads straight into the ending.
+        void playRoundSplash(e.result).then(() => {
+          this.dialogOpen = false;
+          if (e.result.ipo) this.showEnding();
+        });
+        break;
+      case 'quarter':
+        if (e.report.beat) this.feedback('reward');
+        this.events.push(e.report.beat ? 'star' : 'warn', `Q${e.report.quarter}`, e.report.beat ? `beat guidance · ${fmtMoney(e.report.revenue)} · stock ${fmt(e.report.stock)}` : `missed guidance · ${fmtMoney(e.report.revenue)} · stock ${fmt(e.report.stock)}`, 4200);
+        if (tab === 'round') this.panels.render();
+        break;
+      case 'acquired':
+        this.feedback('reward');
+        this.events.push('star', 'acquired', `${e.acquisition.rival.name} · +${fmt(e.acquisition.users)} users`, 4200);
+        this.panels.render();
+        break;
+      case 'triaged':
+        if (!e.auto) this.feedback('reward');
+        if (tab === 'issues') this.panels.render();
+        break;
+      case 'bugCaught':
+        this.bug.hide();
+        break;
+      case 'autoForked':
+        if (tab === 'upgrades') this.panels.render();
         break;
       case 'bugSpawned':
         this.bug.show(e.expiresAt, this.game.now());

@@ -1,4 +1,5 @@
 import { DEBT, ROLES, UPGRADES } from '../core/content';
+import { coverage } from '../core/coverage';
 import { outputShares, owned, upgradesWithForks } from '../core/economy';
 import type { Game } from '../core/game';
 import { unreadCount } from '../core/mail';
@@ -197,12 +198,14 @@ export class Workspace {
       this.build++;
       const id = `#${this.build}`;
       const tests = between(120, 4800).toLocaleString('en-US');
-      // Debt makes the tests flakier.
-      const flaky = Math.random() < 0.12 + s.debt / 400;
+      // Debt makes the tests flakier; coverage steadier.
+      const cov = s.unlocked.tests ? coverage(s) : null;
+      const flaky = Math.random() < (0.12 + s.debt / 400) * (1 - 0.6 * (cov ?? 0));
       this.script = [`> build ${id} queued (main)`, `  compiling ${between(40, 900)} modules`];
       if (owned(s, 'lint') > 0) this.script.push(`  lint: fixed ${between(2, 60)} semicolons`);
-      this.script.push(flaky ? `  FAIL 1 of ${tests} tests (flaky), retrying` : `  ok ${tests} tests`);
-      if (flaky) this.script.push(`  ok ${tests} tests`);
+      const passed = `  ok ${tests} tests${cov !== null ? ` · ${Math.round(cov * 100)}% coverage` : ''}`;
+      this.script.push(flaky ? `  FAIL 1 of ${tests} tests (flaky), retrying` : passed);
+      if (flaky) this.script.push(passed);
       if (owned(s, 'quantum') > 0) this.script.push('  collapsing 2^64 branches: ok');
       if (owned(s, 'k8s') > 0) this.script.push(`  rolling out to ${between(3, 48)} pods`);
       this.script.push(`ok build ${id} passed in ${between(8, 95)}s`);

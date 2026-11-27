@@ -1,5 +1,7 @@
-import { MARKET, OUTLETS, RIVALS, type RivalDef } from './content';
+import { ISSUES, MARKET, OUTLETS, RIVALS, TESTS, type RivalDef } from './content';
+import { coverage } from './coverage';
 import { grantScript, randomScript } from './effects';
+import { mods } from './mods';
 import type { Decimal } from './num';
 import type { Rng } from './rng';
 import type { GameState, Headline, ReleaseCounters } from './state';
@@ -24,9 +26,14 @@ export function startReleaseCounters(s: GameState): void {
   s.market.base = releaseCounters(s);
 }
 
+/** What the test suite and closed feature requests add to this release's review. */
+export const qualityBonus = (s: GameState): number =>
+  (s.unlocked.tests ? TESTS.reviewBonus * coverage(s) : 0) + Math.min(ISSUES.featureCap, s.issues.reviewBoost);
+
 /**
  * A release's review, 1–5 stars: 2.5, plus up to 1.5 for size (a release that grows stars by 100% or more
- * gets it all), plus up to ±1 for polish (sprints merged, bugs squashed or escaped, incidents handled).
+ * gets it all), plus up to ±1 for polish (sprints merged, bugs squashed or escaped, incidents handled), plus
+ * test coverage and feature requests closed.
  */
 export function reviewScore(s: GameState, gain: number): number {
   const b = s.market.base;
@@ -36,7 +43,7 @@ export function reviewScore(s: GameState, gain: number): number {
   const incidents = incidentsResolved(s) - b.incidents;
   const size = 1.5 * Math.min(1, Number.isFinite(gain) ? gain : 1);
   const polish = clamp(-1, 1, Math.min(0.9, 0.3 * sprints) + Math.min(0.5, 0.1 * bugs) - Math.min(1, 0.2 * escaped) + Math.min(0.5, 0.25 * incidents));
-  return Math.round(clamp(1, 5, 2.5 + size + polish) * 10) / 10;
+  return Math.round(clamp(1, 5, 2.5 + size + polish + qualityBonus(s)) * 10) / 10;
 }
 
 /** Average of the last few reviews, or null before the first. */
@@ -77,7 +84,7 @@ export const graceLeft = (s: GameState): number => Math.max(0, MARKET.graceMinut
 export function churnShare(s: GameState): number {
   const m = s.market;
   if (!m.lastUpdateAt || m.users <= 0) return 0;
-  const over = m.quietMinutes - MARKET.graceMinutes;
+  const over = (m.quietMinutes - MARKET.graceMinutes) * mods(s).churnMul;
   if (over <= 0) return 0;
   return Math.min(MARKET.maxChurn, 1 - (1 - MARKET.churnPerMinute) ** over);
 }
@@ -94,12 +101,15 @@ export function rivalUsers(s: GameState, r: RivalDef, now: number): number {
   return r.users * (1 + r.growthPerDay * days) + (m.absorbed[r.id] ?? 0);
 }
 
-/** Where drifting users go: the nearest rival above the player, or the nearest below for a chart leader. */
-function churnTarget(s: GameState, now: number, you: number): RivalDef {
-  const sized = RIVALS.map((r) => ({ r, users: rivalUsers(s, r, now) }));
+/** Rivals still in the chart (not acquired). */
+const rivalsInChart = (s: GameState): RivalDef[] => RIVALS.filter((r) => !s.market.acquired.includes(r.id));
+
+/** Where drifting users go: the nearest rival above the player, or the nearest below for a chart leader; null once all are bought. */
+function churnTarget(s: GameState, now: number, you: number): RivalDef | null {
+  const sized = rivalsInChart(s).map((r) => ({ r, users: rivalUsers(s, r, now) }));
   const above = sized.filter((x) => x.users > you).sort((a, b) => a.users - b.users)[0];
   if (above) return above.r;
-  return sized.sort((a, b) => b.users - a.users)[0].r;
+  return sized.sort((a, b) => b.users - a.users)[0]?.r ?? null;
 }
 
 export interface ChartRow {
@@ -115,7 +125,7 @@ export function chart(s: GameState, now: number): ChartRow[] {
   const you = usersNow(s);
   const lost = s.market.users - you;
   const target = lost > 0 ? churnTarget(s, now, you) : null;
-  const rows: ChartRow[] = RIVALS.map((r) => ({ id: r.id, name: r.name, app: r.app, users: rivalUsers(s, r, now) + (r === target ? lost : 0), you: false }));
+  const rows: ChartRow[] = rivalsInChart(s).map((r) => ({ id: r.id, name: r.name, app: r.app, users: rivalUsers(s, r, now) + (r === target ? lost : 0), you: false }));
   rows.push({ id: 'you', name: s.market.appName, app: s.market.appName, users: you, you: true });
   return rows.sort((a, b) => b.users - a.users || (a.you ? -1 : 1));
 }
@@ -127,12 +137,13 @@ export function standing(s: GameState, now: number): { rank: number; behind: num
   return { rank: i + 1, behind: rows.length - 1 - i };
 }
 
-/** Output multiplier from the chart: +MARKET.rankBonus for each rival behind the player. */
-export const chartMultiplier = (s: GameState, now: number): number => (s.market.startedAt ? 1 + MARKET.rankBonus * standing(s, now).behind : 1);
+/** Output multiplier from the chart: +MARKET.rankBonus for each rival behind the player (acquired ones count as behind). */
+export const chartMultiplier = (s: GameState, now: number): number =>
+  s.market.startedAt ? 1 + MARKET.rankBonus * (standing(s, now).behind + s.market.acquired.length) : 1;
 
 /* ---------- the press ---------- */
 
-function headline(s: GameState, now: number, rng: Rng, text: string): Headline {
+export function headline(s: GameState, now: number, rng: Rng, text: string): Headline {
   const h: Headline = { at: now, outlet: pick(OUTLETS, rng), text };
   s.market.press = [h, ...s.market.press].slice(0, MARKET.pressKept);
   return h;
@@ -169,7 +180,8 @@ function settleChurn(s: GameState, now: number, regainShare: number): { lost: nu
   if (lost <= 0) return { lost: 0, regained: 0 };
   const target = churnTarget(s, now, m.users - lost);
   const regained = lost * regainShare;
-  m.absorbed[target.id] = (m.absorbed[target.id] ?? 0) + lost - regained;
+  // With every rival bought, drifting users just leave.
+  if (target) m.absorbed[target.id] = (m.absorbed[target.id] ?? 0) + lost - regained;
   m.users = m.users - lost + regained;
   return { lost, regained };
 }
@@ -199,7 +211,7 @@ export function marketOnShip(s: GameState, now: number, rng: Rng, review: number
 
   const headlines = [headline(s, now, rng, reviewHeadline(m.appName, version, review, tiny, rng))];
   if (stole) headlines.push(headline(s, now, rng, `${m.appName} beats ${stole.name} to launch, stealing the headline`));
-  const overtook = RIVALS.filter((r) => !m.passed.includes(r.id) && rivalUsers(s, r, now) < m.users);
+  const overtook = rivalsInChart(s).filter((r) => !m.passed.includes(r.id) && rivalUsers(s, r, now) < m.users);
   for (const r of overtook) {
     m.passed.push(r.id);
     for (let i = 0; i < MARKET.overtakeScripts; i++) grantScript(s, randomScript(rng));
@@ -257,13 +269,15 @@ export function updateMarket(s: GameState, now: number, rng: Rng, canSpawn: bool
     }
   } else if (!m.launch && canSpawn && now >= m.nextLaunchAt) {
     const r = churnTarget(s, now, usersNow(s));
-    m.launch = { rival: r.id, endsAt: now + MARKET.launch.warningMs };
-    news.push({ kind: 'launch', rival: r, endsAt: m.launch.endsAt, headline: headline(s, now, rng, `${r.name} teases a big ${r.app} launch`) });
+    if (r) {
+      m.launch = { rival: r.id, endsAt: now + MARKET.launch.warningMs };
+      news.push({ kind: 'launch', rival: r, endsAt: m.launch.endsAt, headline: headline(s, now, rng, `${r.name} teases a big ${r.app} launch`) });
+    } else m.nextLaunchAt = nextLaunch(now, rng);
   }
 
   const rows = chart(s, now);
   const rank = rows.findIndex((r) => r.you) + 1;
-  if (m.rank && rank > m.rank) {
+  if (m.rank && rank > m.rank && rows[rank - 2]) {
     const passer = rows[rank - 2];
     news.push({ kind: 'overtaken', rival: passer.name, rank, headline: headline(s, now, rng, `${passer.name} passes ${m.appName} in the charts`) });
   }

@@ -1,10 +1,12 @@
 import type { Game } from '../../core/game';
 import type { Tab } from '../../core/state';
+import { issuesHelp } from './issues';
 import { majorHelp } from './major';
 import { marketHelp } from './market';
 import { autoHelp, dotfilesHelp, roundHelp, shipHelp } from './ship';
 import { sprintsHelp } from './sprints';
 import { teamHelp } from './team';
+import { testsHelp } from './tests';
 import { todoHelp } from './todo';
 import { upgradesHelp } from './upgrades';
 
@@ -17,6 +19,10 @@ export function helpFor(game: Game, tab: Tab): string | null {
       return sprintsHelp();
     case 'todo':
       return todoHelp();
+    case 'tests':
+      return testsHelp();
+    case 'issues':
+      return issuesHelp();
     case 'ship':
       return shipHelp();
     case 'dotfiles':

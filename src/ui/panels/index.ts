@@ -1,4 +1,4 @@
-import type { ChallengeId, EffectId, ForkId, IncidentKind, ProjectId, RoleId, WorkflowId } from '../../core/content';
+import type { ChallengeId, EffectId, ForkId, ForkPolicy, IncidentKind, LanguageId, ProjectId, RoleId, WorkflowId } from '../../core/content';
 import type { DevAction } from '../../core/dev';
 import type { Game, UnlockTab } from '../../core/game';
 import { challengeReady } from '../../core/major';
@@ -6,8 +6,9 @@ import { nextProjects } from '../../core/ship';
 import { workflowOn } from '../../core/workflows';
 import type { BuyAmount, Notation, Skin, Tab } from '../../core/state';
 import { esc, setText } from '../dom';
-import { GROUPS, TAB_LABEL, groupBadge, groupOf, groupVisible, questKey, tabBadge, tabState, type Badge, type Group, type Seen } from '../nav';
+import { GROUPS, groupBadge, groupOf, groupVisible, questKey, tabBadge, tabLabel, tabState, type Badge, type Group, type Seen } from '../nav';
 import { OWN_HELP_LINK, helpFor } from './help';
+import { issuesKey, refreshIssues, renderIssues } from './issues';
 import { mailKey, renderMail, type MailView } from './mail';
 import { refreshMajor, renderMajor } from './major';
 import { manKey, renderMan } from './man';
@@ -30,6 +31,7 @@ import {
 import { refreshSprints, renderSprints, sprintsKey } from './sprints';
 import { refreshStats, renderStats, statsKey } from './stats';
 import { refreshTeam, renderTeam, teamKey } from './team';
+import { refreshTests, renderTests, testsKey } from './tests';
 import { refreshTodo, renderTodo, todoKey } from './todo';
 import { refreshTrophies, renderTrophies, trophiesKey } from './trophies';
 import { refreshUpgrades, renderUpgrades, visibilityKey } from './upgrades';
@@ -76,6 +78,8 @@ export class Panels {
   private armedAction: string | null = null;
   private actionTimer = 0;
   private project: ProjectId = 'webapp';
+  /** The stack picked for the next run (a round or a major version); null for this run's. */
+  private stack: LanguageId | null = null;
   private readonly mailView: MailView = { openMail: null };
   private openMan: string | null = null;
   private duckLine = '';
@@ -186,13 +190,15 @@ export class Panels {
       tab === 'upgrades' ? renderUpgrades(g, { openFork: this.openFork, help: this.help.has('upgrades') })
       : tab === 'sprints' ? renderSprints(g)
       : tab === 'todo' ? renderTodo(g)
+      : tab === 'tests' ? renderTests(g)
       : tab === 'ship' ? renderShip(g, this.shipView())
       : tab === 'dotfiles' ? renderDotfiles(g)
       : tab === 'auto' ? renderAuto(g)
-      : tab === 'major' ? renderMajor(g, this.armedAction)
-      : tab === 'round' ? renderRound(g)
+      : tab === 'major' ? renderMajor(g, this.armedAction, this.stack)
+      : tab === 'round' ? renderRound(g, this.stack)
       : tab === 'team' ? renderTeam(g, this.letGoArmed)
       : tab === 'mail' ? renderMail(g, this.mailView)
+      : tab === 'issues' ? renderIssues(g)
       : tab === 'market' ? renderMarket(g, this.fullChart)
       : tab === 'man' ? renderMan(g, this.openMan)
       : tab === 'trophies' ? renderTrophies(g, this.hideEarned)
@@ -222,7 +228,7 @@ export class Panels {
     const tab = s.settings.tab;
     const tabs = GROUPS.find((g) => g.id === groupOf(tab))!.tabs.filter((t) => tabState(s, t) !== 'hidden');
     const hasHelp = helpFor(this.game, tab) !== null && !OWN_HELP_LINK.has(tab);
-    const key = `${tabs.map((t) => `${t}${tabState(s, t)}${+this.fresh.has(t)}`).join(',')}|${tab}|${hasHelp}|${this.help.has(tab)}`;
+    const key = `${tabs.map((t) => `${t}${tabState(s, t)}${+this.fresh.has(t)}${tabLabel(s, t)}`).join(',')}|${tab}|${hasHelp}|${this.help.has(tab)}`;
     if (key === this.subKey) return;
     this.subKey = key;
     // A window with one panel and nothing to explain (pkgs keeps its `?` in the npm install line) has no row.
@@ -232,7 +238,7 @@ export class Panels {
       tabs
         .map((t) => {
           const cls = [tabState(s, t) === 'locked' ? 'lk' : '', this.fresh.has(t) ? 'new' : ''].filter(Boolean).join(' ');
-          return `<button role="tab" data-tab="${t}" aria-selected="${t === tab}"${cls ? ` class="${cls}"` : ''}>${esc(TAB_LABEL[t])}<span class="bd" data-bd="${t}"></span></button>`;
+          return `<button role="tab" data-tab="${t}" aria-selected="${t === tab}"${cls ? ` class="${cls}"` : ''}>${esc(tabLabel(s, t))}<span class="bd" data-bd="${t}"></span></button>`;
         })
         .join('') +
       '<span class="fill"></span>' +
@@ -280,6 +286,10 @@ export class Panels {
         return sprintsKey(g);
       case 'todo':
         return todoKey(g);
+      case 'tests':
+        return testsKey(g);
+      case 'issues':
+        return issuesKey(g);
       case 'ship':
         return shipKey(g);
       case 'dotfiles':
@@ -301,7 +311,7 @@ export class Panels {
       case 'stats':
         return statsKey(g);
       case 'major':
-        return `${s.major}|${!!s.challenge}|${s.challengesDone.length}|${challengeReady(s)}|${s.round}|${s.unlocked.major}`;
+        return `${s.major}|${!!s.challenge}|${Object.values(s.challengeLevels).join(',')}|${challengeReady(s)}|${s.round}|${s.unlocked.major}|${s.stats.majors}|${s.market.acquired.length}`;
       default:
         return '';
     }
@@ -325,11 +335,13 @@ export class Panels {
     if (tab === 'upgrades') refreshUpgrades(g, this.root, this.duckLine);
     else if (tab === 'sprints') refreshSprints(g, this.root);
     else if (tab === 'todo') refreshTodo(g, this.root);
+    else if (tab === 'tests') refreshTests(g, this.root);
+    else if (tab === 'issues') refreshIssues(g, this.root);
     else if (tab === 'ship') refreshShip(g, this.root, this.shipView());
     else if (tab === 'dotfiles') refreshDotfiles(g, this.root);
-    else if (tab === 'round') refreshRound(g, this.root, this.raiseArmed);
+    else if (tab === 'round') refreshRound(g, this.root, this.raiseArmed, this.stack);
     else if (tab === 'team') refreshTeam(g, this.root);
-    else if (tab === 'major') refreshMajor(g, this.root, this.armedAction);
+    else if (tab === 'major') refreshMajor(g, this.root, this.armedAction, this.stack);
     else if (tab === 'market') refreshMarket(g, this.root, this.fullChart);
     else if (tab === 'stats') refreshStats(g, this.root);
     else if (tab === 'trophies') refreshTrophies(g, this.root);
@@ -389,10 +401,15 @@ export class Panels {
       this.show(d.goto as Tab, d.page);
     } else if ('help' in d) {
       this.toggleHelp();
+    } else if (d.stack) {
+      this.stack = d.stack as LanguageId;
+      this.render();
     } else if ('raise' in d) {
       if (this.raiseArmed) {
         this.disarmRaise();
-        this.game.raise();
+        const stack = this.stack ?? undefined;
+        this.stack = null;
+        this.game.raise(stack);
       } else {
         this.raiseArmed = true;
         this.raiseTimer = window.setTimeout(() => this.disarmRaise(), ARM_MS);
@@ -401,7 +418,9 @@ export class Panels {
     } else if ('major' in d) {
       if (this.armedAction === 'major') {
         this.disarmAction(false);
-        this.game.cutMajor();
+        const stack = this.stack ?? undefined;
+        this.stack = null;
+        this.game.cutMajor(stack);
       } else this.armAction('major');
     } else if (d.challenge) {
       const key = `challenge:${d.challenge}`;
@@ -420,6 +439,15 @@ export class Panels {
     } else if (d.autoship) {
       this.game.setAutoShipAt(Number(d.autoship));
       this.done();
+    } else if (d.forkpolicy) {
+      this.game.setForkPolicy(d.forkpolicy as ForkPolicy);
+      this.done();
+    } else if (d.budget !== undefined) {
+      if (this.game.setTestBudget(Number(d.budget))) this.done();
+    } else if ('triage' in d) {
+      if (this.game.triage()) this.done();
+    } else if (d.acquire) {
+      if (this.game.acquire(d.acquire)) this.done();
     } else if (d.buyco) {
       if (this.game.buyCompanyPerk(d.buyco)) this.done();
     } else if ('hire' in d) {

@@ -156,9 +156,9 @@ export interface SprintTier {
 
 /** The backlog always holds one ticket per tier: quick, standard, and a long one that always drops a script. */
 export const SPRINT_TIERS: readonly SprintTier[] = [
-  { durationS: 20, difficulty: 0.7, rewardMultiplier: 1.6, scriptChance: 0.25, cooldownS: 60 },
-  { durationS: 40, difficulty: 1.1, rewardMultiplier: 2.2, scriptChance: 0.5, cooldownS: 150 },
-  { durationS: 75, difficulty: 1.5, rewardMultiplier: 3, scriptChance: 1, cooldownS: 420 },
+  { durationS: 20, difficulty: 0.7, rewardMultiplier: 1, scriptChance: 0.25, cooldownS: 60 },
+  { durationS: 40, difficulty: 1.1, rewardMultiplier: 1.4, scriptChance: 0.5, cooldownS: 150 },
+  { durationS: 75, difficulty: 1.5, rewardMultiplier: 1.9, scriptChance: 1, cooldownS: 420 },
 ];
 export const ASSUMED_TAPS_PER_SECOND = 4;
 /** Required taps per second at or below which a ticket counts as relaxed, and above which it counts as crunch. */
@@ -326,11 +326,11 @@ export interface ProjectDef {
 
 export const PROJECTS: readonly ProjectDef[] = [
   { id: 'webapp', name: 'Web app', dir: 'web-app', blurb: 'The usual.', rules: ['no special rules'], minRelease: 1 },
-  { id: 'cli', name: 'CLI tool', dir: 'cli-tool', blurb: 'One developer, one terminal.', rules: ['no automation', 'x4 per tap', '+50% stars'], minRelease: 2, autoMul: 0, tapMul: 4, starMul: 1.5 },
-  { id: 'enterprise', name: 'Enterprise suite', dir: 'enterprise-suite', blurb: 'Meetings about meetings.', rules: ['x3 automation', 'half the lines per tap', 'packages cost 20% more'], minRelease: 2, autoMul: 3, tapMul: 0.5, costMul: 1.2 },
+  { id: 'cli', name: 'CLI tool', dir: 'cli-tool', blurb: 'One developer, one terminal.', rules: ['no automation', 'x2 per tap', '+25% stars'], minRelease: 2, autoMul: 0, tapMul: 2, starMul: 1.25 },
+  { id: 'enterprise', name: 'Enterprise suite', dir: 'enterprise-suite', blurb: 'Meetings about meetings.', rules: ['x3 automation', 'x0.6 per tap', 'packages cost 20% more'], minRelease: 2, autoMul: 3, tapMul: 0.6, costMul: 1.2 },
   { id: 'game', name: 'Game engine', dir: 'game-engine', blurb: 'Crunch is a lifestyle.', rules: ['x3 sprint rewards', 'sprints are 25% shorter', '+25% stars'], minRelease: 3, sprintRewardMul: 3, sprintTimeMul: 0.75, starMul: 1.25 },
-  { id: 'startup', name: 'Startup MVP', dir: 'startup-mvp', blurb: 'Move fast, break things.', rules: ['x2 everything', 'tech debt builds three times as fast', 'incidents twice as often'], minRelease: 3, tapMul: 2, autoMul: 2, debtMul: 3, incidentGapMul: 0.5 },
-  { id: 'os', name: 'Operating system', dir: 'kernel', blurb: 'Everything is a file. Every file has bugs.', rules: ['bugs three times as often', 'x5 bug rewards', 'tech debt builds twice as fast', '+25% stars'], minRelease: 4, bugGapMul: 1 / 3, bugRewardMul: 5, debtMul: 2, starMul: 1.25 },
+  { id: 'startup', name: 'Startup MVP', dir: 'startup-mvp', blurb: 'Move fast, break things.', rules: ['x1.5 everything', 'tech debt builds three times as fast', 'incidents twice as often'], minRelease: 3, tapMul: 1.5, autoMul: 1.5, debtMul: 3, incidentGapMul: 0.5 },
+  { id: 'os', name: 'Operating system', dir: 'kernel', blurb: 'Everything is a file. Every file has bugs.', rules: ['bugs twice as often', 'x3 bug rewards', 'tech debt builds twice as fast', '+25% stars'], minRelease: 4, bugGapMul: 1 / 2, bugRewardMul: 3, debtMul: 2, starMul: 1.25 },
 ];
 
 /* ---------- the team ---------- */
@@ -457,19 +457,38 @@ export const BOSS = {
 
 export const ROUNDS: readonly string[] = ['Bootstrapped', 'Seed', 'Series A', 'Series B', 'Series C', 'IPO'];
 
-/** The editor writes a different language each funding round. */
-export type LanguageId = 'ts' | 'rs' | 'go' | 'py';
+/** The language a run is written in: the stack, picked at every funding round and major version. */
+export type LanguageId = 'ts' | 'rs' | 'go' | 'py' | 'hs' | 'cob';
 
-export const LANGUAGES: readonly { id: LanguageId; name: string }[] = [
-  { id: 'ts', name: 'TypeScript' },
-  { id: 'rs', name: 'Rust' },
-  { id: 'go', name: 'Go' },
-  { id: 'py', name: 'Python' },
+export interface StackDef {
+  id: LanguageId;
+  name: string;
+  blurb: string;
+  rules: string[];
+  mods: Partial<Mods>;
+  /** How a locked stack unlocks, shown while it's locked. */
+  hint?: string;
+}
+
+/**
+ * Stacks: each run (from one funding round or major version to the next) is written in one, with its own trade-off.
+ * The first run is TypeScript; the new CTO lets you pick at every round, and every major version is a rewrite too.
+ */
+export const STACKS: readonly StackDef[] = [
+  { id: 'ts', name: 'TypeScript', blurb: 'The safe choice.', rules: ['no special rules'], mods: {} },
+  { id: 'py', name: 'Python', blurb: 'Batteries included. Debt included.', rules: ['x1.4 per tap', 'packages cost 15% less', 'tech debt builds 50% faster'], mods: { tapMul: 1.4, costMul: 0.85, debtMul: 1.5 } },
+  { id: 'go', name: 'Go', blurb: 'Boring, on purpose.', rules: ['x1.75 automation', 'x0.75 per tap', 'tech debt builds 25% slower'], mods: { autoMul: 1.75, tapMul: 0.75, debtMul: 0.75 } },
+  { id: 'rs', name: 'Rust', blurb: 'Fearless, eventually.', rules: ['+10% critical tap chance', 'tech debt builds half as fast', 'packages cost 25% more'], mods: { critAdd: 0.1, debtMul: 0.5, costMul: 1.25 } },
+  { id: 'hs', name: 'Haskell', blurb: 'If it compiles, it works.', rules: ['test coverage counts double', '+25% stars from shipping', 'x0.6 per tap'], mods: { coverageMul: 2, starGain: 1.25, tapMul: 0.6 }, hint: 'cut your first major version' },
+  { id: 'cob', name: 'COBOL', blurb: 'Runs the banks. Runs forever.', rules: ['x3 automation', 'users drift half as fast', 'x0.25 per tap'], mods: { autoMul: 3, churnMul: 0.5, tapMul: 0.25 }, hint: 'acquire Legacy Systems Inc' },
 ];
+
+/** The editor's languages in the order the old rotation used (round 1 Rust, 2 Go, 3 Python), for saves from before stacks. */
+export const LANGUAGES: readonly LanguageId[] = ['ts', 'rs', 'go', 'py'];
 
 export const FUNDING = {
   /** Stars needed to raise each round. */
-  starsPerRound: [150, 2_000, 60_000, 1_500_000, 20_000_000],
+  starsPerRound: [200, 3_500, 120_000, 4_000_000, 70_000_000],
   /** Each round raised multiplies all output by this. */
   outputPerRound: 3,
   maxRounds: ROUNDS.length - 1,
@@ -520,7 +539,7 @@ export const UNLOCKS = {
 
 /* ---------- workflows: automation earned by shipping ---------- */
 
-export type WorkflowId = 'deps' | 'devdeps' | 'scripts' | 'release';
+export type WorkflowId = 'deps' | 'devdeps' | 'scripts' | 'release' | 'forks' | 'standup' | 'dotfiles' | 'pager' | 'triage';
 
 export interface WorkflowDef {
   id: WorkflowId;
@@ -528,16 +547,29 @@ export interface WorkflowDef {
   file: string;
   summary: string;
   /** Releases shipped in total before it unlocks. Unlocked workflows start switched on. */
-  releases: number;
+  releases?: number;
+  /** Or: unlocked by clearing this challenge release once. */
+  challenge?: ChallengeId;
 }
 
-/** Bugs and coffee are left to the team (on-call and bug duty roles). */
+/**
+ * The first four are earned by shipping; the rest are the rewards for clearing each challenge release once, automating
+ * what you've shown you can do by hand. Bugs and coffee are left to the team (on-call and bug duty roles).
+ */
 export const WORKFLOWS: readonly WorkflowDef[] = [
   { id: 'deps', file: 'deps.yml', summary: 'installs automation packages for you, best value first', releases: 2 },
   { id: 'devdeps', file: 'dev-deps.yml', summary: 'installs typing packages for you, best value first', releases: 4 },
   { id: 'scripts', file: 'scripts.yml', summary: 'runs each ~/bin script as soon as the last one ends', releases: 6 },
-  { id: 'release', file: 'release.yml', summary: 'ships for you, as the same project, once a release would grow stars by the amount you pick', releases: 15 },
+  { id: 'release', file: 'release.yml', summary: 'ships for you, as the project you last picked, once a release would grow stars by the amount you pick', releases: 15 },
+  { id: 'forks', file: 'forks.yml', summary: 'picks package upgrades for you, by the policy you set', challenge: 'legacy' },
+  { id: 'standup', file: 'standup.yml', summary: 'starts the biggest sprint you can finish whenever none is running', challenge: 'solo' },
+  { id: 'dotfiles', file: 'dotfiles.yml', summary: 'buys the cheapest dotfile you can afford', challenge: 'clean' },
+  { id: 'pager', file: 'pager.yml', summary: 'fixes outages and resolves merge conflicts for you', challenge: 'keyboard' },
+  { id: 'triage', file: 'triage.yml', summary: 'closes user issues for you as they come in', challenge: 'cidown' },
 ];
+
+/** forks.yml: always the major rewrite, or always the other option (the plugin ecosystem or the LTS build). */
+export type ForkPolicy = 'major' | 'alt';
 
 export const AUTOMATION = {
   /** At most this many packages auto-installed per tick. */
@@ -589,6 +621,12 @@ export interface Mods {
   maxTier: number;
   /** False while dotfiles have no effect. */
   dotfiles: boolean;
+  /** Multiplies how fast tech debt builds. */
+  debtMul: number;
+  /** Multiplies test coverage. */
+  coverageMul: number;
+  /** Multiplies how fast users drift to rivals. */
+  churnMul: number;
 }
 
 export interface SkillDef {
@@ -640,8 +678,14 @@ export const CHALLENGES: readonly ChallengeDef[] = [
 export const CHALLENGE = {
   /** The goal: a release that grows this run's star curve by this fraction, about twice the lines shipped so far this run. */
   goalGain: 0.25,
+  /** Each clear of a challenge raises its next goal by this much more. */
+  goalStep: 0.1,
   /** Challenges can start once this run's star curve (before bonuses) reaches this, so they can't be done on an empty codebase. */
   minCurve: 20,
+  /** A challenge can be cleared this many times. The first clear pays its reward and a workflow... */
+  maxLevel: 5,
+  /** ...and each clear after that adds this share of the reward again (level 5: twice the first clear's reward). */
+  repeatStrength: 0.25,
 };
 
 /* ---------- the market: reviews, users and rival companies ---------- */
@@ -705,3 +749,72 @@ export const RIVALS: readonly RivalDef[] = [
 
 /** Made-up outlets for the press feed. */
 export const OUTLETS: readonly string[] = ['The Daily Diff', 'Hacker Feed', 'Stack Trace Times', '/dev/news', 'Byte Beat', 'Ship Report', 'The Merge Request'];
+
+/* ---------- the test suite: release quality ---------- */
+
+export const TESTS = {
+  /** The panel opens once this many releases have shipped in all. */
+  unlockShips: 3,
+  /** The share of written code that can go to tests instead (lines for tests don't count toward stars or spending). */
+  budgets: [0, 0.1, 0.2, 0.3] as readonly number[],
+  /** Coverage = the share of this release's code written as tests × leverage (a line of tests covers three of code). */
+  leverage: 3,
+  /** A release's review gains up to this at full coverage. */
+  reviewBonus: 1,
+  /** Tech debt builds up to this much slower at full coverage. */
+  debtCut: 0.5,
+};
+
+/* ---------- user issues: a queue that fills over an hour ---------- */
+
+export type IssueKind = 'bug' | 'feature' | 'support';
+
+export const ISSUES = {
+  /** The queue opens once the app has had this many users. */
+  unlockUsers: 250_000,
+  /** Users file an issue every this many minutes, playing or away... */
+  everyMinutes: 5,
+  /** ...until this many are open: then nobody waits for an answer, and nothing more is filed. */
+  max: 12,
+  /** Closing each pays this many seconds of typical output... */
+  seconds: { bug: 45, feature: 20, support: 20 } as Record<IssueKind, number>,
+  /** ...a bug report also pays off tech debt... */
+  bugDebt: -2,
+  /** ...a feature request adds to the next release's review (up to featureCap in all)... */
+  featureReview: 0.1,
+  featureCap: 0.5,
+  /** ...and a support ticket keeps this share of the users. */
+  supportUsers: 0.005,
+};
+
+/* ---------- after the IPO: quarters and acquisitions ---------- */
+
+export const CORP = {
+  /** A quarter lasts this many minutes of play. Time away doesn't run the clock (its revenue still comes in, at the offline rate). */
+  quarterMinutes: 20,
+  /** Revenue per user per quarter ($1 a month). */
+  revenuePerUser: 3,
+  /** The board's guidance for the first quarter: this share of what the users at the IPO would bring in. */
+  firstGuidance: 0.9,
+  /**
+   * The board's guidance for the next quarter: the quarter just reported (or what the users at its end would bring in,
+   * if that's more) × growth, plus streakStep for every quarter beaten in a row, up to streakCap. A miss resets the streak.
+   */
+  growth: 1.15,
+  streakStep: 0.1,
+  streakCap: 0.6,
+  /** Each quarter beaten adds this to all output, for good (analyst upgrades). */
+  beatBonus: 0.05,
+  /** The stock moves by the surprise (revenue against guidance), within these limits. It starts at 100. */
+  stockFloor: -0.3,
+  stockCap: 0.5,
+  /** A rival costs this much per user, times acquireGrowth for each rival bought before, paid partly in stock: cheaper as it rises. */
+  pricePerUser: 30,
+  acquireGrowth: 2.2,
+  /** Users of an acquired rival who stay. */
+  keepUsers: 0.5,
+  /** Each rival acquired adds this to all output, for good, and still counts as behind you in the chart. */
+  acquireBonus: 0.25,
+  /** Quarterly reports kept. */
+  reportsKept: 8,
+};

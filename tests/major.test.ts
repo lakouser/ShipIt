@@ -1,11 +1,12 @@
 import { describe, expect, it } from 'vitest';
-import { FUNDING, MAJOR } from '../src/core/content';
+import { CHALLENGE, FUNDING, MAJOR } from '../src/core/content';
 import { perSecond, perTap } from '../src/core/economy';
 import { challengeGoal, starsForNextXp, xpAvailable, xpForStars } from '../src/core/major';
 import { mods } from '../src/core/mods';
 import { D } from '../src/core/num';
 import { deserialize, serialize } from '../src/core/save';
 import { linesForStars, starsAvailable } from '../src/core/ship';
+import { workflowOn } from '../src/core/workflows';
 import { testGame } from './helpers';
 
 const K = MAJOR.starsPerXp;
@@ -17,7 +18,7 @@ describe('versions', () => {
     expect(t.game.ship()?.version).toBe('0.1');
     expect(t.state.releaseLog[0].version).toBe('0.1');
     expect([t.state.major, t.state.minor, t.state.release, t.state.stats.ships]).toEqual([0, 1, 2, 1]);
-    t.state.stars = 150;
+    t.state.stars = FUNDING.starsPerRound[0];
     t.game.raise();
     expect([t.state.minor, t.state.release]).toEqual([1, 1]); // a round restarts releases, not the version
   });
@@ -157,14 +158,33 @@ describe('challenge releases', () => {
     const t = afterFirstMajor();
     t.game.startChallenge('cidown');
     t.state.thisRelease = t.state.challenge!.goal.sub(1);
-    expect(t.game.ship()?.challenge).toEqual({ id: 'cidown', done: false });
+    expect(t.game.ship()?.challenge).toMatchObject({ id: 'cidown', done: false, level: 0, first: false });
     expect(t.state.challengesDone).toEqual([]);
     t.game.startChallenge('cidown');
     t.state.thisRelease = t.state.challenge!.goal;
-    expect(t.game.ship()?.challenge).toEqual({ id: 'cidown', done: true });
+    expect(t.game.ship()?.challenge).toMatchObject({ id: 'cidown', done: true, level: 1, first: true });
     expect(t.state.challengesDone).toEqual(['cidown']);
     expect(mods(t.state).autoMul).toBe(1.5);
-    expect(t.game.startChallenge('cidown')).toBe(false);
+    expect(workflowOn(t.state, 'triage')).toBe(true); // the first clear's workflow
+  });
+
+  it('can be cleared again, up to five times, each clear asking for more and paying a little more', () => {
+    const t = afterFirstMajor();
+    const goals: number[] = [];
+    for (let level = 1; level <= CHALLENGE.maxLevel; level++) {
+      expect(t.game.startChallenge('cidown')).toBe(true);
+      goals.push(t.state.challenge!.goal.toNumber());
+      t.state.thisRelease = t.state.challenge!.goal;
+      t.advance(60_000 * (10 - level)); // each clear a minute faster
+      const r = t.game.ship()!;
+      expect(r.challenge).toMatchObject({ level, first: level === 1, record: true });
+    }
+    // The run's curve grows with each ship, and each clear asks for more on top.
+    expect(goals.every((g, i) => i === 0 || g > goals[i - 1])).toBe(true);
+    expect(t.state.challengeLevels.cidown).toBe(5);
+    expect(t.state.challengeBest.cidown).toBe(5 * 60);
+    expect(mods(t.state).autoMul).toBeCloseTo(2); // x1.5, then +25% of that per clear: x2 at five
+    expect(t.game.startChallenge('cidown')).toBe(false); // done for good
   });
 
   it('Solo dev hides the later packages; Clean install switches dotfiles off without losing them', () => {

@@ -151,7 +151,7 @@ describe('funding rounds', () => {
       s.market.startedAt = 1;
       s.market.lastUpdateAt = 1_000_000;
       s.market.users = 100_000;
-      s.stars = 150;
+      s.stars = FUNDING.starsPerRound[0];
       s.shipped = D(1e12);
     });
     const list = events(t);

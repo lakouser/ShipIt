@@ -1,4 +1,5 @@
-import { BOSS_KINDS, CHALLENGES, DEBT, FUNDING, PROJECTS, RIVALS, UPGRADES, WORKFLOWS } from './content';
+import { BOSS_KINDS, CHALLENGE, CHALLENGES, DEBT, FUNDING, PROJECTS, RIVALS, UPGRADES } from './content';
+import { lastShippingWorkflow } from './workflows';
 import { isUpgradeAvailable, owned, teamSlots } from './economy';
 import { perSecond, perTap } from './economy';
 import { PERKS } from './content';
@@ -82,7 +83,7 @@ export const ACHIEVEMENTS: readonly AchievementDef[] = [
   { id: 'stars10k', name: 'Awesome list', description: 'Earn 10,000 stars in total', unlocked: (s) => s.stats.starsEarned >= 1e4 },
   { id: 'stars1m', name: 'Most starred', description: 'Earn 1,000,000 stars in total', unlocked: (s) => s.stats.starsEarned >= 1e6 },
   { id: 'roadmap10', name: 'Roadmap delivered', description: 'Complete 10 release milestones', unlocked: (s) => s.stats.milestones >= 10 },
-  { id: 'pipeline', name: 'Everything is a pipeline', description: 'Unlock every workflow', unlocked: (s) => s.stats.ships >= WORKFLOWS[WORKFLOWS.length - 1].releases },
+  { id: 'pipeline', name: 'Everything is a pipeline', description: 'Unlock every workflow earned by shipping', unlocked: (s) => s.stats.ships >= lastShippingWorkflow() },
   { id: 'autoship', name: 'Release on green', description: 'Let release.yml ship a release', unlocked: (s) => s.stats.autoShips >= 1 },
   { id: 'zsh', name: 'Oh my zsh', description: 'Buy a level of .zshrc', unlocked: (s) => (s.perks.zshrc ?? 0) >= 1 },
   { id: 'semver', name: 'Semantic versioning', description: 'Cut v1.0, your first major version', unlocked: (s) => s.major >= 1 },
@@ -119,6 +120,17 @@ export const ACHIEVEMENTS: readonly AchievementDef[] = [
   { id: 'raise', name: 'Term sheet', description: 'Raise a funding round', unlocked: (s) => s.round >= 1 },
   { id: 'ipo', name: 'Ring the bell', description: 'Take the company public', unlocked: (s) => s.round >= FUNDING.maxRounds },
   { id: 'replyall', name: 'Reply all', description: 'Answer 10 emails', unlocked: (s) => s.stats.mailAnswered >= 10 },
+  // tests, issues, stacks, challenges, the public company
+  { id: 'tdd', name: 'Test-driven', description: 'Ship a release with 50% test coverage', unlocked: (s) => s.releaseLog.some((r) => (r.coverage ?? 0) >= 0.5) },
+  { id: 'fullcov', name: '100% coverage', description: 'Ship a release with every line covered', unlocked: (s) => s.releaseLog.some((r) => (r.coverage ?? 0) >= 1) },
+  { id: 'caught', name: 'Caught in CI', description: 'Let the tests catch 25 bugs', unlocked: (s) => s.stats.testsCaught >= 25 },
+  { id: 'triage', name: 'Triage', description: 'Close 100 user issues', unlocked: (s) => s.stats.issuesClosed >= 100 },
+  { id: 'polyglot', name: 'Polyglot', description: 'Write a run in four different stacks', unlocked: (s) => s.stacksUsed.length >= 4 },
+  { id: 'mastered', name: 'Mastered', description: 'Clear a challenge release five times', unlocked: (s) => Object.values(s.challengeLevels).some((l) => (l ?? 0) >= CHALLENGE.maxLevel) },
+  { id: 'beat', name: 'Beat and raise', description: 'Beat a quarter\'s guidance', unlocked: (s) => s.corp.beats >= 1 },
+  { id: 'streak4', name: 'Four in a row', description: 'Beat guidance four quarters in a row', unlocked: (s) => s.corp.streak >= 4 },
+  { id: 'acquihire', name: 'Acqui-hire', description: 'Acquire a rival company', unlocked: (s) => s.stats.acquisitions >= 1 },
+  { id: 'monopoly', name: 'Monopoly', description: 'Acquire every rival company', unlocked: (s) => s.market.acquired.length >= RIVALS.length },
   { id: 'rtfm', name: 'RTFM', description: 'Read 5 man pages', unlocked: (s) => s.manRead.length >= 5 },
   // secrets
   { id: 'sudo', name: 'sudo make me a sandwich', description: 'Type sudo on a keyboard', secret: true, unlocked: (s) => !!s.flags.sudo },
@@ -127,6 +139,7 @@ export const ACHIEVEMENTS: readonly AchievementDef[] = [
   { id: 'backup', name: 'Backup strategy', description: 'Export your save', secret: true, unlocked: (s) => !!s.flags.exported },
   { id: 'quack', name: 'Rubber duck debugging', description: 'Talk to the duck 10 times', secret: true, unlocked: (s) => s.stats.duckPokes >= 10 },
   { id: 'grass', name: 'Touch grass', description: 'Come back after 2 hours away', secret: true, unlocked: (s) => !!s.flags.touchGrass },
+  { id: 'cobol', name: 'Legacy code', description: 'Write a run in COBOL', secret: true, unlocked: (s) => s.stacksUsed.includes('cob') },
 ];
 
 /** How far along a countable achievement is, as [done, needed], for the trophies list. */
@@ -144,7 +157,7 @@ export const ACHIEVEMENT_PROGRESS: Record<string, Progress> = {
   velocity: stat('sprints', 10), scrum: stat('sprints', 50),
   kiddie: stat('scriptsRun', 25), inbox: stat('quests', 10), roadmap10: stat('milestones', 10),
   lts: stat('ships', 10), releases25: stat('ships', 25), releases100: stat('ships', 100),
-  pipeline: stat('ships', WORKFLOWS[WORKFLOWS.length - 1].releases),
+  pipeline: (s) => [s.stats.ships, lastShippingWorkflow()],
   stars500: stat('starsEarned', 500), stars10k: stat('starsEarned', 1e4), stars1m: stat('starsEarned', 1e6),
   stars10: (s) => [s.stars, 10], stars50: (s) => [s.stars, 50],
   breaking: (s) => [s.major, 3], majorleague: (s) => [s.major, 10],
@@ -158,6 +171,9 @@ export const ACHIEVEMENT_PROGRESS: Record<string, Progress> = {
   portfolio: (s) => [PROJECTS.filter((p) => s.projectsShipped.includes(p.id)).length, PROJECTS.length],
   ipo: (s) => [s.round, FUNDING.maxRounds],
   replyall: stat('mailAnswered', 10), rtfm: (s) => [s.manRead.length, 5],
+  caught: stat('testsCaught', 25), triage: stat('issuesClosed', 100), polyglot: (s) => [s.stacksUsed.length, 4],
+  mastered: (s) => [Math.max(0, ...Object.values(s.challengeLevels).map((l) => l ?? 0)), CHALLENGE.maxLevel],
+  streak4: (s) => [s.corp.streak, 4], monopoly: (s) => [s.market.acquired.length, RIVALS.length],
 };
 
 /** Marks newly earned achievements on the state and returns them. */

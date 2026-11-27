@@ -1,4 +1,4 @@
-import { AUTOMATION, BUGS, INCIDENTS, MARKET, type BossKind, type ChallengeId, type EffectId, type ForkId, type ProjectId, type RoleId, type TraitId, type WorkflowId } from './content';
+import { AUTOMATION, BUGS, INCIDENTS, MARKET, type BossKind, type ChallengeId, type EffectId, type ForkId, type ForkPolicy, type IssueKind, type LanguageId, type ProjectId, type RoleId, type TraitId, type WorkflowId } from './content';
 import { D, type Decimal } from './num';
 
 export type BuyAmount = 1 | 10 | 'max';
@@ -8,9 +8,9 @@ export type BuyAmount = 1 | 10 | 'max';
  * trophies, stats, settings).
  */
 export type Tab =
-  | 'upgrades' | 'sprints' | 'todo' | 'ship' | 'dotfiles' | 'auto' | 'major' | 'round'
-  | 'team' | 'mail' | 'market' | 'man' | 'trophies' | 'stats' | 'settings';
-export const TABS: readonly Tab[] = ['upgrades', 'sprints', 'todo', 'ship', 'dotfiles', 'auto', 'major', 'round', 'team', 'mail', 'market', 'man', 'trophies', 'stats', 'settings'];
+  | 'upgrades' | 'sprints' | 'todo' | 'tests' | 'ship' | 'dotfiles' | 'auto' | 'major' | 'round'
+  | 'team' | 'mail' | 'issues' | 'market' | 'man' | 'trophies' | 'stats' | 'settings';
+export const TABS: readonly Tab[] = ['upgrades', 'sprints', 'todo', 'tests', 'ship', 'dotfiles', 'auto', 'major', 'round', 'team', 'mail', 'issues', 'market', 'man', 'trophies', 'stats', 'settings'];
 export type Notation = 'suffix' | 'sci';
 export type Skin = 'pine' | 'phosphor' | 'amber' | 'paper';
 
@@ -67,6 +67,8 @@ export interface ReleaseEntry {
   at: number;
   /** Set when this was a major version: the XP it earned. */
   xp?: number;
+  /** Test coverage when it shipped (0–1), once the test suite is open. */
+  coverage?: number;
 }
 
 /** A press-feed headline. */
@@ -110,6 +112,52 @@ export interface MarketState {
   nextLaunchAt: number;
   press: Headline[];
   base: ReleaseCounters;
+  /** Rivals bought after the IPO: gone from the chart, still counted as behind you. */
+  acquired: string[];
+}
+
+/** A quarter's results. */
+export interface QuarterReport {
+  /** Quarters since the IPO, from 1. */
+  quarter: number;
+  revenue: number;
+  guidance: number;
+  beat: boolean;
+  /** The stock price after the report. */
+  stock: number;
+  at: number;
+}
+
+/** The public company: quarters, cash and the stock. Starts at the IPO; never reset. */
+export interface CorpState {
+  /** When the IPO happened (ms); 0 before it. */
+  ipoAt: number;
+  /** Set once the ending has been shown. */
+  endingSeen: boolean;
+  /** The quarter in progress (1 = the first after the IPO). */
+  quarter: number;
+  /** Seconds of play into the quarter, and its revenue so far. */
+  elapsed: number;
+  revenue: number;
+  /** What the board expects this quarter. */
+  guidance: number;
+  /** Cash to spend on acquisitions. */
+  cash: number;
+  stock: number;
+  /** Quarters beaten in all, and in a row right now. */
+  beats: number;
+  streak: number;
+  /** Newest first. */
+  reports: QuarterReport[];
+}
+
+/** Issues users filed and nobody has closed yet, and what closing them has done. */
+export interface IssueState {
+  open: IssueKind[];
+  /** When the next one is filed (ms); 0 until the queue opens. */
+  nextAt: number;
+  /** Review added to the next release by feature requests closed during this one. */
+  reviewBoost: number;
 }
 
 export type MilestoneTaskKind = 'lines' | 'owned' | 'sprints';
@@ -191,6 +239,10 @@ export interface Stats {
   challenges: number;
   steals: number;
   fiveStars: number;
+  /** Bugs the test suite caught before they escaped. */
+  testsCaught: number;
+  issuesClosed: number;
+  acquisitions: number;
 }
 
 export interface Settings {
@@ -245,10 +297,28 @@ export interface GameState {
   /** A challenge release in progress: its id and the lines it needs to count. */
   challenge: { id: ChallengeId; goal: Decimal } | null;
   challengesDone: ChallengeId[];
+  /** Times each challenge has been cleared (1 to CHALLENGE.maxLevel), and its fastest clear in seconds. */
+  challengeLevels: Partial<Record<ChallengeId, number>>;
+  challengeBest: Partial<Record<ChallengeId, number>>;
   /** Workflows the player switched off (unlocked ones are on unless listed here as false). */
   workflows: Partial<Record<WorkflowId, boolean>>;
   /** release.yml ships once a release would grow stars by this fraction. */
   autoShipAt: number;
+  /** forks.yml picks this upgrade. */
+  forkPolicy: ForkPolicy;
+  /** The project last picked by hand (null before any): release.yml ships as it when it's on offer. */
+  preferredProject: ProjectId | null;
+  /** The language this run is written in, and the ones it has been written in. */
+  stack: LanguageId;
+  stacksUsed: LanguageId[];
+  /** Share of written code that goes to tests (TESTS.budgets), and this release's test and code lines. */
+  testBudget: number;
+  tests: Decimal;
+  written: Decimal;
+  issues: IssueState;
+  corp: CorpState;
+  /** When this game began (ms), for the ending's summary. */
+  createdAt: number;
   market: MarketState;
   achievements: string[];
   flags: { crunch?: boolean; sudo?: boolean; rmrf?: boolean; nightOwl?: boolean; exported?: boolean; touchGrass?: boolean; bankrupt?: boolean };
@@ -274,7 +344,7 @@ export interface GameState {
   nextIncidentAt: number;
   /** activity: taps per day (YYYY-MM-DD), for the days kept. */
   streak: { lastDay: string; count: number; days: string[]; activity: Record<string, number> };
-  unlocked: { sprints: boolean; todo: boolean; ship: boolean; team: boolean; mail: boolean; major: boolean; market: boolean };
+  unlocked: { sprints: boolean; todo: boolean; ship: boolean; team: boolean; mail: boolean; major: boolean; market: boolean; tests: boolean; issues: boolean };
   /** Tech debt, 0 to DEBT.max. */
   debt: number;
   /** What this release is building. */
@@ -311,12 +381,19 @@ export const newStats = (): Stats => ({
   conflictsResolved: 0, scriptsRun: 0, quests: 0, milestones: 0, perksBought: 0, flowMaxed: 0, maxOfOne: 0,
   refactors: 0, forksChosen: 0, hires: 0, bossesBeaten: 0, bossesFailed: 0, mailAnswered: 0, duckPokes: 0,
   ships: 0, starsEarned: 0, autoShips: 0, majors: 0, challenges: 0, steals: 0, fiveStars: 0,
+  testsCaught: 0, issuesClosed: 0, acquisitions: 0,
 });
 
 export const newMarket = (): MarketState => ({
   appName: MARKET.defaultName, users: 0, quietMinutes: 0, peak: 0, lastUpdateAt: 0, startedAt: 0, reviews: [], absorbed: {}, passed: [], rank: 0,
-  staleNoticed: false, launch: null, nextLaunchAt: 0, press: [], base: { sprints: 0, bugs: 0, escaped: 0, incidents: 0 },
+  staleNoticed: false, launch: null, nextLaunchAt: 0, press: [], base: { sprints: 0, bugs: 0, escaped: 0, incidents: 0 }, acquired: [],
 });
+
+export const newCorp = (): CorpState => ({
+  ipoAt: 0, endingSeen: false, quarter: 0, elapsed: 0, revenue: 0, guidance: 0, cash: 0, stock: 100, beats: 0, streak: 0, reports: [],
+});
+
+export const newIssues = (): IssueState => ({ open: [], nextAt: 0, reviewBoost: 0 });
 
 export const defaultSettings = (): Settings => ({
   sound: false, haptics: true, reduceMotion: false, notation: 'suffix', skin: 'pine',
@@ -346,8 +423,20 @@ export function newGame(now: number): GameState {
     skills: {},
     challenge: null,
     challengesDone: [],
+    challengeLevels: {},
+    challengeBest: {},
     workflows: {},
     autoShipAt: AUTOMATION.shipAtDefault,
+    forkPolicy: 'alt',
+    preferredProject: null,
+    stack: 'ts',
+    stacksUsed: ['ts'],
+    testBudget: 0,
+    tests: D(0),
+    written: D(0),
+    issues: newIssues(),
+    corp: newCorp(),
+    createdAt: now,
     market: newMarket(),
     achievements: [],
     flags: {},
@@ -367,7 +456,7 @@ export function newGame(now: number): GameState {
     incident: null,
     nextIncidentAt: now + INCIDENTS.firstDelayMs,
     streak: { lastDay: '', count: 0, days: [], activity: {} },
-    unlocked: { sprints: false, todo: false, ship: false, team: false, mail: false, major: false, market: false },
+    unlocked: { sprints: false, todo: false, ship: false, team: false, mail: false, major: false, market: false, tests: false, issues: false },
     debt: 0,
     project: 'webapp',
     projectsShipped: [],

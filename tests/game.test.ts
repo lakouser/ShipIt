@@ -325,7 +325,7 @@ describe('ship', () => {
       s.project = 'cli';
       s.thisRelease = D(16_000_000);
     });
-    expect(starsAvailable(cli.state)).toBe(6); // 4 on the curve, +50% for a CLI tool
+    expect(starsAvailable(cli.state)).toBe(5); // 4 on the curve, +25% for a CLI tool
     const t = testGame((s) => (s.shipped = D(16_000_000)));
     expect(linesForStars(t.state, 0).toNumber()).toBe(0);
     for (let n = 1; n <= 6; n++) {

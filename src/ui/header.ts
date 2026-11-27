@@ -2,6 +2,7 @@ import { careerTitle } from '../core/career';
 import { FUNDING, SHIP } from '../core/content';
 import { debtVisible } from '../core/debt';
 import { critChance, debtMultiplier, language, outputShares, projectOf } from '../core/economy';
+import { quarterLeft } from '../core/corp';
 import { canRaise, roundName, starsForNextRound } from '../core/funding';
 import type { Game } from '../core/game';
 import { majorsUnlocked, starsForNextXp, xpAvailable } from '../core/major';
@@ -130,7 +131,9 @@ export class Header {
       this.html(
         'tline',
         el.tline,
-        `<span class="tapp">${esc(s.market.appName)}</span><span>${fmt(usersNow(s))} users</span><span class="trk">#${standing(s, now).rank}</span>${drift}<span class="fill"></span>${s.round > 0 ? `<span class="trd">${esc(roundName(s.round))}</span>` : ''}`,
+        `<span class="tapp">${esc(s.market.appName)}</span><span>${fmt(usersNow(s))} users</span><span class="trk">#${standing(s, now).rank}</span>${drift}<span class="fill"></span>${
+          s.corp.ipoAt ? `<span class="trd">Q${s.corp.quarter} ${clock(quarterLeft(s))}</span>` : s.round > 0 ? `<span class="trd">${esc(roundName(s.round))}</span>` : ''
+        }`,
       );
     }
 

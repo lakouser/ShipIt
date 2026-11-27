@@ -12,6 +12,7 @@ import {
   FLOW,
   OFFLINE,
   PERK_VALUES,
+  TESTS,
   UNLOCKS,
   type BossKind,
   type ChallengeDef,
@@ -21,7 +22,10 @@ import {
   type EffectId,
   type ForkDef,
   type ForkId,
+  type ForkPolicy,
   type IncidentKind,
+  type IssueKind,
+  type LanguageId,
   type PerkDef,
   type ProjectId,
   type RoleId,
@@ -30,28 +34,31 @@ import {
   type WorkflowDef,
   type WorkflowId,
 } from './content';
+import { acquire, creditCorpAway, goPublic, tickCorp, type Acquisition } from './corp';
+import { setTestBudget, writeLines } from './coverage';
 import { refactor, tickDebt } from './debt';
 import { applyDev, type DevAction } from './dev';
-import { addLines, buy, chooseFork, companyLevel, critChance, perSecond, perTap, type Purchase } from './economy';
+import { buy, chooseFork, companyLevel, critChance, perSecond, perTap, type Purchase } from './economy';
 import { effectSum, pruneEffects, runScript } from './effects';
 import { buyCompanyPerk, raiseRound, type RaiseResult } from './funding';
 import { catchCoffee, chooseConflict, outageTap, updateIncident } from './incidents';
+import { issuesReady, triage, updateIssues, type Triage } from './issues';
 import { answerMail, markRead, updateMail, type MailAnswer } from './mail';
 import { abandonChallenge, buySkill, cutMajor, majorTabUnlocked, startChallenge, type MajorResult } from './major';
-import { addQuietTime, marketOnMajor, marketOnRaise, marketOnShip, renameApp, reviewScore, startReleaseCounters, updateMarket, type MarketNews, type ShipNews } from './market';
+import { addQuietTime, headline, marketOnMajor, marketOnRaise, marketOnShip, renameApp, reviewScore, startReleaseCounters, updateMarket, type MarketNews, type ShipNews } from './market';
 import { readMan } from './man';
 import type { Decimal } from './num';
 import { buyPerk, perkEffect } from './perks';
 import { makeMilestone, updateMilestone, updateQuests } from './quests';
 import type { Rng } from './rng';
 import { nextProjects, ship, shipGain, starsPerMinute, type ShipResult } from './ship';
-import { makeBacklog, refreshBacklog, resolveSprint, startSprint } from './sprints';
-import type { ActiveSprint, Boss, Developer, GameState, Headline, Incident, MailItem, Milestone, Quest, SprintResult } from './state';
+import { makeBacklog, refreshBacklog, requiredTapRate, resolveSprint, startSprint } from './sprints';
+import type { ActiveSprint, Boss, Developer, GameState, Headline, Incident, MailItem, Milestone, Quest, QuarterReport, SprintResult } from './state';
 import { checkIn, dayKey, type CheckIn } from './streak';
 import { assignRole, hire, letGo, passApplicant, updateApplicant } from './team';
-import { autoInstall, autoRunScripts, releasesShipped, workflowOn, workflowsUnlockedBetween } from './workflows';
+import { autoDotfiles, autoForks, autoInstall, autoRunScripts, releasesShipped, setForkPolicy, workflowForChallenge, workflowOn, workflowsUnlockedBetween } from './workflows';
 
-export type UnlockTab = 'sprints' | 'todo' | 'ship' | 'team' | 'mail' | 'major' | 'market';
+export type UnlockTab = 'sprints' | 'todo' | 'ship' | 'team' | 'mail' | 'major' | 'market' | 'tests' | 'issues';
 export type IncidentOutcome = 'caught' | 'fixed' | 'resolved' | 'wrong' | 'missed';
 
 export type GameEvent =
@@ -67,6 +74,7 @@ export type GameEvent =
   | { type: 'backlogRefreshed' }
   | { type: 'bugSpawned'; expiresAt: number }
   | { type: 'bugEscaped' }
+  | { type: 'bugCaught' }
   | { type: 'bugSquashed'; reward: Decimal; total: number; auto: boolean }
   | { type: 'incidentSpawned'; incident: Incident }
   | { type: 'incidentEnded'; kind: IncidentKind; outcome: IncidentOutcome; reward: Decimal | null }
@@ -102,7 +110,12 @@ export type GameEvent =
   | { type: 'raised'; result: RaiseResult }
   | { type: 'companyPerk'; perk: CompanyPerkDef; level: number }
   | { type: 'mail'; item: MailItem }
-  | { type: 'mailAnswered'; answer: MailAnswer };
+  | { type: 'mailAnswered'; answer: MailAnswer }
+  | { type: 'issuesFiled'; kinds: IssueKind[] }
+  | { type: 'triaged'; triage: Triage; auto: boolean }
+  | { type: 'quarter'; report: QuarterReport; headline: Headline }
+  | { type: 'acquired'; acquisition: Acquisition; headline: Headline }
+  | { type: 'autoForked'; count: number };
 
 export interface GameOptions {
   clock?: () => number;
@@ -148,6 +161,9 @@ export class Game {
     this.today = dayKey(now);
     if (state.backlog.length === 0) state.backlog = makeBacklog(state, now, this.rng);
     if (!state.milestone || state.milestone.release !== state.release) state.milestone = makeMilestone(state);
+    // A save that went public before quarters existed starts its first quarter now.
+    goPublic(state, now);
+    if (!state.stacksUsed.includes(state.stack)) state.stacksUsed.push(state.stack);
   }
 
   now(): number {
@@ -205,7 +221,7 @@ export class Game {
       lines = lines.mul(CRIT.multiplier);
       s.stats.crits++;
     }
-    addLines(s, lines);
+    writeLines(s, lines);
     s.stats.taps++;
     this.emit({ type: 'tap', lines, crit, auto });
 
@@ -299,8 +315,9 @@ export class Game {
     this.bossProgress(bossPick(this.state, choice, this.clock(), this.rng));
   }
 
-  raise(): RaiseResult | null {
-    const result = raiseRound(this.state, this.clock(), this.rng);
+  /** Raises the next round; the next run is written in `stack` (the current one if not given). */
+  raise(stack?: LanguageId): RaiseResult | null {
+    const result = raiseRound(this.state, this.clock(), this.rng, stack);
     if (!result) return null;
     startReleaseCounters(this.state);
     this.emit({ type: 'raised', result });
@@ -310,9 +327,9 @@ export class Game {
   }
 
   /** The endless reset after the IPO: bank stars for XP and start the next major version. */
-  cutMajor(): MajorResult | null {
+  cutMajor(stack?: LanguageId): MajorResult | null {
     const s = this.state;
-    const result = cutMajor(s, this.clock(), this.rng);
+    const result = cutMajor(s, this.clock(), this.rng, stack);
     if (!result) return null;
     startReleaseCounters(s);
     const headline = marketOnMajor(s, this.clock(), this.rng, result.version);
@@ -354,6 +371,39 @@ export class Game {
   /** release.yml's trigger: ship once a release would grow stars by this fraction. */
   setAutoShipAt(fraction: number): void {
     if (AUTOMATION.shipAtOptions.includes(fraction)) this.state.autoShipAt = fraction;
+  }
+
+  /** forks.yml's policy. */
+  setForkPolicy(policy: ForkPolicy): void {
+    setForkPolicy(this.state, policy);
+  }
+
+  /** The share of written code that goes to tests (one of TESTS.budgets). */
+  setTestBudget(budget: number): boolean {
+    return setTestBudget(this.state, budget);
+  }
+
+  /** Closes every open user issue. */
+  triage(auto = false): Triage | null {
+    const result = triage(this.state, this.clock());
+    if (result) this.emit({ type: 'triaged', triage: result, auto });
+    return result;
+  }
+
+  /** Buys a rival company with cash (after the IPO). */
+  acquire(id: string): Acquisition | null {
+    const s = this.state;
+    const now = this.clock();
+    const result = acquire(s, id, now);
+    if (!result) return null;
+    const h = headline(s, now, this.rng, `${s.market.appName} acquires ${result.rival.name}; ${result.rival.app} users wake up to a new logo`);
+    this.emit({ type: 'acquired', acquisition: result, headline: h });
+    return result;
+  }
+
+  /** The ending at the IPO has been shown. */
+  markEndingSeen(): void {
+    this.state.corp.endingSeen = true;
   }
 
   buyCompanyPerk(id: string): boolean {
@@ -423,21 +473,26 @@ export class Game {
     const result = ship(s, now, this.rng, next);
     if (!result) return null;
     if (auto) s.stats.autoShips++;
+    else s.preferredProject = next;
     const news = marketOnShip(s, now, this.rng, review, result.releaseLines, result.version, gain < 0.1);
+    // Feature requests closed during the release went into its review.
+    s.issues.reviewBoost = 0;
     startReleaseCounters(s);
     this.emit({ type: 'shipped', result, totalStars: s.stars, auto });
     this.emit({ type: 'reviewed', news });
     const title = careerLevel(s.stats.starsEarned);
     if (title > titleBefore) this.emit({ type: 'promoted', title: CAREER[title].title });
     for (const workflow of workflowsUnlockedBetween(shippedBefore, releasesShipped(s))) this.emit({ type: 'workflowUnlocked', workflow });
+    const earned = result.challenge?.first ? workflowForChallenge(result.challenge.id) : undefined;
+    if (earned) this.emit({ type: 'workflowUnlocked', workflow: earned });
     return result;
   }
 
-  /** release.yml: ship as the same project when it's on offer, otherwise as a web app. */
+  /** release.yml: ship as the project last picked by hand when it's on offer, else the same project, else a web app. */
   private autoShip(): void {
     const s = this.state;
-    const same = nextProjects(s).some((p) => p.id === s.project) ? s.project : 'webapp';
-    this.ship(same, true);
+    const offered = (id: ProjectId | null): id is ProjectId => !!id && nextProjects(s).some((p) => p.id === id);
+    this.ship(offered(s.preferredProject) ? s.preferredProject : offered(s.project) ? s.project : 'webapp', true);
   }
 
   markExported(): void {
@@ -461,9 +516,10 @@ export class Game {
     const seconds = Math.min(cap, Math.max(0, awaySeconds));
     if (awaySeconds >= 2 * 3600) s.flags.touchGrass = true;
     addQuietTime(s, Math.max(0, awaySeconds), true);
+    creditCorpAway(s, seconds, rate);
     const lines = perSecond(s, this.clock()).mul(seconds * rate).floor();
     if (lines.lt(1)) return;
-    addLines(s, lines, false);
+    writeLines(s, lines, false);
     this.emit({ type: 'offline', lines, seconds, awaySeconds, rate });
   }
 
@@ -472,7 +528,10 @@ export class Game {
     const now = this.clock();
     const s = this.state;
     const spawned = applyDev(s, action, now, this.rng, incident);
-    if (spawned) this.emit({ type: 'incidentSpawned', incident: spawned });
+    if (spawned) {
+      this.emit({ type: 'incidentSpawned', incident: spawned });
+      if (workflowOn(s, 'pager')) this.page();
+    }
     if (action === 'warp') this.creditTimeAway(3600);
     if (action === 'boss') {
       s.boss = null;
@@ -498,8 +557,11 @@ export class Game {
     if (dt > OFFLINE.thresholdS) {
       this.creditTimeAway(dt);
     } else if (dt > 0) {
-      addLines(s, perSecond(s, now).mul(dt));
+      writeLines(s, perSecond(s, now).mul(dt));
       addQuietTime(s, dt, false);
+      // The quarter clock runs on play time.
+      const report = tickCorp(s, now, dt);
+      if (report) this.emit({ type: 'quarter', report, headline: this.quarterHeadline(report) });
       const autoTaps = effectSum(s, 'autoTapsPerSecond', now);
       if (autoTaps > 0) {
         this.autoTapBudget += autoTaps * dt;
@@ -523,11 +585,14 @@ export class Game {
     const bug = updateBugs(s, now, this.rng, canSpawn);
     if (bug?.type === 'spawned') this.emit({ type: 'bugSpawned', expiresAt: bug.expiresAt });
     else if (bug?.type === 'escaped') this.emit({ type: 'bugEscaped' });
+    else if (bug?.type === 'caught') this.emit({ type: 'bugCaught' });
     else if (bug?.type === 'autoSquashed') this.emit({ type: 'bugSquashed', reward: bug.reward, total: s.stats.bugs, auto: true });
 
     const incident = updateIncident(s, now, this.rng, canSpawn && s.lifetime.gte(500));
-    if (incident?.type === 'spawned') this.emit({ type: 'incidentSpawned', incident: incident.incident });
-    else if (incident?.type === 'expired') this.emit({ type: 'incidentEnded', kind: incident.incident.kind, outcome: 'missed', reward: null });
+    if (incident?.type === 'spawned') {
+      this.emit({ type: 'incidentSpawned', incident: incident.incident });
+      if (workflowOn(s, 'pager')) this.page();
+    } else if (incident?.type === 'expired') this.emit({ type: 'incidentEnded', kind: incident.incident.kind, outcome: 'missed', reward: null });
 
     const boss = updateBoss(s, now, this.rng, canSpawn);
     if (boss?.type === 'incoming') this.emit({ type: 'bossIncoming', boss: boss.boss });
@@ -536,9 +601,18 @@ export class Game {
 
     const installed = autoInstall(s);
     if (installed.count > 0) this.emit({ type: 'autoInstalled', ...installed });
+    const forked = autoForks(s);
+    if (forked > 0) this.emit({ type: 'autoForked', count: forked });
     for (const effect of autoRunScripts(s, now)) this.emit({ type: 'script', effect });
+    for (const bought of autoDotfiles(s)) this.emit({ type: 'perk', perk: bought.perk, level: bought.level });
+    if (workflowOn(s, 'standup') && !s.sprint && s.unlocked.sprints) this.standup(now);
 
     this.checkUnlocks();
+    const filed = updateIssues(s, now, this.rng);
+    if (filed.length) {
+      this.emit({ type: 'issuesFiled', kinds: filed });
+      if (workflowOn(s, 'triage')) this.triage(true);
+    }
     const applicant = updateApplicant(s, now, this.rng);
     if (applicant) this.emit({ type: 'applicant', dev: applicant });
     for (const item of updateMail(s, now, this.rng)) this.emit({ type: 'mail', item });
@@ -570,5 +644,44 @@ export class Game {
     if (!u.team && s.lifetime.gte(UNLOCKS.teamAtLifetime)) unlock('team');
     if (!u.market && s.market.startedAt > 0) unlock('market');
     if (!u.major && majorTabUnlocked(s)) unlock('major');
+    if (!u.tests && s.stats.ships >= TESTS.unlockShips) unlock('tests');
+    if (!u.issues && issuesReady(s)) unlock('issues');
+  }
+
+  /** standup.yml: starts the biggest ready ticket the player can finish at their recent pace (automation alone when idle). */
+  private standup(now: number): void {
+    const s = this.state;
+    const pace = this.tapRate(10_000) * 0.8;
+    for (let slot = s.backlog.length - 1; slot >= 0; slot--) {
+      const t = s.backlog[slot];
+      if (t.readyAt <= now && requiredTapRate(s, t, now) <= pace) {
+        this.startSprint(slot);
+        return;
+      }
+    }
+  }
+
+  /** pager.yml: fixes the outage or resolves the conflict that just started. */
+  private page(): void {
+    const s = this.state;
+    const now = this.clock();
+    const inc = s.incident;
+    if (inc?.kind === 'outage') {
+      inc.taps = inc.needed - 1;
+      const reward = outageTap(s, now);
+      if (reward) this.emit({ type: 'incidentEnded', kind: 'outage', outcome: 'fixed', reward });
+    } else if (inc?.kind === 'conflict') this.chooseConflict(inc.correct);
+  }
+
+  /** The press on a quarter's results. */
+  private quarterHeadline(r: QuarterReport): Headline {
+    const s = this.state;
+    const app = s.market.appName;
+    const surprise = r.guidance > 0 ? Math.round(Math.abs(r.revenue / r.guidance - 1) * 100) : 0;
+    const pick = <T>(items: readonly T[]): T => items[Math.floor(this.rng() * items.length)];
+    const text = r.beat
+      ? pick([`${app} beats estimates by ${surprise}%; the stock jumps`, `Q${r.quarter}: ${app} tops guidance, analysts upgrade`, `${app} posts a record quarter, raises guidance`])
+      : pick([`${app} misses estimates by ${surprise}%; shares slide`, `Q${r.quarter}: ${app} falls short, the board wants growth`, `Analysts cut ${app} after a soft quarter`]);
+    return headline(s, this.clock(), this.rng, text);
   }
 }

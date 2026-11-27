@@ -1,4 +1,5 @@
 import { BUGS, DEBT, PERK_VALUES, TEAM } from './content';
+import { coverage } from './coverage';
 import { addDebt } from './debt';
 import { addLines, devrelMultiplier, perSecond, perTap, projectOf, roleStrength } from './economy';
 import { Decimal } from './num';
@@ -7,13 +8,18 @@ import { perkEffect } from './perks';
 import type { Rng } from './rng';
 import type { GameState } from './state';
 
-export type BugChange = { type: 'spawned'; expiresAt: number } | { type: 'escaped' } | { type: 'autoSquashed'; reward: Decimal } | null;
+export type BugChange = { type: 'spawned'; expiresAt: number } | { type: 'escaped' } | { type: 'caught' } | { type: 'autoSquashed'; reward: Decimal } | null;
 
-/** Expires a bug that has been on screen too long, or spawns the next one when it is due. */
+/** Expires a bug that has been on screen too long (the tests may catch it first), or spawns the next one when it is due. */
 export function updateBugs(s: GameState, now: number, rng: Rng, canSpawn: boolean): BugChange {
   if (s.bug) {
     if (now < s.bug.expiresAt) return null;
     s.bug = null;
+    const cov = coverage(s);
+    if (cov > 0 && rng() < cov) {
+      s.stats.testsCaught++;
+      return { type: 'caught' };
+    }
     s.stats.bugsEscaped++;
     addDebt(s, DEBT.bugEscaped);
     return { type: 'escaped' };
