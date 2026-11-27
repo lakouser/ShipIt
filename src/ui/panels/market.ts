@@ -34,7 +34,7 @@ export function renderMarket(game: Game, fullChart: boolean): string {
 /** What the `?` in market explains. */
 export const marketHelp = (): string =>
   hl(
-    `every release is reviewed: bigger releases with sprints merged and bugs squashed score better, and better reviews bring more users. users start drifting to rivals after ${MARKET.graceMinutes} minutes without an update (a ship or a major version), up to half of them; time away counts at ${Math.round(MARKET.awayChurnRate * 100)}% and on its own costs at most ${Math.round(MARKET.awayMaxChurn * 100)}%. a release reviewed ${MARKET.winBackAt}★ or better wins back half. each rival behind you adds ${Math.round(MARKET.rankBonus * 100)}% to all output. rivals announce launches: ship first for x${MARKET.launch.stealMul} new users.`,
+    `every release is reviewed: bigger releases with sprints merged and bugs squashed score better, and better reviews bring more users. users start drifting to rivals after ${MARKET.graceMinutes} minutes without an update (a ship or a major version), up to half of them; time away counts at ${+(MARKET.awayChurnRate * 100).toFixed(1)}% and on its own costs at most ${Math.round(MARKET.awayMaxChurn * 100)}%. a release reviewed ${MARKET.winBackAt}★ or better wins back half. each rival behind you adds ${Math.round(MARKET.rankBonus * 100)}% to all output. rivals announce launches: ship first for x${MARKET.launch.stealMul} new users.`,
   );
 
 export function refreshMarket(game: Game, root: HTMLElement, fullChart: boolean): void {

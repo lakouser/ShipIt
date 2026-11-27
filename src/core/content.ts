@@ -656,7 +656,7 @@ export const MARKET = {
   /** ...losing this share of them each quiet minute after that... */
   churnPerMinute: 0.01,
   /** Time away (game closed or asleep) counts as this share of quiet minutes, so being away costs less than idling in the game. */
-  awayChurnRate: 0.35,
+  awayChurnRate: 0.175,
   /** ...but one quiet spell never costs more than this share of the users at the last update... */
   maxChurn: 0.5,
   /** ...and time away alone never takes it past this share. */

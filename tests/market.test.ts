@@ -90,7 +90,7 @@ describe('users', () => {
     t.advance(100 * MIN); // the game was closed
     t.game.tick();
     expect(t.state.market.quietMinutes).toBeCloseTo(1 + 100 * MARKET.awayChurnRate);
-    expect(churnShare(t.state)).toBe(0); // 36 quiet minutes: still inside the 45-minute grace
+    expect(churnShare(t.state)).toBe(0); // 18.5 quiet minutes: still inside the 45-minute grace
     t.game.creditTimeAway(10 * 3600); // a night away costs at most a quarter of the users
     expect(churnShare(t.state)).toBeCloseTo(MARKET.awayMaxChurn);
     t.state.market.quietMinutes += 600; // ten more hours idling in the game: up to half
