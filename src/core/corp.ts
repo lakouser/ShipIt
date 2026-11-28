@@ -99,9 +99,12 @@ export interface Acquisition {
 /** True for the last rival left: buying it has to get past the antitrust committee first. */
 export const hearingNeeded = (s: GameState, id: string): boolean => !s.corp.monopolyAt && rivalsLeft(s).length === 1 && rivalsLeft(s)[0].id === id;
 
+/** True while the antitrust hearing is being fought (a hearing whose fight was cut short by something else is over). */
+export const hearingOn = (s: GameState): boolean => !!s.corp.hearing && s.boss?.kind === 'antitrust';
+
 /** True when the purchase of `r` could go ahead (or go to a hearing) right now. */
 export const canAcquire = (s: GameState, r: RivalDef, now: number): boolean =>
-  quartersStarted(s) && !s.market.acquired.includes(r.id) && s.corp.cash >= acquirePrice(s, r, now) && !(hearingNeeded(s, r.id) && (now < s.corp.hearingRetryAt || !!s.corp.hearing));
+  quartersStarted(s) && !s.market.acquired.includes(r.id) && s.corp.cash >= acquirePrice(s, r, now) && !(hearingNeeded(s, r.id) && (now < s.corp.hearingRetryAt || hearingOn(s)));
 
 /**
  * Buys a rival: its users (CORP.keepUsers of them) join yours and it leaves the chart for good. The last one needs

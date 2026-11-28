@@ -93,7 +93,10 @@ const MIGRATIONS: Record<number, (save: Raw) => Raw> = {
   5: (save) => {
     const m = isObj(save.market) ? save.market : null;
     const history = m && num(m.startedAt) > 0 ? [{ at: num(save.savedAt), users: Math.max(0, num(m.users)) }] : [];
-    return { ...save, v: 6, market: m ? { ...m, history } : save.market };
+    // A save that had already bought every rival owns the chart: that is the true ending now, shown on the next load.
+    const acquired = m && Array.isArray(m.acquired) ? m.acquired : [];
+    const corp = isObj(save.corp) && RIVALS.every((r) => acquired.includes(r.id)) ? { ...save.corp, monopolyAt: Math.max(1, num(save.savedAt)) } : save.corp;
+    return { ...save, v: 6, market: m ? { ...m, history } : save.market, corp };
   },
 };
 
@@ -309,7 +312,8 @@ function rfc(x: unknown): RfcState {
   if (!isObj(x)) return newRfc();
   const isRfc = (id: unknown): id is RfcId => RFCS.some((r) => r.id === id);
   const done = uniqueStrings<RfcId>(x.done, isRfc);
-  const a = isObj(x.active) && isRfc(x.active.id) && !done.includes(x.active.id) ? { id: x.active.id, startedAt: num(x.active.startedAt), endsAt: num(x.active.endsAt) } : null;
+  // An RFC with no end time is not under discussion (it would otherwise be adopted on the spot).
+  const a = isObj(x.active) && isRfc(x.active.id) && !done.includes(x.active.id) && num(x.active.endsAt) > 0 ? { id: x.active.id, startedAt: num(x.active.startedAt), endsAt: num(x.active.endsAt) } : null;
   return { active: a, done };
 }
 

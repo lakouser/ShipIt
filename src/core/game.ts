@@ -39,6 +39,7 @@ import {
   type RivalDef,
   type RoleId,
   type RuleAction,
+  type RuleTrigger,
   type SegmentId,
   type ServiceId,
   type SkillDef,
@@ -46,7 +47,7 @@ import {
   type WorkflowDef,
   type WorkflowId,
 } from './content';
-import { acquire, canAcquire, creditCorpAway, goPublic, hearingNeeded, tickCorp, type Acquisition } from './corp';
+import { acquire, canAcquire, creditCorpAway, goPublic, hearingNeeded, hearingOn, tickCorp, type Acquisition } from './corp';
 import { setTestBudget, writeLines } from './coverage';
 import { refactor, tickDebt } from './debt';
 import { applyDev, type DevAction } from './dev';
@@ -176,6 +177,8 @@ export class Game {
   flow = 0;
   /** Which rule conditions held on the last tick (rules fire when one becomes true); null until the first tick. */
   private ruleWas: Record<string, boolean> | null = null;
+  /** Conditions that began since the rules last ran, whether or not they still hold. */
+  private readonly rulePulses = new Set<RuleTrigger>();
 
   constructor(state: GameState, options: GameOptions = {}) {
     this.clock = options.clock ?? Date.now;
@@ -207,6 +210,12 @@ export class Game {
   }
 
   private emit(e: GameEvent): void {
+    // Things that start and can be over again before the rules next look (a sprint that follows straight on from the
+    // last, an outage pager.yml fixes at once): remembered until the rules run.
+    if (e.type === 'sprintStarted') this.rulePulses.add('sprint');
+    else if (e.type === 'incidentSpawned' && e.incident.kind === 'outage') this.rulePulses.add('outage');
+    else if (e.type === 'bossEngaged') this.rulePulses.add('boss');
+    else if (e.type === 'market' && e.news.kind === 'launch') this.rulePulses.add('launch');
     for (const listener of this.listeners) listener(e);
   }
 
@@ -747,6 +756,9 @@ export class Game {
     else if (boss?.type === 'ignored') this.emit({ type: 'bossIgnored', kind: boss.kind });
     else if (boss?.type === 'failed') this.bossProgress(boss);
 
+    // A hearing whose fight was ended by something else (a major version, a reload) is simply over: no verdict, no wait.
+    if (s.corp.hearing && !hearingOn(s)) s.corp.hearing = null;
+
     const adopted = updateRfc(s, now);
     if (adopted) this.emit({ type: 'rfcAdopted', rfc: adopted });
 
@@ -806,18 +818,28 @@ export class Game {
   /** ~/bin/rules: each rule fires at the moment its condition becomes true, if its action can run. */
   private runRules(now: number): void {
     const s = this.state;
-    if (s.round < RULES.unlockRound || s.rules.length === 0) return void (this.ruleWas = null);
+    if (s.round < RULES.unlockRound || s.rules.length === 0) {
+      this.rulePulses.clear();
+      return void (this.ruleWas = null);
+    }
     const states = triggerStates(s, now, this.flow);
     const was = this.ruleWas;
+    const pulses = new Set(this.rulePulses);
+    this.rulePulses.clear();
     this.ruleWas = states;
     if (!was) return;
     for (const rule of [...s.rules]) {
-      if (!rule.on || !states[rule.when] || was[rule.when]) continue;
+      // Fires when the condition has just become true, or began since the last look (even if it is over already).
+      const began = pulses.has(rule.when) || (states[rule.when] && !was[rule.when]);
+      if (!rule.on || !began) continue;
       if (this.runRuleAction(rule.then, now)) {
         s.stats.rulesFired++;
         this.emit({ type: 'ruleFired', rule });
       }
     }
+    // What the rules just did is not news to them: a sprint a rule started doesn't set off "a sprint starts".
+    this.rulePulses.clear();
+    this.ruleWas = triggerStates(s, now, this.flow);
   }
 
   private runRuleAction(action: RuleAction, now: number): boolean {

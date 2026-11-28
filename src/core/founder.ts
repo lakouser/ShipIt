@@ -45,5 +45,8 @@ export function foundStartup(s: GameState, trait: FounderTraitId, now: number): 
   const fresh = newGame(now);
   for (const key of Object.keys(s) as (keyof GameState)[]) delete s[key];
   Object.assign(s, fresh, kept);
+  // The stats carry over, so the first release's review has to count from where they stand now.
+  const st = s.stats;
+  s.market.base = { sprints: st.sprints, bugs: st.bugs, escaped: st.bugsEscaped, incidents: st.coffees + st.outagesFixed + st.conflictsResolved };
   return def;
 }

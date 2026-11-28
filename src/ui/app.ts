@@ -206,12 +206,12 @@ export class App {
     this.editor.setLanguage(language(s).id);
     this.editor.prefill(16);
     if (returning) this.editor.log(from === 'cloud' ? `save loaded from your claude account, v${currentVersion(s)}` : `session restored on v${currentVersion(s)}`, 'ok');
+    else for (const [kind, text] of BOOT_LOG) this.editor.log(text, kind);
     // The first load of a company just founded: say what the founder brought.
     if (returning && s.founder.exits > 0 && s.lifetime.lte(0)) {
       const trait = FOUNDER_TRAITS.find((t) => t.id === s.founder.traits[s.founder.traits.length - 1]);
       this.editor.log(`company ${s.founder.exits + 1}. you start as ${trait?.name ?? 'a founder'}${trait ? `: ${trait.rule}` : ''}. trophies, rfcs and workflows came with you`, 'ok');
     }
-    else for (const [kind, text] of BOOT_LOG) this.editor.log(text, kind);
     this.watchSaves(returning);
     if (returning) g.creditTimeAway((g.now() - s.savedAt) / 1000);
     g.checkIn();

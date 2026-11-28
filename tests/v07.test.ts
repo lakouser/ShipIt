@@ -540,3 +540,88 @@ describe('the users chart', () => {
     expect(t.state.market.history.length).toBe(n);
   });
 });
+
+describe('fixes from review', () => {
+  it('lets the hearing be called again after something else ended the fight', () => {
+    const t = testGame((s) => nearMonopoly(s), fixedRng(0));
+    const last = RIVALS[RIVALS.length - 1];
+    t.game.acquire(last.id);
+    expect(t.state.corp.hearing).toBe(last.id);
+    // A major version (or anything else) clears the boss without a verdict.
+    t.state.boss = null;
+    t.advance(1000);
+    t.game.tick();
+    expect(t.state.corp.hearing).toBeNull();
+    expect(t.state.corp.hearingRetryAt).toBe(0);
+    t.game.acquire(last.id);
+    expect(t.state.boss).toMatchObject({ kind: 'antitrust' });
+  });
+
+  it('gives a v0.6 save that already owned the chart its true ending', () => {
+    const t = testGame((s) => {
+      nearMonopoly(s);
+      s.market.acquired = RIVALS.map((r) => r.id);
+    });
+    const old = JSON.parse(serialize(t.state, t.now)) as Record<string, any>;
+    old.v = 5;
+    delete old.corp.monopolyAt;
+    const back = deserialize(JSON.stringify(old), t.now)!;
+    expect(back.corp.monopolyAt).toBeGreaterThan(0);
+    expect(back.corp.monopolySeen).toBe(false);
+    // One short of the lot is not a monopoly.
+    old.market.acquired = RIVALS.slice(1).map((r) => r.id);
+    expect(deserialize(JSON.stringify(old), t.now)!.corp.monopolyAt).toBe(0);
+  });
+
+  it('fires "prod goes down" even when pager.yml fixes the outage at once', () => {
+    const t = testGame((s) => {
+      s.round = RULES.unlockRound;
+      s.challengeLevels = { keyboard: 1 };
+      s.challengesDone = ['keyboard'];
+      s.scripts = { turbo: 2 };
+      s.rules = [{ when: 'outage', then: 'turbo', on: true }];
+    });
+    t.game.tick();
+    t.game.dev('incident', 'outage');
+    expect(t.state.incident).toBeNull();
+    expect(t.state.stats.outagesFixed).toBe(1);
+    expect(t.state.stats.rulesFired).toBe(1);
+    expect(t.state.scripts.turbo).toBe(1);
+  });
+
+  it('does not set a rule off with what another rule just did', () => {
+    const t = testGame((s) => {
+      s.round = RULES.unlockRound;
+      s.unlocked.sprints = true;
+      s.skills.shell = 1;
+      s.scripts = { turbo: 5 };
+      s.debt = 0;
+      s.rules = [
+        { when: 'sprint', then: 'turbo', on: true },
+        { when: 'coffee', then: 'standup', on: true },
+      ];
+    });
+    t.game.tick();
+    // Starting a sprint by hand sets off the first rule once.
+    t.game.startSprint(0);
+    t.advance(200);
+    t.game.tick();
+    expect(t.state.stats.rulesFired).toBe(1);
+    t.advance(200);
+    t.game.tick();
+    expect(t.state.stats.rulesFired).toBe(1);
+  });
+
+  it('starts a new company’s review counters from the stats it keeps', () => {
+    const t = testGame((s) => {
+      nearMonopoly(s);
+      s.corp.monopolyAt = 5;
+      s.stats.sprints = 400;
+      s.stats.bugs = 900;
+      s.stats.bugsEscaped = 30;
+      s.stats.coffees = 50;
+    });
+    t.game.foundStartup('operator');
+    expect(t.state.market.base).toEqual({ sprints: 400, bugs: 900, escaped: 30, incidents: 50 });
+  });
+});
