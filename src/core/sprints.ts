@@ -1,10 +1,11 @@
-import { ASSUMED_TAPS_PER_SECOND, DEBT, DIFFICULTY_BANDS, PERK_VALUES, SPRINT_TIERS, TEAM, TICKET_TITLES } from './content';
+import { ASSUMED_TAPS_PER_SECOND, DEBT, DIFFICULTY_BANDS, PERK_VALUES, RFC, SPRINT_TIERS, TEAM, TICKET_TITLES } from './content';
 import { addDebt } from './debt';
 import { addLines, perSecond, perTap, projectOf, roleStrength, typicalOutput } from './economy';
 import { grantScript, randomScript } from './effects';
 import { D, Decimal } from './num';
 import { mods } from './mods';
 import { perkEffect } from './perks';
+import { rfcDone } from './rfcs';
 import type { Rng } from './rng';
 import type { ActiveSprint, GameState, SprintResult, Ticket } from './state';
 
@@ -110,6 +111,6 @@ export function resolveSprint(s: GameState, now: number, rng: Rng): SprintResult
   s.lastSprint = result;
   // The slot waits for the next standup; refreshBacklog fills it in later.
   const tier = SPRINT_TIERS[sp.tier] ?? SPRINT_TIERS[0];
-  s.backlog[sp.slot] = { ...sp, readyAt: now + tier.cooldownS * 1000 };
+  s.backlog[sp.slot] = { ...sp, readyAt: now + tier.cooldownS * 1000 * (rfcDone(s, 'standups') ? RFC.cooldownMul : 1) };
   return result;
 }

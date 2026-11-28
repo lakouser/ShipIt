@@ -1,11 +1,12 @@
-import { CORP, MARKET, RIVALS } from '../../core/content';
-import { acquirePrice, rivalsLeft } from '../../core/corp';
+import { CORP, FOUNDER, MARKET, RIVALS } from '../../core/content';
+import { acquirePrice, canAcquire, hearingNeeded, rivalsLeft } from '../../core/corp';
 import type { Game } from '../../core/game';
 import { chart, chartMultiplier, churnShare, graceLeft, minutesSinceUpdate, rating, rivalUsers, standing, usersNow } from '../../core/market';
 import { clock, fmt, fmtDuration, fmtMoney, fmtMul } from '../../core/num';
 import { esc, setHtml, setText } from '../dom';
 import { hl, tint } from '../hl';
 import { mailWaiting } from '../nav';
+import { usersChart } from '../charts';
 
 const starsText = (score: number): string => `${'★'.repeat(Math.round(score))}${'☆'.repeat(5 - Math.round(score))}`;
 const ago = (ms: number): string => (ms < 60_000 ? 'just now' : `${fmtDuration(ms / 1000)} ago`);
@@ -22,9 +23,9 @@ function acquisitions(game: Game): string {
   const left = rivalsLeft(s).length;
   if (!s.corp.ipoAt) return '';
   const head = `<div class="cmd gap"><span><span class="ps">$</span> acquire --list</span><span class="aside">${s.market.acquired.length} of ${RIVALS.length} bought</span></div>`;
-  if (!left) return `${head}<p class="caveat">${hl('# every rival is yours. the chart is a list of one.')}</p>`;
+  if (!left) return `${head}<p class="caveat">${hl('# every rival is yours. the chart is a list of one. ship/' + (s.corp.quarter ? `q${s.corp.quarter}` : 'round') + ' has what comes next.')}</p>`;
   const rows = Array.from({ length: Math.min(ACQUIRE_SHOWN, left) }, (_, i) => `<div class="perk co" data-acq-row="${i}"><div><span class="nm"></span> <small class="ps2"></small></div><button class="buy star perkbuy" data-acquire=""><span class="bq">buy</span><span class="bc"></span></button></div>`).join('');
-  return `${head}<div class="mkt"><span class="k">cash</span><span data-acq-cash></span></div>${rows}<p class="caveat">${hl(`# their users join yours (${Math.round(CORP.keepUsers * 100)}% stay) and +${Math.round(CORP.acquireBonus * 100)}% output for good. each purchase makes the next one dearer; a higher stock makes them cheaper.`)}</p>`;
+  return `${head}<div class="mkt"><span class="k">cash</span><span data-acq-cash></span></div>${rows}<p class="caveat">${hl(`# their users join yours (${Math.round(CORP.keepUsers * 100)}% stay) and +${Math.round(CORP.acquireBonus * 100)}% output for good. each purchase makes the next one dearer; a higher stock makes them cheaper.${left === 1 ? ` the last one goes to an antitrust hearing first: a boss fight. lose it and the deal waits ${FOUNDER.hearingRetryMs / 60_000} minutes.` : ''}`)}</p>`;
 }
 
 export function renderMarket(game: Game, fullChart: boolean): string {
@@ -34,6 +35,7 @@ export function renderMarket(game: Game, fullChart: boolean): string {
   // Where you stand first, then the inbox, then the numbers behind it.
   return `<div class="cmd"><span><span class="ps">$</span> app-store top</span><button class="lnk" data-fullchart>${fullChart ? 'around me' : `all ${RIVALS.length + 1}`}</button></div>
     <div class="chart" data-mk-chart></div>
+    <div data-mk-history></div>
     ${s.unlocked.mail ? `<button class="inboxrow" data-goto="mail"><span class="k">inbox</span><span data-mk-inbox></span><span class="go2">read ▸</span></button>` : ''}
     ${acquisitions(game)}
     <div class="cmd gap"><span><span class="ps">$</span> app-store stats <input class="appname" data-appname maxlength="24" spellcheck="false" autocomplete="off" value="${esc(m.appName)}" aria-label="App name"></span></div>
@@ -102,6 +104,8 @@ export function refreshMarket(game: Game, root: HTMLElement, fullChart: boolean)
     : '<div class="news cm">no coverage yet</div>';
   setHtml(root.querySelector('[data-mk-press]'), press);
 
+  setHtml(root.querySelector('[data-mk-history]'), usersChart(s, now));
+
   const waiting = mailWaiting(s);
   setHtml(root.querySelector('[data-mk-inbox]'), waiting ? `${tint('num', waiting)} waiting from the team` : '<span class="cm">inbox zero</span>');
 
@@ -118,7 +122,8 @@ export function refreshMarket(game: Game, root: HTMLElement, fullChart: boolean)
       setHtml(row.querySelector('.ps2'), `${esc(r.app)} · ${tint('num', fmt(rivalUsers(s, r, now)))} users`);
       const btn = row.querySelector<HTMLButtonElement>('button')!;
       btn.dataset.acquire = r.id;
-      const ok = s.corp.cash >= price;
+      const ok = canAcquire(s, r, now);
+      setText(btn.firstElementChild, hearingNeeded(s, r.id) ? (now < s.corp.hearingRetryAt ? `hearing in ${clock((s.corp.hearingRetryAt - now) / 1000)}` : 'buy · hearing') : 'buy');
       btn.disabled = !ok;
       btn.classList.toggle('ok', ok);
       btn.style.setProperty('--p', `${ok ? 0 : Math.min(100, (s.corp.cash / price) * 100).toFixed(1)}%`);

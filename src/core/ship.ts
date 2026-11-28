@@ -1,10 +1,11 @@
-import { CHALLENGE, COMPANY_VALUES, PERK_VALUES, PROJECTS, SHIP, type ChallengeId, type ProjectDef, type ProjectId } from './content';
+import { CHALLENGE, COMPANY_VALUES, PERK_VALUES, PROJECTS, RFC, SHIP, type ChallengeId, type ProjectDef, type ProjectId } from './content';
 import { coverage, resetCoverage } from './coverage';
 import { companyLevel, projectOf } from './economy';
 import { challengeLevel, mods } from './mods';
 import { D, Decimal } from './num';
 import { perkEffect } from './perks';
 import { makeMilestone, milestoneBonus } from './quests';
+import { rfcDone } from './rfcs';
 import type { Rng } from './rng';
 import { makeBacklog } from './sprints';
 import type { GameState, ReleaseEntry } from './state';
@@ -152,7 +153,10 @@ export function ship(s: GameState, now: number, rng: Rng, next: ProjectId = 'web
   s.shipped = s.shipped.add(s.thisRelease);
   s.lastReleaseLines = s.thisRelease;
   s.project = project.id;
+  // Canary deploys: a tenth of every package survives the release.
+  const canary = rfcDone(s, 'canary') ? Object.entries(s.owned).map(([id, n]) => [id, Math.floor(n * RFC.canaryKeep)] as const) : [];
   resetRelease(s, now, rng);
+  for (const [id, n] of canary) if (n > (s.owned[id] ?? 0)) s.owned[id] = n;
   return result;
 }
 
@@ -172,6 +176,8 @@ export function resetRelease(s: GameState, now: number, rng: Rng): void {
   s.backlog = makeBacklog(s, now, rng);
   s.milestone = makeMilestone(s);
   resetCoverage(s);
+  // The architecture board can be deployed once per release.
+  s.infra.canDeploy = true;
 }
 
 /** Starts a fresh run (a funding round or a major version): the star curve and the milestone's last release start over. */

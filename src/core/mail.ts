@@ -109,6 +109,28 @@ export const STORY_MAIL: readonly MailDef[] = [
     when: (s) => s.unlocked.issues,
   },
   {
+    id: 'roadmap',
+    from: 'pm@ship-it',
+    subject: 'who is this for??',
+    body: [
+      'Quick one. I was asked in a meeting who our users are and I said "people". This did not go well.',
+      'There is a ROADMAP.md in pkgs/features now. Point it at developers, companies or everyone else: each release then ships something that kind of user asked for, and they pay us back in their own way.',
+      'You can re-point it whenever you like. I will tell the meeting it was always the plan.',
+    ],
+    when: (s) => s.unlocked.roadmap,
+  },
+  {
+    id: 'rfcs',
+    from: 'staff-eng@ship-it',
+    subject: 'RFC-0001: we should have RFCs',
+    body: [
+      'I wrote a proposal for how we make decisions. It passed, mostly because nobody had a process for rejecting it.',
+      'Proposals live in work/rfcs. Open one and the discussion takes a few hours of real time, whether you are here or not. Once adopted, it changes how we work for good.',
+      'One at a time. We tried two at once and they turned out to be the same argument.',
+    ],
+    when: (s) => s.unlocked.rfcs,
+  },
+  {
     id: 'dave',
     from: 'unknown sender',
     subject: '(no subject)',
@@ -135,6 +157,17 @@ export const STORY_MAIL: readonly MailDef[] = [
       'Every round from here is another rewrite, and another choice of stack. Also, who is Dave, and why does he still have commit access?',
     ],
     when: (s) => s.round >= 1,
+  },
+  {
+    id: 'infra',
+    from: 'ops@ship-it',
+    subject: 'we can afford servers now',
+    body: [
+      'With the round closed, production no longer has to run on the laptop under your desk. Thank you for your service, laptop.',
+      'pkgs/infra has a board with a few slots. Put services in them: each does something on its own, and the right ones side by side do more. There are more services than slots, so choose.',
+      'One deploy per release, please. I have a pager and I would like to keep sleeping.',
+    ],
+    when: (s) => s.unlocked.infra,
   },
   {
     id: 'duck',
@@ -263,6 +296,28 @@ export const STORY_MAIL: readonly MailDef[] = [
     when: (s) => s.market.acquired.includes('legacy'),
   },
   {
+    id: 'rules',
+    from: 'ops@ship-it',
+    subject: 'you may now automate yourself',
+    body: [
+      'The platform team shipped a rules engine. It lives at the bottom of ship/auto as ~/bin/rules.',
+      'One line each: when something happens, do something. "When flow is full, run sudo.sh." "When tech debt passes 40%, refactor." It fires once, at the moment it becomes true.',
+      'If you want to save scripts for your rules, switch scripts.yml off, or it will run them first.',
+    ],
+    when: (s) => s.round >= 4,
+  },
+  {
+    id: 'lastrival',
+    from: 'legal@ship-it',
+    subject: 'about the last one',
+    body: [
+      'There is one company left on the chart that is not us. I am told you intend to fix that.',
+      'Buying it will not be a click. The antitrust committee wants a hearing first, in person, under oath. Answer the way I would. Mash the key when they ask for documents.',
+      'If it goes badly we wait five minutes and call it an appeal.',
+    ],
+    when: (s) => s.corp.ipoAt > 0 && s.market.acquired.length === RIVALS.length - 1,
+  },
+  {
     id: 'monopoly',
     from: 'unknown sender',
     subject: 'no one left',
@@ -272,6 +327,17 @@ export const STORY_MAIL: readonly MailDef[] = [
       'the build is green. you are doing fine. quack. - D',
     ],
     when: (s) => s.market.acquired.length >= RIVALS.length,
+  },
+  {
+    id: 'again',
+    from: 'unknown sender',
+    subject: 're: no one left',
+    body: [
+      'so you sold it and went back to the garage. good. the chart was getting quiet.',
+      'you know things this time. it will go faster. it will not be easier.',
+      'i kept your desk. quack. - D',
+    ],
+    when: (s) => s.founder.exits >= 1,
   },
 ];
 

@@ -1,19 +1,22 @@
-import { AUTOMATION, CHALLENGES, COMPANY_PERKS, CORP, FUNDING, MAJOR, PERKS, ROUNDS, SHIP, STACKS, WORKFLOWS, type LanguageId, type PerkBranch, type ProjectId } from '../../core/content';
+import { AUTOMATION, CHALLENGES, COMPANY_PERKS, CORP, FOUNDER, FOUNDER_TRAITS, FUNDING, MAJOR, PERKS, ROUNDS, RULE_ACTIONS, RULE_TRIGGERS, RULES, SHIP, STACKS, WORKFLOWS, type FounderTraitId, type LanguageId, type PerkBranch, type ProjectId } from '../../core/content';
 import { corpMultiplier, quarterLeft, quarterProjection, quarterRunRate } from '../../core/corp';
 import { coverage } from '../../core/coverage';
 import { companyLevel, projectOf, starBonus } from '../../core/economy';
+import { canFound } from '../../core/founder';
 import { canRaise, companyPerkCost, companyPerkStatus, equityAvailable, equityFor, roundName, starsForNextRound } from '../../core/funding';
 import type { Game } from '../../core/game';
 import { findChallenge, majorsUnlocked, starsForNextXp, xpAvailable } from '../../core/major';
 import { clock, fmt, fmtMoney, fmtMul } from '../../core/num';
 import { perkCost, perkLevel, perkStatus, spendableStars } from '../../core/perks';
 import { milestoneBonus } from '../../core/quests';
+import { ruleSlots, rulesUnlocked } from '../../core/rules';
 import { linesForStars, nextProjects, nextVersion, shipGain, starsAvailable, starsPerMinute } from '../../core/ship';
 import type { GameState } from '../../core/state';
 import { releasesShipped, workflowOn, workflowUnlocked } from '../../core/workflows';
 import { esc, setHtml, setText } from '../dom';
 import { hl, tint } from '../hl';
 import { fundingVisible, nextStarProgress } from '../nav';
+import { stockChart } from '../charts';
 import { pickedStack, stackPicker } from './stack';
 
 /** What the release panel remembers between renders: the project picked for the next release, and the armed merge button. */
@@ -248,14 +251,38 @@ export function renderAuto(game: Game): string {
     const locked = challenge ? `unlocks when you clear challenge/${challenge.branch}` : `unlocks after ${w.releases} releases (${shipped} so far)`;
     return `<button class="opt" data-workflow="${w.id}" aria-pressed="${active}"${open ? '' : ' disabled'}><span class="box">[${active ? 'x' : ' '}]</span> <span class="h h-name">${w.file}</span> <small>${open ? hl(w.summary) : locked}</small></button>${trigger}`;
   });
-  return `<div class="cmd"><span><span class="ps">$</span> ls .github/workflows</span><span class="aside">${on} of ${WORKFLOWS.length} on</span></div><div class="opts wfs">${rows.join('')}</div>`;
+  return `<div class="cmd"><span><span class="ps">$</span> ls .github/workflows</span><span class="aside">${on} of ${WORKFLOWS.length} on</span></div><div class="opts wfs">${rows.join('')}</div>${rulesHtml(game)}`;
+}
+
+/** ~/bin/rules: one line per rule, with dropdowns for the condition and the action. */
+function rulesHtml(game: Game): string {
+  const s = game.state;
+  if (!rulesUnlocked(s)) return s.round >= 1 ? `<div class="cmd gap"><span><span class="ps">$</span> cat ~/bin/rules</span></div><p class="caveat"># rules open with the ${ROUNDS[RULES.unlockRound]} round: "when this happens, do that", written by you.</p>` : '';
+  const slots = ruleSlots(s);
+  const select = (attr: string, value: string, options: readonly { id: string; label: string }[], label: string) =>
+    `<label class="sel"><span class="vh">${label}</span><select ${attr}>${options.map((o) => `<option value="${o.id}"${o.id === value ? ' selected' : ''}>${esc(o.label)}</option>`).join('')}</select></label>`;
+  const rows = s.rules
+    .map(
+      (r, i) => `<div class="rule${r.on ? '' : ' off'}">
+        <button class="rbox" data-rule-toggle="${i}" aria-pressed="${r.on}" aria-label="Rule ${i + 1} ${r.on ? 'on' : 'off'}">[${r.on ? 'x' : ' '}]</button>
+        <span class="rk">when</span>${select(`data-rule-when="${i}"`, r.when, RULE_TRIGGERS, `Rule ${i + 1}: when`)}
+        <span class="rk">do</span>${select(`data-rule-then="${i}"`, r.then, RULE_ACTIONS, `Rule ${i + 1}: do`)}
+        <button class="lnk" data-rule-rm="${i}" aria-label="Remove rule ${i + 1}">rm</button>
+      </div>`,
+    )
+    .join('');
+  const add = s.rules.length < slots ? `<button class="act" data-rule-add>+ add a rule</button>` : `<small class="dim">every slot is used: the shell scripting skill (ship/major) adds more</small>`;
+  const note = workflowOn(s, 'scripts') ? ' scripts.yml runs every script as soon as it can: switch it off to keep scripts for your rules.' : '';
+  return `<div class="cmd gap"><span><span class="ps">$</span> cat ~/bin/rules</span><span class="aside">${s.rules.length} of ${slots} rules · fired ${fmt(s.stats.rulesFired)}</span></div>
+    <div class="rulelist">${rows}</div><div class="row2">${add}</div>
+    <p class="caveat">${hl(`# a rule fires once, at the moment its condition becomes true, and only if its action can run just then.${note}`)}</p>`;
 }
 
 export const autoKey = (game: Game): string =>
-  `${releasesShipped(game.state)}|${WORKFLOWS.map((w) => `${+workflowUnlocked(game.state, w.id)}${+workflowOn(game.state, w.id)}`).join('')}|${game.state.autoShipAt}|${game.state.forkPolicy}`;
+  `${releasesShipped(game.state)}|${WORKFLOWS.map((w) => `${+workflowUnlocked(game.state, w.id)}${+workflowOn(game.state, w.id)}`).join('')}|${game.state.autoShipAt}|${game.state.forkPolicy}|${game.state.round}|${ruleSlots(game.state)}|${game.state.rules.map((r) => `${r.when}${r.then}${+r.on}`).join(',')}`;
 
 export const autoHelp = (): string =>
-  hl('workflows are automation earned by shipping releases, and by clearing each challenge release once (they open with your first major version). each one can be switched off here. bugs and coffee are left to you and the team.');
+  hl(`workflows are automation earned by shipping releases, and by clearing each challenge release once (they open with your first major version). each one can be switched off here. bugs and coffee are left to you and the team. from the ${ROUNDS[RULES.unlockRound]} round you can also write your own rules in ~/bin/rules: when something happens, run a script, refactor, ship, close issues or start a sprint.`);
 
 /* ---------- round: funding and the cap table ---------- */
 
@@ -286,10 +313,33 @@ function earnings(game: Game): string {
       </div>
     </div>
     <div class="mkt"><span class="k">cash</span><span data-q-cash></span><span class="k">beats</span><span data-q-beats></span></div>
+    ${c.reports.length ? `<div class="grp"># stock</div>${stockChart(c.reports, c.stock)}` : ''}
     <div class="grp"># last quarters</div>${reports}`;
 }
 
-export function renderRound(game: Game, stack: LanguageId | null = null): string {
+/** What the round panel remembers about founding again: the trait picked, and whether the button is armed. */
+export interface FoundView {
+  trait: FounderTraitId | null;
+  armed: boolean;
+}
+
+/** After the true ending: sell up and found a new company, with a trait. */
+function foundHtml(game: Game, view: FoundView): string {
+  const s = game.state;
+  if (!canFound(s)) return '';
+  const picked = FOUNDER_TRAITS.find((t) => t.id === view.trait);
+  const chips = FOUNDER_TRAITS.map((t) => `<button class="pj" role="radio" data-trait="${t.id}" aria-checked="${t.id === view.trait}">${esc(t.name)}</button>`).join('');
+  return `<div class="cmd gap"><span><span class="ps">$</span> ./found-a-new-startup.sh</span><span class="aside">exit ${s.founder.exits + 1}</span></div>
+    <div class="pr fund"><div class="prh">
+      <h3>Sell up and start again</h3>
+      <div class="rules">${hl(`the chart is yours: there is nothing left to buy. found a new company with x${FOUNDER.exitMul} output for good and one trait. you keep your trophies and the stats behind them, adopted rfcs, the workflows earned by shipping and every trait from before. everything the company was starts over.`)}</div>
+    </div>
+    <div class="proj" role="radiogroup" aria-label="Founder trait"><div class="cm">you start the next one as</div><div class="pjs">${chips}</div>
+      <small>${picked ? hl(picked.rule) : 'pick a trait'}</small></div>
+    <button class="shipbtn${view.armed ? ' arm' : picked ? ' ready' : ''}" data-found${picked ? '' : ' disabled'}>${view.armed ? 'confirm: this company ends here. found the next one?' : picked ? `found a new startup as ${esc(picked.name)}` : 'pick a trait first'}</button></div>`;
+}
+
+export function renderRound(game: Game, stack: LanguageId | null = null, found: FoundView = { trait: null, armed: false }): string {
   const s = game.state;
   const public_ = s.round >= FUNDING.maxRounds;
   let html = '';
@@ -314,10 +364,10 @@ export function renderRound(game: Game, stack: LanguageId | null = null): string
         <button class="buy star perkbuy" data-buyco="${p.id}"><span class="bq"></span><span class="bc"></span></button>
       </div>`;
   }
-  return html;
+  return html + foundHtml(game, found);
 }
 
-export const roundKey = (game: Game): string => `${game.state.round}|${fundingVisible(game.state)}|${game.state.corp.quarter}|${game.state.corp.reports.length}`;
+export const roundKey = (game: Game): string => `${game.state.round}|${fundingVisible(game.state)}|${game.state.corp.quarter}|${game.state.corp.reports.length}|${game.state.corp.monopolyAt > 0}`;
 
 export const roundHelp = (game: Game): string =>
   game.state.round >= FUNDING.maxRounds

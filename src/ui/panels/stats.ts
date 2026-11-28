@@ -1,5 +1,5 @@
 import { careerTitle, nextTitle } from '../../core/career';
-import { FUNDING } from '../../core/content';
+import { FOUNDER, FOUNDER_TRAITS, FUNDING, RFCS } from '../../core/content';
 import { projectOf, starBonus } from '../../core/economy';
 import { roundName } from '../../core/funding';
 import type { Game } from '../../core/game';
@@ -56,6 +56,8 @@ export function renderStats(game: Game): string {
         ${row('release', `v${currentVersion(s)} (${project.name.toLowerCase()})`)}
         ${row('title', `${careerTitle(s)}${title ? ` <span class="cm">· next at ${fmt(title.stars)}★ earned</span>` : ''}`)}
         ${row('stars', '', ' data-f-stars')}
+        ${s.founder.exits > 0 ? row('founder', `company ${s.founder.exits + 1} · ${s.founder.traits.map((id) => FOUNDER_TRAITS.find((t) => t.id === id)?.name ?? id).join(', ')} (${tint('loc', `x${fmt(FOUNDER.exitMul ** s.founder.exits)}`)})`) : ''}
+        ${s.rfc.done.length ? row('rfcs', `${s.rfc.done.length} of ${RFCS.length} adopted`) : ''}
         ${s.round > 0 ? row('funding', `${roundName(s.round)} (${tint('loc', `x${fmt(FUNDING.outputPerRound ** s.round)}`)})`) : ''}
         ${row('lines', '', ' class="h h-loc" data-f-lines')}
         ${row('loc/s', '', ' class="h h-auto" data-f-rate')}

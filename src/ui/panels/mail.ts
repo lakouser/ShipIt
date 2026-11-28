@@ -3,6 +3,7 @@ import { describeOption, mailDef, unreadCount } from '../../core/mail';
 import type { MailItem } from '../../core/state';
 import { esc } from '../dom';
 import { hl, tint } from '../hl';
+import { pullsHtml } from './pulls';
 
 /** Which mail is expanded. */
 export interface MailView {
@@ -41,7 +42,7 @@ export function renderMail(game: Game, view: MailView): string {
   const s = game.state;
   const now = game.now();
   const unread = unreadCount(s);
-  let html = `<div class="cmd"><span><span class="ps">$</span> mail</span><span class="aside">${unread ? `${tint('num', unread)} unread` : 'inbox zero'}</span></div>`;
+  let html = `${pullsHtml(game)}<div class="cmd${s.pulls ? ' gap' : ''}"><span><span class="ps">$</span> mail</span><span class="aside">${unread ? `${tint('num', unread)} unread` : 'inbox zero'}</span></div>`;
   if (s.mail.length === 0) html += '<div class="ck dim">no mail yet. enjoy it.</div>';
   html += '<div class="inbox">';
   for (const item of s.mail) {
@@ -58,4 +59,4 @@ export function renderMail(game: Game, view: MailView): string {
 }
 
 /** Changes when the inbox needs re-rendering. */
-export const mailKey = (game: Game): string => `${game.state.mail.length}|${game.state.mail[0]?.key ?? ''}`;
+export const mailKey = (game: Game): string => `${game.state.mail.length}|${game.state.mail[0]?.key ?? ''}|${game.state.pulls?.options.join(',') ?? ''}`;

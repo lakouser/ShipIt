@@ -1,7 +1,8 @@
-import { ASSUMED_TAPS_PER_SECOND, INCIDENTS, TEAM, type IncidentKind } from './content';
+import { ASSUMED_TAPS_PER_SECOND, INCIDENTS, RFC, TEAM, type IncidentKind } from './content';
 import { addLines, devrelMultiplier, projectOf, roleStrength, typicalOutput } from './economy';
 import { applyEffect } from './effects';
 import { Decimal } from './num';
+import { rfcDone } from './rfcs';
 import type { Rng } from './rng';
 import type { GameState, Incident } from './state';
 
@@ -23,7 +24,7 @@ function spawn(s: GameState, kind: IncidentKind, now: number, rng: Rng): Inciden
   if (kind === 'outage') {
     // Developers on call cut the taps needed.
     const cut = Math.min(TEAM.oncallCap, TEAM.oncallTaps * roleStrength(s, 'oncall'));
-    return { kind, expiresAt: now + INCIDENTS.outage.lifetimeMs, taps: 0, needed: Math.max(1, Math.round(INCIDENTS.outage.taps * (1 - cut))) };
+    return { kind, expiresAt: now + INCIDENTS.outage.lifetimeMs * (rfcDone(s, 'runbooks') ? RFC.timeBonus : 1), taps: 0, needed: Math.max(1, Math.round(INCIDENTS.outage.taps * (1 - cut))) };
   }
   return { kind, expiresAt: now + INCIDENTS.conflict.lifetimeMs, correct: rng() < 0.5 ? 0 : 1 };
 }

@@ -1,37 +1,49 @@
-import { AUTOMATION, BOSS_KINDS, CHALLENGE, CHALLENGES, COMPANY_PERKS, CORP, EFFECTS, FORKS, FUNDING, ISSUES, LANGUAGES, MARKET, PERKS, PROJECTS, RIVALS, ROLE_IDS, SHIP, SKILLS, STACKS, STREAK, TESTS, TRAIT_IDS, UNLOCKS, WORKFLOWS, type ChallengeId, type EffectId, type ForkId, type IssueKind, type LanguageId, type WorkflowId } from './content';
+import { AUTOMATION, BOSS_KINDS, CHALLENGE, CHALLENGES, COMPANY_PERKS, CORP, EFFECTS, FORKS, FOUNDER_TRAITS, FUNDING, INFRA, ISSUES, LANGUAGES, MARKET, PATTERNS, PERKS, PROJECTS, PULLS, PULLS_DEFS, RFCS, RIVALS, ROLE_IDS, SEGMENT_IDS, SERVICES, SHIP, SKILLS, STACKS, STREAK, TESTS, TRAIT_IDS, UNLOCKS, WORKFLOWS, type ChallengeId, type EffectId, type ForkId, type FounderTraitId, type IssueKind, type LanguageId, type PatternId, type PullId, type RfcId, type SegmentId, type ServiceId, type WorkflowId } from './content';
 import { mailDef } from './mail';
 import { MAN_PAGES } from './man';
+import { HISTORY } from './market';
 import { D, isFiniteDecimal, type Decimal } from './num';
+import { isAction, isTrigger } from './rules';
 import { shippedForStars } from './ship';
 import {
   defaultSettings,
   TABS,
   newCorp,
+  newFounder,
   newGame,
+  newInfra,
   newIssues,
   newMarket,
+  newRfc,
+  newRoadmap,
   newStats,
   type ActiveSprint,
   type CorpState,
   type Developer,
+  type FounderState,
   type GameState,
   type Headline,
   type Incident,
+  type InfraState,
   type IssueState,
   type MailItem,
   type MarketState,
   type Milestone,
+  type PullsState,
   type QuarterReport,
   type Quest,
   type QuestReward,
   type ReleaseEntry,
+  type RfcState,
+  type RoadmapState,
+  type Rule,
   type Settings,
   type SprintResult,
   type Stats,
   type Ticket,
 } from './state';
 
-export const SAVE_VERSION = 5;
+export const SAVE_VERSION = 6;
 export const SAVE_KEY = 'shipit.save';
 /** Prefix for exported save strings, so pasted text is recognisable. */
 export const EXPORT_PREFIX = 'SHIPIT:';
@@ -75,6 +87,13 @@ const MIGRATIONS: Record<number, (save: Raw) => Raw> = {
     const days = isObj(save.streak) && isObj(save.streak.activity) ? Object.keys(save.streak.activity).filter((d) => /^\d{4}-\d\d-\d\d$/.test(d)).sort() : [];
     const first = days.length ? new Date(`${days[0]}T00:00:00`).getTime() : NaN;
     return { ...save, v: 5, stack, stacksUsed: [stack], challengeLevels: Object.fromEntries(done.map((id) => [id, 1])), createdAt: Number.isFinite(first) ? first : num(save.savedAt) };
+  },
+  // v5 → v6: the architecture board, the roadmap, RFCs, pull requests, rules and the founder arrive, all empty. The
+  // users chart starts from where the app stands now.
+  5: (save) => {
+    const m = isObj(save.market) ? save.market : null;
+    const history = m && num(m.startedAt) > 0 ? [{ at: num(save.savedAt), users: Math.max(0, num(m.users)) }] : [];
+    return { ...save, v: 6, market: m ? { ...m, history } : save.market };
   },
 };
 
@@ -170,6 +189,7 @@ function releaseEntry(x: unknown): ReleaseEntry | null {
   if (!isObj(x)) return null;
   const entry: ReleaseEntry = { version: str(x.version, '0.0'), lines: dec(x.lines, D(0)), stars: Math.max(0, int(x.stars)), seconds: typeof x.seconds === 'number' && Number.isFinite(x.seconds) ? Math.max(0, x.seconds) : null, at: num(x.at) };
   if (typeof x.xp === 'number' && x.xp > 0) entry.xp = int(x.xp);
+  if (typeof x.coverage === 'number' && Number.isFinite(x.coverage)) entry.coverage = Math.max(0, Math.min(1, x.coverage));
   return entry;
 }
 
@@ -214,6 +234,12 @@ function market(x: unknown, savedAt: number): MarketState {
     press: Array.isArray(x.press) ? x.press.filter(isObj).map((h): Headline => ({ at: num(h.at), outlet: str(h.outlet), text: str(h.text) })).slice(0, MARKET.pressKept) : [],
     base: { sprints: Math.max(0, int(base.sprints)), bugs: Math.max(0, int(base.bugs)), escaped: Math.max(0, int(base.escaped)), incidents: Math.max(0, int(base.incidents)) },
     acquired: Array.isArray(x.acquired) ? RIVALS.map((r) => r.id).filter((id) => (x.acquired as unknown[]).includes(id)) : [],
+    history: Array.isArray(x.history)
+      ? x.history
+          .filter(isObj)
+          .map((h) => ({ at: num(h.at), users: Math.max(0, num(h.users)) }))
+          .slice(-HISTORY.kept)
+      : [],
   };
 }
 
@@ -237,7 +263,75 @@ function corp(x: unknown): CorpState {
     beats: Math.max(0, int(x.beats)),
     streak: Math.max(0, int(x.streak)),
     reports: Array.isArray(x.reports) ? x.reports.map(quarterReport).filter((r): r is QuarterReport => r !== null).slice(0, CORP.reportsKept) : [],
+    // A hearing saved mid-fight has no fight to come back to (bosses don't survive a reload).
+    hearing: null,
+    hearingRetryAt: Math.max(0, num(x.hearingRetryAt)),
+    monopolyAt: Math.max(0, num(x.monopolyAt)),
+    monopolySeen: x.monopolySeen === true,
   };
+}
+
+const SERVICE_IDS: readonly ServiceId[] = SERVICES.map((x) => x.id);
+
+/** A board: INFRA.maxSlots slots, each a known service or empty, no service twice. */
+function board(x: unknown): (ServiceId | null)[] {
+  const seen = new Set<string>();
+  return Array.from({ length: INFRA.maxSlots }, (_, i) => {
+    const id = Array.isArray(x) ? x[i] : null;
+    if (typeof id !== 'string' || !SERVICE_IDS.includes(id as ServiceId) || seen.has(id)) return null;
+    seen.add(id);
+    return id as ServiceId;
+  });
+}
+
+function infra(x: unknown): InfraState {
+  if (!isObj(x)) return newInfra();
+  return { live: board(x.live), draft: board(x.draft), canDeploy: x.canDeploy !== false, found: uniqueStrings<PatternId>(x.found, (id) => PATTERNS.some((p) => p.id === id)) };
+}
+
+function roadmap(x: unknown): RoadmapState {
+  const d = newRoadmap();
+  if (!isObj(x)) return d;
+  const shares = isObj(x.shares) ? x.shares : {};
+  const shipped = isObj(x.shipped) ? x.shipped : {};
+  for (const id of SEGMENT_IDS) {
+    d.shares[id] = Math.max(0, Math.min(1, num(shares[id])));
+    d.shipped[id] = Math.max(0, int(shipped[id]));
+  }
+  // Shares are parts of a whole.
+  const total = SEGMENT_IDS.reduce((sum, id) => sum + d.shares[id], 0);
+  if (total > 1) for (const id of SEGMENT_IDS) d.shares[id] /= total;
+  d.focus = SEGMENT_IDS.includes(x.focus as SegmentId) ? (x.focus as SegmentId) : null;
+  return d;
+}
+
+function rfc(x: unknown): RfcState {
+  if (!isObj(x)) return newRfc();
+  const isRfc = (id: unknown): id is RfcId => RFCS.some((r) => r.id === id);
+  const done = uniqueStrings<RfcId>(x.done, isRfc);
+  const a = isObj(x.active) && isRfc(x.active.id) && !done.includes(x.active.id) ? { id: x.active.id, startedAt: num(x.active.startedAt), endsAt: num(x.active.endsAt) } : null;
+  return { active: a, done };
+}
+
+function pulls(x: unknown): PullsState | null {
+  if (!isObj(x) || !Array.isArray(x.options)) return null;
+  const options = x.options.filter((id): id is PullId => PULLS_DEFS.some((p) => p.id === id)).slice(0, PULLS.options + 1);
+  return options.length ? { options, tier: Math.max(1, Math.min(3, int(x.tier, 1))) } : null;
+}
+
+function rules(x: unknown): Rule[] {
+  if (!Array.isArray(x)) return [];
+  return x
+    .filter(isObj)
+    .filter((r) => isTrigger(r.when) && isAction(r.then))
+    .map((r) => ({ when: r.when, then: r.then, on: r.on !== false }) as Rule)
+    .slice(0, 8);
+}
+
+function founder(x: unknown): FounderState {
+  if (!isObj(x)) return newFounder();
+  const traits = Array.isArray(x.traits) ? x.traits.filter((id): id is FounderTraitId => FOUNDER_TRAITS.some((t) => t.id === id)).slice(0, 99) : [];
+  return { exits: Math.max(0, Math.min(99, int(x.exits))), traits };
 }
 
 const ISSUE_KINDS: readonly IssueKind[] = ['bug', 'feature', 'support'];
@@ -279,6 +373,8 @@ function settings(x: unknown): Settings {
     skin: oneOf(x.skin, ['pine', 'phosphor', 'amber', 'paper'] as const, d.skin),
     welcome: x.welcome !== false,
     screensaver: x.screensaver !== false,
+    scanlines: x.scanlines === true,
+    stackTint: x.stackTint !== false,
     buyAmount: oneOf(x.buyAmount, [1, 10, 'max'] as const, 1),
     tab: oneOf(x.tab, TABS, 'upgrades'),
     dev: x.dev === true,
@@ -386,6 +482,13 @@ export function deserialize(text: string, now: number): GameState | null {
     written: dec(raw.written, base.written),
     issues: issues(raw.issues),
     corp: corp(raw.corp),
+    infra: infra(raw.infra),
+    roadmap: roadmap(raw.roadmap),
+    rfc: rfc(raw.rfc),
+    pulls: pulls(raw.pulls),
+    contribBonus: Math.max(0, Math.min(PULLS.coreCap, num(raw.contribBonus))),
+    rules: rules(raw.rules),
+    founder: founder(raw.founder),
     createdAt: num(raw.createdAt, num(raw.savedAt, now)),
     market: market(raw.market, num(raw.savedAt, now)),
     achievements: Array.isArray(raw.achievements) ? raw.achievements.filter((a): a is string => typeof a === 'string') : [],
@@ -413,6 +516,9 @@ export function deserialize(text: string, now: number): GameState | null {
       market: unlocked.market === true,
       tests: unlocked.tests === true,
       issues: unlocked.issues === true,
+      infra: unlocked.infra === true,
+      roadmap: unlocked.roadmap === true,
+      rfcs: unlocked.rfcs === true,
     },
     debt: Math.max(0, Math.min(100, num(raw.debt))),
     project: oneOf(raw.project, PROJECTS.map((p) => p.id), 'webapp'),

@@ -10,7 +10,8 @@ import { churnShare, standing, usersNow } from '../core/market';
 import { clock, fmt, fmtRate } from '../core/num';
 import { currentVersion, linesForStars, shipGain, starsAvailable } from '../core/ship';
 import { languageExt, type LanguageId } from './codegen';
-import { $, esc, setText } from './dom';
+import { tickerItems } from './charts';
+import { $, esc, setHtml, setText } from './dom';
 import { tint } from './hl';
 import { etaText, nextStarProgress, secondsFor, short } from './nav';
 import { shortName } from './workspace';
@@ -127,14 +128,18 @@ export class Header {
     );
     el.tline.hidden = !inStore;
     if (inStore) {
+      // Three parts, so the ticker tape in the middle is never rebuilt (its animation would start over).
+      if (!el.tline.firstElementChild) el.tline.innerHTML = '<span class="tl-l"></span><span class="ticker"><span class="tape"></span></span><span class="tl-r"></span>';
+      const [left, ticker, right] = Array.from(el.tline.children) as HTMLElement[];
       const drift = churnShare(s) > 0 ? ` <span class="bad">▼</span>` : '';
-      this.html(
-        'tline',
-        el.tline,
-        `<span class="tapp">${esc(s.market.appName)}</span><span>${fmt(usersNow(s))} users</span><span class="trk">#${standing(s, now).rank}</span>${drift}<span class="fill"></span>${
-          s.corp.ipoAt ? `<span class="trd">Q${s.corp.quarter} ${clock(quarterLeft(s))}</span>` : s.round > 0 ? `<span class="trd">${esc(roundName(s.round))}</span>` : ''
-        }`,
-      );
+      this.html('tl-l', left, `<span class="tapp">${esc(s.market.appName)}</span><span>${fmt(usersNow(s))} users</span><span class="trk">#${standing(s, now).rank}</span>${drift}`);
+      this.html('tl-r', right, s.corp.ipoAt ? `<span class="trd">Q${s.corp.quarter} ${clock(quarterLeft(s))}</span>` : s.round > 0 ? `<span class="trd">${esc(roundName(s.round))}</span>` : '');
+      // The tape: after the IPO, the same items twice, so the loop has no seam.
+      const tape = ticker.firstElementChild;
+      if (s.corp.ipoAt) {
+        const items = tickerItems(s, now);
+        setHtml(tape, items + items);
+      } else setHtml(tape, '');
     }
 
     // The key names what powers a tap, once there is more than one thing.

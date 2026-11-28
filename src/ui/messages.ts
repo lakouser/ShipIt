@@ -1,10 +1,11 @@
-import { BOSSES, CHALLENGE, CORP, DEBT, EFFECTS, FUNDING, MARKET, MILESTONE, ROLES, STACKS, TRAITS, packageName, type EffectId, type ForkDef, type LanguageId, type UpgradeKind } from '../core/content';
+import { BOSSES, CHALLENGE, CORP, DEBT, EFFECTS, FOUNDER, FUNDING, MARKET, MILESTONE, ROLES, STACKS, TRAITS, packageName, type EffectId, type ForkDef, type LanguageId, type UpgradeKind } from '../core/content';
 import { starBonus } from '../core/economy';
 import type { GameEvent } from '../core/game';
 import { mailDef } from '../core/mail';
 import { findChallenge } from '../core/major';
 import { clock, fmt, fmtDuration, fmtMul, fmtMoney } from '../core/num';
 import { questText } from '../core/quests';
+import { actionLabel, triggerLabel } from '../core/rules';
 import type { ShipResult } from '../core/ship';
 import type { QuestReward, SprintResult } from '../core/state';
 import { unlockPath } from './nav';
@@ -201,6 +202,30 @@ export function describe(e: GameEvent): LogLine[] {
       ];
     case 'autoForked':
       return [];
+    case 'deployed': {
+      const lines: LogLine[] = [{ kind: 'cmd', text: 'docker compose up -d' }];
+      for (const p of e.deploy.found) lines.push({ kind: 'ok', text: `pattern built: ${p.name} (${p.rule})` });
+      if (!e.deploy.found.length) lines.push({ kind: 'ok', text: `board deployed: ${e.deploy.links.length} link${e.deploy.links.length === 1 ? '' : 's'}, ${e.deploy.patterns.length} pattern${e.deploy.patterns.length === 1 ? '' : 's'}` });
+      return lines;
+    }
+    case 'rfcStarted':
+      return [{ kind: 'info', text: `rfc opened for discussion: ${e.rfc.title} (${e.hours}h, playing or away)` }];
+    case 'rfcAdopted':
+      return [{ kind: 'ok', text: `rfc adopted: ${e.rfc.title}. ${e.rfc.rule}, for good` }];
+    case 'pulls':
+      return [{ kind: 'info', text: `${e.pulls.options.length} pull requests opened while you were away: merge one in co/mail` }];
+    case 'pullMerged':
+      return [{ kind: 'cmd', text: `gh pr merge "${e.result.pull.title}"` }, { kind: 'ok', text: `merged @${e.result.pull.author}'s pull request${e.result.scripts.length ? `: found ${e.result.scripts.map(scriptFile).join(', ')}` : ''}` }];
+    case 'ruleFired':
+      return [{ kind: 'info', text: `rule: ${triggerLabel(e.rule.when)} → ${actionLabel(e.rule.then)}` }];
+    case 'hearing':
+      return [{ kind: 'warn', text: `the purchase of ${e.rival.name} goes to an antitrust hearing. win it to close the deal` }];
+    case 'hearingLost':
+      return [{ kind: 'err', text: `the committee blocks the purchase of ${e.rival.name}, for now: the deal can be heard again in ${FOUNDER.hearingRetryMs / 60_000} minutes` }];
+    case 'monopoly':
+      return [{ kind: 'ok', text: 'every rival is yours. the chart is a list of one' }];
+    case 'founded':
+      return [{ kind: 'ok', text: `a new company, founded as ${e.trait.name}: ${e.trait.rule}` }];
     default:
       return [];
   }

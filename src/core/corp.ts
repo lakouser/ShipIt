@@ -1,5 +1,6 @@
 import { CORP, FUNDING, MARKET, RIVALS, type RivalDef } from './content';
 import { rivalUsers, usersNow } from './market';
+import { mixIn, revenueMultiplier } from './roadmap';
 import { newCorp, type GameState, type QuarterReport } from './state';
 
 /*
@@ -17,10 +18,10 @@ export const isPublic = (s: GameState): boolean => s.round >= FUNDING.maxRounds;
 export const quartersStarted = (s: GameState): boolean => s.corp.ipoAt > 0;
 
 /** Revenue per second of play: users × CORP.revenuePerUser over a quarter. */
-export const revenueRate = (s: GameState): number => (usersNow(s) * CORP.revenuePerUser) / QUARTER_S;
+export const revenueRate = (s: GameState): number => quarterRunRate(s) / QUARTER_S;
 
 /** What the users right now would bring in over a whole quarter. */
-export const quarterRunRate = (s: GameState): number => usersNow(s) * CORP.revenuePerUser;
+export const quarterRunRate = (s: GameState): number => usersNow(s) * CORP.revenuePerUser * revenueMultiplier(s);
 
 /** Seconds of play left in the quarter. */
 export const quarterLeft = (s: GameState): number => Math.max(0, QUARTER_S - s.corp.elapsed);
@@ -95,15 +96,33 @@ export interface Acquisition {
   users: number;
 }
 
-/** Buys a rival: its users (CORP.keepUsers of them) join yours and it leaves the chart for good. */
-export function acquire(s: GameState, id: string, now: number): Acquisition | null {
+/** True for the last rival left: buying it has to get past the antitrust committee first. */
+export const hearingNeeded = (s: GameState, id: string): boolean => !s.corp.monopolyAt && rivalsLeft(s).length === 1 && rivalsLeft(s)[0].id === id;
+
+/** True when the purchase of `r` could go ahead (or go to a hearing) right now. */
+export const canAcquire = (s: GameState, r: RivalDef, now: number): boolean =>
+  quartersStarted(s) && !s.market.acquired.includes(r.id) && s.corp.cash >= acquirePrice(s, r, now) && !(hearingNeeded(s, r.id) && (now < s.corp.hearingRetryAt || !!s.corp.hearing));
+
+/**
+ * Buys a rival: its users (CORP.keepUsers of them) join yours and it leaves the chart for good. The last one needs
+ * `cleared` (the hearing was won): it then costs what the cash covers, and the chart is a list of one.
+ */
+export function acquire(s: GameState, id: string, now: number, cleared = false): Acquisition | null {
   const r = RIVALS.find((x) => x.id === id);
   if (!quartersStarted(s) || !r || s.market.acquired.includes(id)) return null;
-  const price = acquirePrice(s, r, now);
+  const last = hearingNeeded(s, id);
+  if (last && !cleared) return null;
+  const price = cleared ? Math.min(s.corp.cash, acquirePrice(s, r, now)) : acquirePrice(s, r, now);
   if (s.corp.cash < price) return null;
   const m = s.market;
   const users = rivalUsers(s, r, now) * CORP.keepUsers;
   s.corp.cash -= price;
+  // The users who come with a company are nobody in particular: every segment's share thins out.
+  mixIn(s, m.users, users, null);
+  if (last) {
+    s.corp.monopolyAt = now;
+    s.corp.hearing = null;
+  }
   m.users += users;
   m.peak = Math.max(m.peak, m.users);
   m.acquired.push(id);

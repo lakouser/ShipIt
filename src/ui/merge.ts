@@ -1,5 +1,5 @@
 import { hl } from './hl';
-import { CORP, FUNDING, STACKS } from '../core/content';
+import { CORP, FOUNDER, FUNDING, STACKS } from '../core/content';
 import { starBonus } from '../core/economy';
 import type { RaiseResult } from '../core/funding';
 import type { MajorResult } from '../core/major';
@@ -426,6 +426,48 @@ export function playEndingSplash(e: EndingSummary): Promise<void> {
           ${ok('nothing resets: the game carries on as a public company')}
           ${ok(`every ${CORP.quarterMinutes} minutes of play is a quarter: users bring in revenue, the board sets guidance`)}
           ${ok('beat it for the stock and +' + Math.round(CORP.beatBonus * 100) + '% output for good; cash buys rivals off the chart')}
+        </div>
+        <div class="mhint">press any key or tap to continue</div>
+      </div>
+    </div>`,
+  );
+}
+
+/** What the true ending sums up. */
+export interface MonopolySummary extends EndingSummary {
+  /** Companies the founder has taken this far before this one. */
+  exits: number;
+  quarters: number;
+}
+
+/**
+ * The true ending, shown once when the last rival is bought: the chart is a list of one. The game still carries on, and
+ * the founder can now sell up and start a new company (ship → the quarter panel).
+ */
+export function playMonopolySplash(e: MonopolySummary): Promise<void> {
+  const row = (k: string, v: string) => `<div class="erow"><span>${k}</span><b>${v}</b></div>`;
+  const ok = (text: string) => `<div><span class="tag tag-ok">${LOG_TAGS.ok}</span> ${hl(text)}</div>`;
+  return plainSplash(
+    'Every rival is yours',
+    `<div class="mwin">
+      <div class="mt"><span>app-store top</span><span>${esc(e.app)} · #1 of 1</span></div>
+      <div class="mbody">
+        <div class="mline"><span class="tag tag-cmd">${LOG_TAGS.cmd}</span> app-store top | wc -l</div>
+        <div class="mround">1</div>
+        <div class="mlabel">the committee let the last deal through. ${esc(e.app)} is the chart</div>
+        <div class="esum">
+          ${row('played', playedFor(e.seconds))}
+          ${row('releases shipped', fmt(e.releases))}
+          ${row('lines written', e.lines)}
+          ${row('users', fmt(e.users))}
+          ${row('quarters beaten', fmt(e.quarters))}
+          ${row('major versions', fmt(e.majors))}
+          ${row('trophies', fmt(e.achievements))}
+          ${e.exits ? row('companies before this one', fmt(e.exits)) : ''}
+        </div>
+        <div class="mlog">
+          ${ok('that is the true ending. the quarters carry on for as long as you like')}
+          ${ok(`or sell up: found a new company with x${FOUNDER.exitMul} output and a founder trait, from the quarter panel in ship`)}
         </div>
         <div class="mhint">press any key or tap to continue</div>
       </div>

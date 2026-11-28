@@ -1,7 +1,8 @@
-import { AUTOMATION, COMPANY_PERKS, FUNDING, ISSUES, PERKS, SKILLS, UPGRADES, type EffectId, type LanguageId, type ProjectId, type RoleId } from '../src/core/content';
-import { acquirePrice, rivalsLeft } from '../src/core/corp';
+import { AUTOMATION, COMPANY_PERKS, FUNDING, ISSUES, PERKS, RULES, SERVICES, SKILLS, UPGRADES, type EffectId, type LanguageId, type Mods, type ProjectId, type RoleId, type SegmentId, type ServiceId } from '../src/core/content';
+import { acquirePrice, canAcquire, rivalsLeft } from '../src/core/corp';
 import { refactorCost } from '../src/core/debt';
 import { canRaise, companyPerkStatus } from '../src/core/funding';
+import { boardParts, draftDirty, infraSlots } from '../src/core/infra';
 import { challengeOpen, challengeReady, challengesUnlocked, skillStatus, xpAvailable } from '../src/core/major';
 import { mailDef, type MailOption } from '../src/core/mail';
 import { standing, usersNow } from '../src/core/market';
@@ -9,6 +10,7 @@ import { costOf, forkOptions, isUpgradeVisible, owned, perSecond, perTap, upgrad
 import { Game, type GameEvent } from '../src/core/game';
 import { D, fmt } from '../src/core/num';
 import { perkStatus } from '../src/core/perks';
+import { rfcsOpen } from '../src/core/rfcs';
 import { seededRng } from '../src/core/rng';
 import { nextProjects, starsAvailable } from '../src/core/ship';
 import { difficultyOf, requiredTapRate } from '../src/core/sprints';
@@ -44,6 +46,8 @@ export interface SimOptions {
   stacks?: LanguageId[];
   /** The engaged bot's test budget once the suite opens. */
   testBudget?: number;
+  /** The segment an engaged bot points the roadmap at (developers by default). */
+  segment?: SegmentId;
   /** Stop early once this holds (checked once a simulated minute). */
   until?: (s: GameState) => boolean;
 }
@@ -77,6 +81,39 @@ export const ENGAGED_PROJECTS: ProjectId[] = ['game', 'startup', 'os', 'cli', 'e
 /** The engaged bot's stacks: it taps a lot, so typing first. */
 export const ENGAGED_STACKS: LanguageId[] = ['py', 'rs', 'ts', 'go'];
 
+/** How good a board is to a bot that taps and automates about equally: output, stars (twice over), prices. */
+function boardScore(board: (ServiceId | null)[], slots: number): number {
+  const m: Partial<Record<keyof Mods, number>> = {};
+  for (const part of boardParts(board, slots))
+    for (const [k, v] of Object.entries(part) as [keyof Mods, number][]) m[k] = k === 'critAdd' ? (m[k] ?? 0) + v : (m[k] ?? 1) * v;
+  return ((m.tapMul ?? 1) * (m.autoMul ?? 1) * (m.allMul ?? 1) ** 2 * (m.starGain ?? 1) ** 2 * (1 + (m.critAdd ?? 0) * 4)) / (m.costMul ?? 1);
+}
+
+const bestBoards = new Map<number, (ServiceId | null)[]>();
+
+/** The best board for a number of slots, by trying every arrangement once (a few thousand for a full board). */
+function bestBoard(slots: number): (ServiceId | null)[] {
+  const known = bestBoards.get(slots);
+  if (known) return known;
+  let best: (ServiceId | null)[] = [];
+  let bestScore = -Infinity;
+  const ids = SERVICES.map((x) => x.id);
+  const place = (board: ServiceId[]): void => {
+    if (board.length === slots) {
+      const score = boardScore(board, slots);
+      if (score > bestScore) {
+        bestScore = score;
+        best = [...board];
+      }
+      return;
+    }
+    for (const id of ids) if (!board.includes(id)) place([...board, id]);
+  };
+  place([]);
+  bestBoards.set(slots, best);
+  return best;
+}
+
 /** The role a trait is best at, so a hire goes where they count most. */
 const ROLE_FOR: Record<Developer['trait'], RoleId> = { senior: 'features', tenx: 'features', tester: 'bugs', sre: 'oncall', scrum: 'sprints', tidy: 'refactor', generalist: 'sprints' };
 
@@ -99,7 +136,7 @@ function optionScore(o: MailOption): number {
  * ships when the payoff is worth it and spends stars on the cheapest perk. With `engaged`, it
  * also plays every other system.
  */
-export function simulate({ minutes, tapsPerSecond, seed = 7, ship = { kind: 'gain', fraction: 0.75 }, resets = true, engaged = false, projects = ENGAGED_PROJECTS, stacks = ENGAGED_STACKS, testBudget = 0.1, until }: SimOptions): SimReport {
+export function simulate({ minutes, tapsPerSecond, seed = 7, ship = { kind: 'gain', fraction: 0.75 }, resets = true, engaged = false, projects = ENGAGED_PROJECTS, stacks = ENGAGED_STACKS, testBudget = 0.1, segment = 'dev', until }: SimOptions): SimReport {
   let now = 0;
   const rng = seededRng(seed);
   const botRng = seededRng(seed + 1000);
@@ -130,6 +167,9 @@ export function simulate({ minutes, tapsPerSecond, seed = 7, ship = { kind: 'gai
     if (e.type === 'unlocked') first(`panel ${e.tab}`);
     if (e.type === 'workflowUnlocked') first(`workflow ${e.workflow.file}`);
     if (e.type === 'raised') first(`round ${e.result.name}`);
+    if (e.type === 'raised' && e.result.round === RULES.unlockRound) first('rules');
+    if (e.type === 'monopoly') first('monopoly');
+    if (e.type === 'rfcAdopted') first('an rfc adopted');
     if (e.type === 'majorCut') first('major versions');
     if (e.type === 'bossIncoming') first('boss incidents');
     if (e.type === 'applicant') first('applicants');
@@ -172,7 +212,7 @@ export function simulate({ minutes, tapsPerSecond, seed = 7, ship = { kind: 'gai
       if (slot >= 0) game.startSprint(slot);
     }
 
-    if (engaged) playEngaged(game, now, botRng, testBudget);
+    if (engaged) playEngaged(game, now, botRng, testBudget, segment);
     // Issues: the engaged bot closes them every few minutes, the official bot once the queue is full.
     if (s.issues.open.length >= (engaged ? 3 : ISSUES.max)) game.triage();
 
@@ -210,7 +250,7 @@ export function simulate({ minutes, tapsPerSecond, seed = 7, ship = { kind: 'gai
       if (xpAvailable(s) >= Math.max(1, Math.ceil(s.xp * 0.5)) && !s.challenge) game.cutMajor(nextStack());
       // After the IPO: buy the cheapest rival the cash covers.
       const cheapest = rivalsLeft(s).sort((a, b) => acquirePrice(s, a, now) - acquirePrice(s, b, now))[0];
-      if (cheapest && acquirePrice(s, cheapest, now) <= s.corp.cash) game.acquire(cheapest.id);
+      if (cheapest && !s.boss && canAcquire(s, cheapest, now)) game.acquire(cheapest.id);
     }
 
     if (until && step % (4 * 60) === 0 && until(s)) {
@@ -243,8 +283,21 @@ export function simulate({ minutes, tapsPerSecond, seed = 7, ship = { kind: 'gai
 }
 
 /** Everything the official bot leaves alone. Called once a second. */
-function playEngaged(game: Game, now: number, botRng: () => number, testBudget: number): void {
+function playEngaged(game: Game, now: number, botRng: () => number, testBudget: number, segment: SegmentId): void {
   const s = game.state;
+  // The roadmap: point it at one segment and leave it there.
+  if (s.unlocked.roadmap && s.roadmap.focus !== segment) game.setFocus(segment);
+  // RFCs: always one under discussion, in the order they are listed.
+  if (s.unlocked.rfcs && !s.rfc.active && rfcsOpen(s).length) game.startRfc(rfcsOpen(s)[0].id);
+  // The architecture board: the best arrangement for the slots there are, deployed when a release allows it.
+  if (s.unlocked.infra && s.infra.canDeploy) {
+    const slots = infraSlots(s);
+    const board = bestBoard(slots);
+    // Clear first, so placing never swaps a service into a slot that is about to be overwritten.
+    for (let i = 0; i < slots; i++) game.placeService(i, null);
+    for (let i = 0; i < slots; i++) game.placeService(i, board[i] ?? null);
+    if (draftDirty(s)) game.deployInfra();
+  }
   if (s.unlocked.tests && s.testBudget !== testBudget) game.setTestBudget(testBudget);
   // Package upgrades: the plugin ecosystem or the LTS build, which beat the rewrite over a run.
   for (const u of upgradesWithForks(s)) {

@@ -1,16 +1,17 @@
-import { AUTOMATION, BUGS, INCIDENTS, MARKET, type BossKind, type ChallengeId, type EffectId, type ForkId, type ForkPolicy, type IssueKind, type LanguageId, type ProjectId, type RoleId, type TraitId, type WorkflowId } from './content';
+import { AUTOMATION, BUGS, INCIDENTS, INFRA, MARKET, type BossKind, type ChallengeId, type EffectId, type ForkId, type ForkPolicy, type FounderTraitId, type IssueKind, type LanguageId, type PatternId, type ProjectId, type PullId, type RfcId, type RoleId, type RuleAction, type RuleTrigger, type SegmentId, type ServiceId, type TraitId, type WorkflowId } from './content';
 import { D, type Decimal } from './num';
 
 export type BuyAmount = 1 | 10 | 'max';
 /**
  * The panel being shown. The tmux bar groups them into five windows (see src/ui/nav.ts): pkgs; work
- * (sprints, todo); ship (ship, dotfiles, auto, major, round); co (team, mail, market); more (man,
- * trophies, stats, settings).
+ * (sprints, todo, tests, rfcs); ship (ship, dotfiles, auto, major, round); co (team, mail, issues, market); more
+ * (man, trophies, stats, settings). pkgs holds what the product is made of: packages, the architecture board (infra)
+ * and the roadmap (features).
  */
 export type Tab =
-  | 'upgrades' | 'sprints' | 'todo' | 'tests' | 'ship' | 'dotfiles' | 'auto' | 'major' | 'round'
-  | 'team' | 'mail' | 'issues' | 'market' | 'man' | 'trophies' | 'stats' | 'settings';
-export const TABS: readonly Tab[] = ['upgrades', 'sprints', 'todo', 'tests', 'ship', 'dotfiles', 'auto', 'major', 'round', 'team', 'mail', 'issues', 'market', 'man', 'trophies', 'stats', 'settings'];
+  | 'upgrades' | 'infra' | 'sprints' | 'todo' | 'tests' | 'rfcs' | 'ship' | 'dotfiles' | 'auto' | 'major' | 'round'
+  | 'team' | 'mail' | 'issues' | 'roadmap' | 'market' | 'man' | 'trophies' | 'stats' | 'settings';
+export const TABS: readonly Tab[] = ['upgrades', 'infra', 'sprints', 'todo', 'tests', 'rfcs', 'ship', 'dotfiles', 'auto', 'major', 'round', 'team', 'mail', 'issues', 'roadmap', 'market', 'man', 'trophies', 'stats', 'settings'];
 export type Notation = 'suffix' | 'sci';
 export type Skin = 'pine' | 'phosphor' | 'amber' | 'paper';
 
@@ -114,6 +115,8 @@ export interface MarketState {
   base: ReleaseCounters;
   /** Rivals bought after the IPO: gone from the chart, still counted as behind you. */
   acquired: string[];
+  /** Users over time, oldest first, for the chart in co/market: a sample every few minutes of play. */
+  history: { at: number; users: number }[];
 }
 
 /** A quarter's results. */
@@ -149,6 +152,60 @@ export interface CorpState {
   streak: number;
   /** Newest first. */
   reports: QuarterReport[];
+  /** The last rival, while its purchase is in front of the antitrust committee. */
+  hearing: string | null;
+  /** After a lost hearing: when the deal can be heard again (ms). */
+  hearingRetryAt: number;
+  /** When the last rival was bought (ms); 0 before. The true ending. */
+  monopolyAt: number;
+  /** Set once the true ending has been shown. */
+  monopolySeen: boolean;
+}
+
+/** The architecture board. Slots hold services; `live` is what runs, `draft` is what the player is arranging. */
+export interface InfraState {
+  live: (ServiceId | null)[];
+  draft: (ServiceId | null)[];
+  /** One deploy per release: true until the draft has been deployed this release. */
+  canDeploy: boolean;
+  /** Patterns the player has built at least once. */
+  found: PatternId[];
+}
+
+/** Who uses the app, as shares of all users (the rest are nobody in particular), and the roadmap. */
+export interface RoadmapState {
+  shares: Record<SegmentId, number>;
+  /** Who the roadmap is for right now: every release ships this segment's next feature as its headline. */
+  focus: SegmentId | null;
+  /** Headline features shipped for each segment, in all. */
+  shipped: Record<SegmentId, number>;
+}
+
+/** RFCs: the one under discussion, and those adopted. */
+export interface RfcState {
+  active: { id: RfcId; startedAt: number; endsAt: number } | null;
+  done: RfcId[];
+}
+
+/** Pull requests contributors opened while the player was away: one of them can be merged. */
+export interface PullsState {
+  options: PullId[];
+  /** 1–3: how long the player was away. */
+  tier: number;
+}
+
+/** A line of ~/bin/rules: when `when` happens, do `then`. */
+export interface Rule {
+  when: RuleTrigger;
+  then: RuleAction;
+  on: boolean;
+}
+
+/** What carries over when the founder sells up and starts again. */
+export interface FounderState {
+  /** Companies taken all the way to a monopoly. */
+  exits: number;
+  traits: FounderTraitId[];
 }
 
 /** Issues users filed and nobody has closed yet, and what closing them has done. */
@@ -243,6 +300,12 @@ export interface Stats {
   testsCaught: number;
   issuesClosed: number;
   acquisitions: number;
+  /** Times the architecture board was deployed. */
+  deploys: number;
+  /** Headline features shipped. */
+  headlines: number;
+  pullsMerged: number;
+  rulesFired: number;
 }
 
 export interface Settings {
@@ -255,6 +318,10 @@ export interface Settings {
   welcome: boolean;
   /** Show the screensaver in the editor when idle. */
   screensaver: boolean;
+  /** Draw scanlines over the screen. */
+  scanlines: boolean;
+  /** Tint the workspace by the stack this run is written in. */
+  stackTint: boolean;
   buyAmount: BuyAmount;
   tab: Tab;
   dev: boolean;
@@ -317,6 +384,14 @@ export interface GameState {
   written: Decimal;
   issues: IssueState;
   corp: CorpState;
+  infra: InfraState;
+  roadmap: RoadmapState;
+  rfc: RfcState;
+  pulls: PullsState | null;
+  /** Output added for good by contributors' rewrites (a fraction). */
+  contribBonus: number;
+  rules: Rule[];
+  founder: FounderState;
   /** When this game began (ms), for the ending's summary. */
   createdAt: number;
   market: MarketState;
@@ -344,7 +419,7 @@ export interface GameState {
   nextIncidentAt: number;
   /** activity: taps per day (YYYY-MM-DD), for the days kept. */
   streak: { lastDay: string; count: number; days: string[]; activity: Record<string, number> };
-  unlocked: { sprints: boolean; todo: boolean; ship: boolean; team: boolean; mail: boolean; major: boolean; market: boolean; tests: boolean; issues: boolean };
+  unlocked: { sprints: boolean; todo: boolean; ship: boolean; team: boolean; mail: boolean; major: boolean; market: boolean; tests: boolean; issues: boolean; infra: boolean; roadmap: boolean; rfcs: boolean };
   /** Tech debt, 0 to DEBT.max. */
   debt: number;
   /** What this release is building. */
@@ -381,23 +456,34 @@ export const newStats = (): Stats => ({
   conflictsResolved: 0, scriptsRun: 0, quests: 0, milestones: 0, perksBought: 0, flowMaxed: 0, maxOfOne: 0,
   refactors: 0, forksChosen: 0, hires: 0, bossesBeaten: 0, bossesFailed: 0, mailAnswered: 0, duckPokes: 0,
   ships: 0, starsEarned: 0, autoShips: 0, majors: 0, challenges: 0, steals: 0, fiveStars: 0,
-  testsCaught: 0, issuesClosed: 0, acquisitions: 0,
+  testsCaught: 0, issuesClosed: 0, acquisitions: 0, deploys: 0, headlines: 0, pullsMerged: 0, rulesFired: 0,
 });
 
 export const newMarket = (): MarketState => ({
   appName: MARKET.defaultName, users: 0, quietMinutes: 0, peak: 0, lastUpdateAt: 0, startedAt: 0, reviews: [], absorbed: {}, passed: [], rank: 0,
-  staleNoticed: false, launch: null, nextLaunchAt: 0, press: [], base: { sprints: 0, bugs: 0, escaped: 0, incidents: 0 }, acquired: [],
+  staleNoticed: false, launch: null, nextLaunchAt: 0, press: [], base: { sprints: 0, bugs: 0, escaped: 0, incidents: 0 }, acquired: [], history: [],
 });
 
 export const newCorp = (): CorpState => ({
   ipoAt: 0, endingSeen: false, quarter: 0, elapsed: 0, revenue: 0, guidance: 0, cash: 0, stock: 100, beats: 0, streak: 0, reports: [],
+  hearing: null, hearingRetryAt: 0, monopolyAt: 0, monopolySeen: false,
 });
+
+const emptyBoard = (): (ServiceId | null)[] => Array.from({ length: INFRA.maxSlots }, () => null);
+
+export const newInfra = (): InfraState => ({ live: emptyBoard(), draft: emptyBoard(), canDeploy: true, found: [] });
+
+export const newRoadmap = (): RoadmapState => ({ shares: { dev: 0, biz: 0, fun: 0 }, focus: null, shipped: { dev: 0, biz: 0, fun: 0 } });
+
+export const newRfc = (): RfcState => ({ active: null, done: [] });
+
+export const newFounder = (): FounderState => ({ exits: 0, traits: [] });
 
 export const newIssues = (): IssueState => ({ open: [], nextAt: 0, reviewBoost: 0 });
 
 export const defaultSettings = (): Settings => ({
   sound: false, haptics: true, reduceMotion: false, notation: 'suffix', skin: 'pine',
-  welcome: true, screensaver: true, buyAmount: 1, tab: 'upgrades', dev: false,
+  welcome: true, screensaver: true, scanlines: false, stackTint: true, buyAmount: 1, tab: 'upgrades', dev: false,
 });
 
 export function newGame(now: number): GameState {
@@ -436,6 +522,13 @@ export function newGame(now: number): GameState {
     written: D(0),
     issues: newIssues(),
     corp: newCorp(),
+    infra: newInfra(),
+    roadmap: newRoadmap(),
+    rfc: newRfc(),
+    pulls: null,
+    contribBonus: 0,
+    rules: [],
+    founder: newFounder(),
     createdAt: now,
     market: newMarket(),
     achievements: [],
@@ -456,7 +549,7 @@ export function newGame(now: number): GameState {
     incident: null,
     nextIncidentAt: now + INCIDENTS.firstDelayMs,
     streak: { lastDay: '', count: 0, days: [], activity: {} },
-    unlocked: { sprints: false, todo: false, ship: false, team: false, mail: false, major: false, market: false, tests: false, issues: false },
+    unlocked: { sprints: false, todo: false, ship: false, team: false, mail: false, major: false, market: false, tests: false, issues: false, infra: false, roadmap: false, rfcs: false },
     debt: 0,
     project: 'webapp',
     projectsShipped: [],

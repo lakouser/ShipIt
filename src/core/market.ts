@@ -1,9 +1,11 @@
-import { ISSUES, MARKET, OUTLETS, RIVALS, TESTS, type RivalDef } from './content';
+import { ISSUES, MARKET, OUTLETS, RFC, RIVALS, TESTS, type RivalDef } from './content';
 import { coverage } from './coverage';
 import { grantScript, randomScript } from './effects';
 import { mods } from './mods';
 import type { Decimal } from './num';
+import { rfcDone } from './rfcs';
 import type { Rng } from './rng';
+import { headlineMultiplier, roadmapOnShip, type Headline as Feature } from './roadmap';
 import type { GameState, Headline, ReleaseCounters } from './state';
 
 /*
@@ -59,8 +61,11 @@ export const usersFromRelease = (lines: Decimal, review: number): number =>
 /** Wall-clock minutes since the last update (ship or major version), for display. */
 export const minutesSinceUpdate = (s: GameState, now: number): number => (s.market.lastUpdateAt ? Math.max(0, (now - s.market.lastUpdateAt) / 60_000) : 0);
 
+/** Quiet minutes before users start drifting (twice as long with zero-downtime deploys). */
+export const graceMinutes = (s: GameState): number => MARKET.graceMinutes * (rfcDone(s, 'zerodowntime') ? RFC.graceMul : 1);
+
 /** Quiet minutes at which churn reaches this share. */
-const quietFor = (share: number): number => MARKET.graceMinutes + Math.log(1 - share) / Math.log(1 - MARKET.churnPerMinute);
+const quietFor = (s: GameState, share: number): number => graceMinutes(s) + Math.log(1 - share) / Math.log(1 - MARKET.churnPerMinute);
 
 /**
  * Counts time without an update: in full while playing, at MARKET.awayChurnRate while away.
@@ -73,18 +78,18 @@ export function addQuietTime(s: GameState, seconds: number, away: boolean): void
     m.quietMinutes += seconds / 60;
     return;
   }
-  const limit = Math.max(m.quietMinutes, quietFor(MARKET.awayMaxChurn));
+  const limit = Math.max(m.quietMinutes, quietFor(s, MARKET.awayMaxChurn));
   m.quietMinutes = Math.min(limit, m.quietMinutes + (seconds / 60) * MARKET.awayChurnRate);
 }
 
 /** Quiet minutes left before users start drifting. */
-export const graceLeft = (s: GameState): number => Math.max(0, MARKET.graceMinutes - s.market.quietMinutes);
+export const graceLeft = (s: GameState): number => Math.max(0, graceMinutes(s) - s.market.quietMinutes);
 
 /** Share of the users at the last update who have drifted to rivals since. */
 export function churnShare(s: GameState): number {
   const m = s.market;
   if (!m.lastUpdateAt || m.users <= 0) return 0;
-  const over = (m.quietMinutes - MARKET.graceMinutes) * mods(s).churnMul;
+  const over = (m.quietMinutes - graceMinutes(s)) * mods(s).churnMul;
   if (over <= 0) return 0;
   return Math.min(MARKET.maxChurn, 1 - (1 - MARKET.churnPerMinute) ** over);
 }
@@ -169,6 +174,8 @@ export interface ShipNews {
   stole: RivalDef | null;
   overtook: RivalDef[];
   headlines: Headline[];
+  /** The headline feature the release shipped, once the roadmap is pointed at a segment. */
+  feature: Feature | null;
 }
 
 const nextLaunch = (now: number, rng: Rng): number => now + MARKET.launch.minGapMs + rng() * MARKET.launch.extraGapMs;
@@ -200,7 +207,8 @@ export function marketOnShip(s: GameState, now: number, rng: Rng, review: number
     m.nextLaunchAt = nextLaunch(now, rng);
     s.stats.steals++;
   }
-  const newUsers = Math.floor(usersFromRelease(lines, review) * (stole ? MARKET.launch.stealMul : 1));
+  const newUsers = Math.floor(usersFromRelease(lines, review) * (stole ? MARKET.launch.stealMul : 1) * mods(s).usersMul * headlineMultiplier(s));
+  const feature = roadmapOnShip(s, m.users, newUsers);
   m.users += newUsers;
   m.peak = Math.max(m.peak, m.users);
   m.lastUpdateAt = now;
@@ -210,6 +218,7 @@ export function marketOnShip(s: GameState, now: number, rng: Rng, review: number
   if (review >= 5) s.stats.fiveStars++;
 
   const headlines = [headline(s, now, rng, reviewHeadline(m.appName, version, review, tiny, rng))];
+  if (feature && !tiny) headlines.push(headline(s, now, rng, pick([`${m.appName} v${version} adds ${feature.feature}`, `${feature.feature} lands in ${m.appName}; ${feature.segment.name} notice`, `${m.appName} ships ${feature.feature}, at last`], rng)));
   if (stole) headlines.push(headline(s, now, rng, `${m.appName} beats ${stole.name} to launch, stealing the headline`));
   const overtook = rivalsInChart(s).filter((r) => !m.passed.includes(r.id) && rivalUsers(s, r, now) < m.users);
   for (const r of overtook) {
@@ -219,7 +228,7 @@ export function marketOnShip(s: GameState, now: number, rng: Rng, review: number
   const top = overtook.at(-1);
   if (top) headlines.push(headline(s, now, rng, `${m.appName} overtakes ${top.name}'s ${top.app} in the charts`));
   m.rank = standing(s, now).rank;
-  return { review, newUsers, regained, lost, stole, overtook, headlines };
+  return { review, newUsers, regained, lost, stole, overtook, headlines, feature };
 }
 
 /** A major version counts as an update: churn is settled and the press covers the rewrite. */
@@ -275,6 +284,7 @@ export function updateMarket(s: GameState, now: number, rng: Rng, canSpawn: bool
     } else m.nextLaunchAt = nextLaunch(now, rng);
   }
 
+  recordHistory(s, now);
   const rows = chart(s, now);
   const rank = rows.findIndex((r) => r.you) + 1;
   if (m.rank && rank > m.rank && rows[rank - 2]) {
@@ -283,6 +293,21 @@ export function updateMarket(s: GameState, now: number, rng: Rng, canSpawn: bool
   }
   m.rank = rank;
   return news;
+}
+
+/** Samples kept for the users chart, and the least time between two of them. */
+export const HISTORY = { kept: 96, everyMs: 60_000 };
+
+/**
+ * Keeps the users-over-time samples for the chart in co/market: one a minute at most, and when the list is full the
+ * older half is thinned to every other sample, so it always spans the whole game at a falling resolution.
+ */
+export function recordHistory(s: GameState, now: number, force = false): void {
+  const h = s.market.history;
+  const last = h[h.length - 1];
+  if (!force && last && now - last.at < HISTORY.everyMs) return;
+  h.push({ at: now, users: usersNow(s) });
+  if (h.length > HISTORY.kept) s.market.history = h.filter((_, i) => i >= h.length / 2 || i % 2 === 0);
 }
 
 /** Renames the app: letters, digits, spaces, dots, dashes and underscores, up to 24 characters. */

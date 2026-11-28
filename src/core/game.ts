@@ -1,6 +1,6 @@
 import { checkAchievements, type AchievementDef } from './achievements';
 import { careerLevel } from './career';
-import { bossPick, bossTap, engageBoss, updateBoss, type BossChange } from './bosses';
+import { bossPick, bossTap, engageBoss, summonBoss, updateBoss, type BossChange } from './bosses';
 import { squashBug, updateBugs } from './bugs';
 import {
   AUTOMATION,
@@ -10,8 +10,12 @@ import {
   COMPANY_VALUES,
   CRIT,
   FLOW,
+  FOUNDER,
   OFFLINE,
   PERK_VALUES,
+  RFC,
+  RIVALS,
+  RULES,
   TESTS,
   UNLOCKS,
   type BossKind,
@@ -23,25 +27,35 @@ import {
   type ForkDef,
   type ForkId,
   type ForkPolicy,
+  type FounderTraitDef,
+  type FounderTraitId,
   type IncidentKind,
   type IssueKind,
   type LanguageId,
   type PerkDef,
   type ProjectId,
+  type RfcDef,
+  type RfcId,
+  type RivalDef,
   type RoleId,
+  type RuleAction,
+  type SegmentId,
+  type ServiceId,
   type SkillDef,
   type UpgradeDef,
   type WorkflowDef,
   type WorkflowId,
 } from './content';
-import { acquire, creditCorpAway, goPublic, tickCorp, type Acquisition } from './corp';
+import { acquire, canAcquire, creditCorpAway, goPublic, hearingNeeded, tickCorp, type Acquisition } from './corp';
 import { setTestBudget, writeLines } from './coverage';
 import { refactor, tickDebt } from './debt';
 import { applyDev, type DevAction } from './dev';
 import { buy, chooseFork, companyLevel, critChance, perSecond, perTap, type Purchase } from './economy';
 import { effectSum, pruneEffects, runScript } from './effects';
+import { foundStartup } from './founder';
 import { buyCompanyPerk, raiseRound, type RaiseResult } from './funding';
 import { catchCoffee, chooseConflict, outageTap, updateIncident } from './incidents';
+import { deploy, discardDraft, infraReady, placeService, type Deploy } from './infra';
 import { issuesReady, triage, updateIssues, type Triage } from './issues';
 import { answerMail, markRead, updateMail, type MailAnswer } from './mail';
 import { abandonChallenge, buySkill, cutMajor, majorTabUnlocked, startChallenge, type MajorResult } from './major';
@@ -49,16 +63,20 @@ import { addQuietTime, headline, marketOnMajor, marketOnRaise, marketOnShip, ren
 import { readMan } from './man';
 import type { Decimal } from './num';
 import { buyPerk, perkEffect } from './perks';
+import { mergePull, openPulls, type PullResult } from './pulls';
 import { makeMilestone, updateMilestone, updateQuests } from './quests';
+import { rfcDone, rfcHours, rfcsReady, startRfc, updateRfc, withdrawRfc } from './rfcs';
 import type { Rng } from './rng';
-import { nextProjects, ship, shipGain, starsPerMinute, type ShipResult } from './ship';
+import { roadmapReady, setFocus } from './roadmap';
+import { addRule, removeRule, setRule, triggerStates } from './rules';
+import { nextProjects, ship, shipGain, starsAvailable, starsPerMinute, type ShipResult } from './ship';
 import { makeBacklog, refreshBacklog, requiredTapRate, resolveSprint, startSprint } from './sprints';
-import type { ActiveSprint, Boss, Developer, GameState, Headline, Incident, MailItem, Milestone, Quest, QuarterReport, SprintResult } from './state';
+import type { ActiveSprint, Boss, Developer, GameState, Headline, Incident, MailItem, Milestone, PullsState, Quest, QuarterReport, Rule, SprintResult } from './state';
 import { checkIn, dayKey, type CheckIn } from './streak';
 import { assignRole, hire, letGo, passApplicant, updateApplicant } from './team';
 import { autoDotfiles, autoForks, autoInstall, autoRunScripts, releasesShipped, setForkPolicy, workflowForChallenge, workflowOn, workflowsUnlockedBetween } from './workflows';
 
-export type UnlockTab = 'sprints' | 'todo' | 'ship' | 'team' | 'mail' | 'major' | 'market' | 'tests' | 'issues';
+export type UnlockTab = 'sprints' | 'todo' | 'ship' | 'team' | 'mail' | 'major' | 'market' | 'tests' | 'issues' | 'infra' | 'roadmap' | 'rfcs';
 export type IncidentOutcome = 'caught' | 'fixed' | 'resolved' | 'wrong' | 'missed';
 
 export type GameEvent =
@@ -115,7 +133,17 @@ export type GameEvent =
   | { type: 'triaged'; triage: Triage; auto: boolean }
   | { type: 'quarter'; report: QuarterReport; headline: Headline }
   | { type: 'acquired'; acquisition: Acquisition; headline: Headline }
-  | { type: 'autoForked'; count: number };
+  | { type: 'autoForked'; count: number }
+  | { type: 'deployed'; deploy: Deploy }
+  | { type: 'rfcStarted'; rfc: RfcDef; hours: number }
+  | { type: 'rfcAdopted'; rfc: RfcDef }
+  | { type: 'pulls'; pulls: PullsState }
+  | { type: 'pullMerged'; result: PullResult }
+  | { type: 'ruleFired'; rule: Rule }
+  | { type: 'hearing'; rival: RivalDef }
+  | { type: 'hearingLost'; rival: RivalDef }
+  | { type: 'monopoly' }
+  | { type: 'founded'; trait: FounderTraitDef; exits: number };
 
 export interface GameOptions {
   clock?: () => number;
@@ -146,6 +174,8 @@ export class Game {
   private today: string;
   /** Flow state, 0–1. Not saved: it is about the current burst of typing. */
   flow = 0;
+  /** Which rule conditions held on the last tick (rules fire when one becomes true); null until the first tick. */
+  private ruleWas: Record<string, boolean> | null = null;
 
   constructor(state: GameState, options: GameOptions = {}) {
     this.clock = options.clock ?? Date.now;
@@ -157,6 +187,7 @@ export class Game {
     state.bug = null;
     state.incident = null;
     state.boss = null;
+    state.corp.hearing = null;
     state.nextBugAt = now + BUGS.firstDelayMs;
     this.today = dayKey(now);
     if (state.backlog.length === 0) state.backlog = makeBacklog(state, now, this.rng);
@@ -218,7 +249,7 @@ export class Game {
     }
     const crit = this.rng() < critChance(s, now);
     if (crit) {
-      lines = lines.mul(CRIT.multiplier);
+      lines = lines.mul(rfcDone(s, 'types') ? RFC.critMultiplier : CRIT.multiplier);
       s.stats.crits++;
     }
     writeLines(s, lines);
@@ -234,8 +265,33 @@ export class Game {
   private bossProgress(change: BossChange): void {
     if (!change) return;
     if (change.type === 'stage') this.emit({ type: 'bossStage', kind: change.kind, stage: change.stage, reward: change.reward });
-    else if (change.type === 'won') this.emit({ type: 'bossWon', kind: change.kind, reward: change.reward, scripts: change.scripts });
-    else if (change.type === 'failed') this.emit({ type: 'bossFailed', kind: change.kind, stage: change.stage });
+    else if (change.type === 'won') {
+      this.emit({ type: 'bossWon', kind: change.kind, reward: change.reward, scripts: change.scripts });
+      if (change.kind === 'antitrust') this.closeHearing(true);
+    } else if (change.type === 'failed') {
+      this.emit({ type: 'bossFailed', kind: change.kind, stage: change.stage });
+      if (change.kind === 'antitrust') this.closeHearing(false);
+    }
+  }
+
+  /** The hearing is over: won, the last rival is bought and the chart is a list of one; lost, the deal waits. */
+  private closeHearing(won: boolean): void {
+    const s = this.state;
+    const now = this.clock();
+    const id = s.corp.hearing;
+    const rival = RIVALS.find((r) => r.id === id);
+    s.corp.hearing = null;
+    if (!rival) return;
+    if (!won) {
+      s.corp.hearingRetryAt = now + FOUNDER.hearingRetryMs;
+      this.emit({ type: 'hearingLost', rival });
+      return;
+    }
+    const result = acquire(s, rival.id, now, true);
+    if (!result) return;
+    const h = headline(s, now, this.rng, `Regulators wave through ${s.market.appName}'s purchase of ${rival.name}. There is nobody left to object`);
+    this.emit({ type: 'acquired', acquisition: result, headline: h });
+    this.emit({ type: 'monopoly' });
   }
 
   /** Perks, the team and the project change sprint times and rewards: refresh the tickets, keeping each slot's standup cooldown. */
@@ -394,6 +450,16 @@ export class Game {
   acquire(id: string): Acquisition | null {
     const s = this.state;
     const now = this.clock();
+    // The last rival: the purchase goes to an antitrust hearing first, a boss fight that starts at once.
+    if (hearingNeeded(s, id)) {
+      const rival = RIVALS.find((r) => r.id === id);
+      if (!rival || !canAcquire(s, rival, now)) return null;
+      s.corp.hearing = id;
+      const boss = summonBoss(s, 'antitrust', now, this.rng);
+      this.emit({ type: 'hearing', rival });
+      this.emit({ type: 'bossEngaged', boss });
+      return null;
+    }
     const result = acquire(s, id, now);
     if (!result) return null;
     const h = headline(s, now, this.rng, `${s.market.appName} acquires ${result.rival.name}; ${result.rival.app} users wake up to a new logo`);
@@ -404,6 +470,75 @@ export class Game {
   /** The ending at the IPO has been shown. */
   markEndingSeen(): void {
     this.state.corp.endingSeen = true;
+  }
+
+  /** The true ending (the monopoly) has been shown. */
+  markMonopolySeen(): void {
+    this.state.corp.monopolySeen = true;
+  }
+
+  /** Sells the company and founds a new one with a trait (after the true ending). The UI reloads into it. */
+  foundStartup(trait: FounderTraitId): boolean {
+    const def = foundStartup(this.state, trait, this.clock());
+    if (!def) return false;
+    this.ruleWas = null;
+    this.flow = 0;
+    this.state.backlog = makeBacklog(this.state, this.clock(), this.rng);
+    this.state.milestone = makeMilestone(this.state);
+    this.emit({ type: 'founded', trait: def, exits: this.state.founder.exits });
+    return true;
+  }
+
+  /** Puts a service in a slot of the architecture board's draft (null clears the slot). */
+  placeService(slot: number, id: ServiceId | null): boolean {
+    return placeService(this.state, slot, id);
+  }
+
+  /** Deploys the draft board (once per release). */
+  deployInfra(): Deploy | null {
+    const result = deploy(this.state);
+    if (result) this.emit({ type: 'deployed', deploy: result });
+    return result;
+  }
+
+  discardInfraDraft(): void {
+    discardDraft(this.state);
+  }
+
+  /** Points the roadmap at a segment: its next feature headlines every release. */
+  setFocus(id: SegmentId | null): boolean {
+    return setFocus(this.state, id);
+  }
+
+  /** Opens an RFC for discussion (one at a time; hours of real time). */
+  startRfc(id: RfcId): boolean {
+    const hours = rfcHours(this.state);
+    const rfc = startRfc(this.state, id, this.clock());
+    if (rfc) this.emit({ type: 'rfcStarted', rfc, hours });
+    return !!rfc;
+  }
+
+  withdrawRfc(): boolean {
+    return withdrawRfc(this.state) !== null;
+  }
+
+  /** Merges one of the pull requests that came in while away. */
+  mergePull(index: number): PullResult | null {
+    const result = mergePull(this.state, index, this.clock(), this.rng);
+    if (result) this.emit({ type: 'pullMerged', result });
+    return result;
+  }
+
+  addRule(): boolean {
+    return !!addRule(this.state);
+  }
+
+  setRule(index: number, patch: Partial<Rule>): boolean {
+    return setRule(this.state, index, patch);
+  }
+
+  removeRule(index: number): boolean {
+    return removeRule(this.state, index);
   }
 
   buyCompanyPerk(id: string): boolean {
@@ -511,12 +646,16 @@ export class Game {
     const s = this.state;
     const level = perkEffect(s, 'cron');
     const runway = companyLevel(s, 'runway');
-    const rate = OFFLINE.rate + PERK_VALUES.cronRate * level + COMPANY_VALUES.runwayRate * runway;
-    const cap = OFFLINE.maxSeconds + (PERK_VALUES.cronHours * level + COMPANY_VALUES.runwayHours * runway) * 3600;
+    const remote = rfcDone(s, 'remote') ? 1 : 0;
+    const rate = OFFLINE.rate + PERK_VALUES.cronRate * level + COMPANY_VALUES.runwayRate * runway + RFC.offlineRate * remote;
+    const cap = OFFLINE.maxSeconds + (PERK_VALUES.cronHours * level + COMPANY_VALUES.runwayHours * runway + RFC.offlineHours * remote) * 3600;
     const seconds = Math.min(cap, Math.max(0, awaySeconds));
     if (awaySeconds >= 2 * 3600) s.flags.touchGrass = true;
     addQuietTime(s, Math.max(0, awaySeconds), true);
     creditCorpAway(s, seconds, rate);
+    // Contributors were busy too.
+    const pulls = openPulls(s, awaySeconds, this.clock(), this.rng);
+    if (pulls) this.emit({ type: 'pulls', pulls });
     const lines = perSecond(s, this.clock()).mul(seconds * rate).floor();
     if (lines.lt(1)) return;
     writeLines(s, lines, false);
@@ -533,6 +672,14 @@ export class Game {
       if (workflowOn(s, 'pager')) this.page();
     }
     if (action === 'warp') this.creditTimeAway(3600);
+    if (action === 'pulls') {
+      s.pulls = null;
+      const pulls = openPulls({ ...s, market: { ...s.market, startedAt: s.market.startedAt || now } }, 3 * 3600, now, this.rng);
+      if (pulls) {
+        s.pulls = pulls;
+        this.emit({ type: 'pulls', pulls });
+      }
+    }
     if (action === 'boss') {
       s.boss = null;
       s.incident = null;
@@ -571,7 +718,8 @@ export class Game {
         }
       }
     }
-    if (now - this.lastTapAt > FLOW.idleS * 1000) this.flow = Math.max(0, this.flow - FLOW.decayPerS * dt);
+    // The four-day week: flow drains half as fast.
+    if (now - this.lastTapAt > FLOW.idleS * 1000) this.flow = Math.max(0, this.flow - FLOW.decayPerS * (rfcDone(s, 'fourday') ? RFC.flowDecay : 1) * dt);
     this.today = dayKey(now);
     // Debt builds while playing, not over time away.
     if (dt <= OFFLINE.thresholdS && tickDebt(s, now, dt)) this.emit({ type: 'debtHigh', debt: s.debt });
@@ -597,7 +745,10 @@ export class Game {
     const boss = updateBoss(s, now, this.rng, canSpawn);
     if (boss?.type === 'incoming') this.emit({ type: 'bossIncoming', boss: boss.boss });
     else if (boss?.type === 'ignored') this.emit({ type: 'bossIgnored', kind: boss.kind });
-    else if (boss?.type === 'failed') this.emit({ type: 'bossFailed', kind: boss.kind, stage: boss.stage });
+    else if (boss?.type === 'failed') this.bossProgress(boss);
+
+    const adopted = updateRfc(s, now);
+    if (adopted) this.emit({ type: 'rfcAdopted', rfc: adopted });
 
     const installed = autoInstall(s);
     if (installed.count > 0) this.emit({ type: 'autoInstalled', ...installed });
@@ -622,6 +773,7 @@ export class Game {
     for (const news of updateMarket(s, now, this.rng, canSpawn)) this.emit({ type: 'market', news });
     s.releasePeak = Math.max(s.releasePeak, starsPerMinute(s, now));
     if (workflowOn(s, 'release') && shipGain(s) >= s.autoShipAt) this.autoShip();
+    this.runRules(now);
 
     const hour = new Date(now).getHours();
     if (hour >= 2 && hour < 5 && s.stats.taps > 0) s.flags.nightOwl = true;
@@ -646,6 +798,50 @@ export class Game {
     if (!u.major && majorTabUnlocked(s)) unlock('major');
     if (!u.tests && s.stats.ships >= TESTS.unlockShips) unlock('tests');
     if (!u.issues && issuesReady(s)) unlock('issues');
+    if (!u.roadmap && roadmapReady(s)) unlock('roadmap');
+    if (!u.rfcs && rfcsReady(s)) unlock('rfcs');
+    if (!u.infra && infraReady(s)) unlock('infra');
+  }
+
+  /** ~/bin/rules: each rule fires at the moment its condition becomes true, if its action can run. */
+  private runRules(now: number): void {
+    const s = this.state;
+    if (s.round < RULES.unlockRound || s.rules.length === 0) return void (this.ruleWas = null);
+    const states = triggerStates(s, now, this.flow);
+    const was = this.ruleWas;
+    this.ruleWas = states;
+    if (!was) return;
+    for (const rule of [...s.rules]) {
+      if (!rule.on || !states[rule.when] || was[rule.when]) continue;
+      if (this.runRuleAction(rule.then, now)) {
+        s.stats.rulesFired++;
+        this.emit({ type: 'ruleFired', rule });
+      }
+    }
+  }
+
+  private runRuleAction(action: RuleAction, now: number): boolean {
+    const s = this.state;
+    switch (action) {
+      case 'turbo':
+      case 'nightly':
+      case 'autotype':
+      case 'sudo':
+        return this.runScript(action);
+      case 'refactor':
+        return !!this.refactor();
+      case 'triage':
+        return !!this.triage(true);
+      case 'ship':
+        if (starsAvailable(s) < 1) return false;
+        this.autoShip();
+        return true;
+      case 'standup': {
+        if (s.sprint || !s.unlocked.sprints) return false;
+        this.standup(now);
+        return !!s.sprint;
+      }
+    }
   }
 
   /** standup.yml: starts the biggest ready ticket the player can finish at their recent pace (automation alone when idle). */

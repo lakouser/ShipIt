@@ -2,6 +2,7 @@ import { BUGS, DEBT, PERK_VALUES, TEAM } from './content';
 import { coverage } from './coverage';
 import { addDebt } from './debt';
 import { addLines, devrelMultiplier, perSecond, perTap, projectOf, roleStrength } from './economy';
+import { rfcDone } from './rfcs';
 import { Decimal } from './num';
 import { mods } from './mods';
 import { perkEffect } from './perks';
@@ -21,7 +22,8 @@ export function updateBugs(s: GameState, now: number, rng: Rng, canSpawn: boolea
       return { type: 'caught' };
     }
     s.stats.bugsEscaped++;
-    addDebt(s, DEBT.bugEscaped);
+    // Feature flags: the broken code is switched off before it costs anything.
+    if (!rfcDone(s, 'flags')) addDebt(s, DEBT.bugEscaped);
     return { type: 'escaped' };
   }
   if (!canSpawn || now < s.nextBugAt) return null;

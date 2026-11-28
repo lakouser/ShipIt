@@ -392,9 +392,19 @@ export const TEAM = {
 
 /* ---------- boss fights ---------- */
 
-export type BossKind = 'deploy' | 'ddos' | 'audit' | 'migration';
+export type BossKind = 'deploy' | 'ddos' | 'audit' | 'migration' | 'antitrust';
 
-export type BossStage = { type: 'mash'; label: string; taps: number; seconds: number } | { type: 'pick'; label: string; options: number; seconds: number };
+/** A question at the hearing: the answer a lawyer would approve, and two that end the fight. */
+export interface BossQuestion {
+  q: string;
+  right: string;
+  wrong: [string, string];
+}
+
+export type BossStage =
+  | { type: 'mash'; label: string; taps: number; seconds: number }
+  /** Pick the broken line of code, or (with `ask`) the right answer to a question. */
+  | { type: 'pick'; label: string; options: number; seconds: number; ask?: readonly BossQuestion[] };
 
 export interface BossDef {
   kind: BossKind;
@@ -402,6 +412,15 @@ export interface BossDef {
   intro: string;
   stages: BossStage[];
 }
+
+const HEARING_QUESTIONS: readonly BossQuestion[] = [
+  { q: 'Is it true you now own every other app on the chart?', right: 'We compete with pen and paper every day, Senator.', wrong: ['Yes, and it was cheaper than it looks.', "Define 'own'. Define 'every'."] },
+  { q: 'If the app is free, how do you make money?', right: 'Senator, we sell subscriptions.', wrong: ['We sell the bugs back to the users.', 'I was hoping you could tell me.'] },
+  { q: "Did you write 'crush them' in an email to your team?", right: 'I was talking about the bugs, Senator.', wrong: ["It was a typo for 'cherish them'.", 'Which email? There are so many.'] },
+  { q: 'Why did you buy a company whose product is older than you are?', right: 'For its engineers and its customers, Senator.', wrong: ['So nobody else could.', 'I thought it was a museum.'] },
+  { q: 'Can a user leave your app and take their data with them?', right: 'Yes: export is one click, Senator.', wrong: ['They can leave. The data likes it here.', 'Nobody has ever asked. We checked.'] },
+  { q: 'What would you say to the startups you bought?', right: 'Their teams still ship, with more users than before.', wrong: ['Thanks for the logo.', 'I would say it through counsel.'] },
+];
 
 export const BOSSES: Record<BossKind, BossDef> = {
   deploy: {
@@ -437,8 +456,19 @@ export const BOSSES: Record<BossKind, BossDef> = {
       { type: 'mash', label: 'replay the write-ahead log', taps: 30, seconds: 12 },
     ],
   },
+  antitrust: {
+    kind: 'antitrust', name: 'ANTITRUST HEARING', intro: 'the committee would like a word about the chart',
+    stages: [
+      { type: 'mash', label: 'take the oath', taps: 30, seconds: 12 },
+      { type: 'pick', label: 'answer the senator', options: 3, seconds: 20, ask: HEARING_QUESTIONS },
+      { type: 'mash', label: 'produce 40 million documents', taps: 45, seconds: 14 },
+      { type: 'pick', label: 'answer the other senator', options: 3, seconds: 20, ask: HEARING_QUESTIONS },
+      { type: 'mash', label: 'deliver the closing statement', taps: 50, seconds: 15 },
+    ],
+  },
 };
-export const BOSS_KINDS = Object.keys(BOSSES) as BossKind[];
+/** The bosses that turn up on their own. The antitrust hearing only comes with the last acquisition. */
+export const BOSS_KINDS = (Object.keys(BOSSES) as BossKind[]).filter((k) => k !== 'antitrust');
 
 export const BOSS = {
   firstAtLifetime: 1_000_000,
@@ -627,6 +657,8 @@ export interface Mods {
   coverageMul: number;
   /** Multiplies how fast users drift to rivals. */
   churnMul: number;
+  /** Multiplies the new users a release brings. */
+  usersMul: number;
 }
 
 export interface SkillDef {
@@ -646,6 +678,7 @@ export const SKILLS: readonly SkillDef[] = [
   { id: 'pairing', name: 'pair programming', summary: '+25% stars from shipping per level', maxLevel: 4, baseCost: 1, costStep: 1 },
   { id: 'headstart', name: 'head start', summary: 'start each major version with 25 stars per level', maxLevel: 4, baseCost: 1, costStep: 1 },
   { id: 'muscle', name: 'muscle memory', summary: 'keep your dotfiles when you cut a major version', maxLevel: 1, baseCost: 3, costStep: 0 },
+  { id: 'shell', name: 'shell scripting', summary: '+1 rule in ~/bin/rules per level', maxLevel: 3, baseCost: 2, costStep: 2 },
 ];
 
 export const SKILL_VALUES = { tenxMul: 2, pairingGain: 0.25, headstartStars: 25 };
@@ -817,4 +850,268 @@ export const CORP = {
   acquireBonus: 0.25,
   /** Quarterly reports kept. */
   reportsKept: 8,
+};
+
+/* ---------- the architecture board: docker-compose.yml ---------- */
+
+export type ServiceId = 'api' | 'worker' | 'db' | 'cache' | 'queue' | 'cdn' | 'lb' | 'monitor' | 'search';
+
+export interface ServiceDef {
+  id: ServiceId;
+  /** The compose service name and its image. */
+  name: string;
+  image: string;
+  rule: string;
+  mods: Partial<Mods>;
+}
+
+/**
+ * Services for the board. There are more services than slots, so the board is a build: each service has its own effect,
+ * services placed side by side form links, and three linked services of the right kinds make a named pattern.
+ */
+export const SERVICES: readonly ServiceDef[] = [
+  { id: 'api', name: 'api', image: 'node:22', rule: 'x1.15 per tap', mods: { tapMul: 1.15 } },
+  { id: 'worker', name: 'worker', image: 'worker:latest', rule: 'x1.15 automation', mods: { autoMul: 1.15 } },
+  { id: 'db', name: 'db', image: 'postgres:17', rule: '+8% stars from shipping', mods: { starGain: 1.08 } },
+  { id: 'cache', name: 'cache', image: 'redis:8', rule: 'packages cost 6% less', mods: { costMul: 0.94 } },
+  { id: 'queue', name: 'queue', image: 'rabbitmq:4', rule: '+30% sprint rewards', mods: { sprintReward: 1.3 } },
+  { id: 'cdn', name: 'cdn', image: 'varnish:7', rule: '+20% new users from a release', mods: { usersMul: 1.2 } },
+  { id: 'lb', name: 'lb', image: 'haproxy:3', rule: 'users drift 25% slower', mods: { churnMul: 0.75 } },
+  { id: 'search', name: 'search', image: 'opensearch:2', rule: '+4% critical tap chance', mods: { critAdd: 0.04 } },
+  { id: 'monitor', name: 'monitor', image: 'grafana:11', rule: 'tech debt builds 15% slower; services next to it work 50% harder', mods: { debtMul: 0.85 } },
+];
+
+export interface LinkDef {
+  pair: [ServiceId, ServiceId];
+  name: string;
+  rule: string;
+  mods: Partial<Mods>;
+}
+
+/** Links: two services in neighbouring slots (up, down, left or right) that work together. */
+export const LINKS: readonly LinkDef[] = [
+  { pair: ['api', 'cache'], name: 'cache-aside', rule: 'x1.1 per tap', mods: { tapMul: 1.1 } },
+  { pair: ['api', 'lb'], name: 'replicas', rule: 'x1.08 per tap', mods: { tapMul: 1.08 } },
+  { pair: ['api', 'search'], name: 'autocomplete', rule: 'x1.06 per tap', mods: { tapMul: 1.06 } },
+  { pair: ['api', 'queue'], name: 'webhooks', rule: '+15% sprint rewards', mods: { sprintReward: 1.15 } },
+  { pair: ['worker', 'queue'], name: 'job queue', rule: 'x1.12 automation', mods: { autoMul: 1.12 } },
+  { pair: ['worker', 'db'], name: 'batch jobs', rule: 'x1.08 automation', mods: { autoMul: 1.08 } },
+  { pair: ['db', 'cache'], name: 'query cache', rule: 'packages cost 4% less', mods: { costMul: 0.96 } },
+  { pair: ['db', 'search'], name: 'indexing', rule: '+3% critical tap chance', mods: { critAdd: 0.03 } },
+  { pair: ['cdn', 'lb'], name: 'edge network', rule: '+15% new users from a release', mods: { usersMul: 1.15 } },
+  { pair: ['cdn', 'cache'], name: 'static assets', rule: '+10% new users from a release', mods: { usersMul: 1.1 } },
+];
+
+export type PatternId = 'threetier' | 'events' | 'edge' | 'observability';
+
+export interface PatternDef {
+  id: PatternId;
+  name: string;
+  needs: [ServiceId, ServiceId, ServiceId];
+  rule: string;
+  mods: Partial<Mods>;
+}
+
+/** Patterns: three named services all on the board and joined up (each next to at least one of the others). */
+export const PATTERNS: readonly PatternDef[] = [
+  { id: 'threetier', name: 'three-tier app', needs: ['api', 'db', 'cache'], rule: 'x1.1 all output', mods: { allMul: 1.1 } },
+  { id: 'events', name: 'event-driven', needs: ['queue', 'worker', 'db'], rule: '+10% stars from shipping', mods: { starGain: 1.1 } },
+  { id: 'edge', name: 'edge stack', needs: ['cdn', 'lb', 'cache'], rule: '+25% new users, users drift 25% slower', mods: { usersMul: 1.25, churnMul: 0.75 } },
+  { id: 'observability', name: 'observability', needs: ['monitor', 'search', 'api'], rule: 'x1.5 bug rewards, tech debt builds 25% slower', mods: { bugReward: 1.5, debtMul: 0.75 } },
+];
+
+export const INFRA = {
+  /** The board opens with the first funding round. */
+  unlockRound: 1,
+  /** Slots: this many at the Seed round, one more each round, up to a full board. */
+  baseSlots: 3,
+  maxSlots: 6,
+  /** The board is this many slots wide. */
+  columns: 3,
+  /** A service next to the monitor has its own effect raised by this much. */
+  monitorBoost: 0.5,
+};
+
+/* ---------- the roadmap: headline features and who the app is for ---------- */
+
+export type SegmentId = 'dev' | 'biz' | 'fun';
+
+export interface SegmentDef {
+  id: SegmentId;
+  name: string;
+  blurb: string;
+  rule: string;
+  /** Features this segment asks for, in the order they come up. */
+  features: readonly string[];
+}
+
+/** Who uses the app. Each headline feature brings its release's new users to one segment, and each segment pays its own way. */
+export const SEGMENTS: readonly SegmentDef[] = [
+  { id: 'dev', name: 'developers', blurb: 'They send pull requests.', rule: 'automation', features: ['a CLI', 'a public API', 'plugins', 'dark mode', 'vim keybindings', 'self-hosting'] },
+  { id: 'biz', name: 'companies', blurb: 'They sign contracts.', rule: 'stars from shipping', features: ['single sign-on', 'audit logs', 'an admin console', 'an SLA', 'invoicing', 'SOC 2 compliance'] },
+  { id: 'fun', name: 'everyone else', blurb: 'They tell their friends.', rule: 'lines per tap and new users', features: ['a mobile app', 'stickers', 'multiplayer', 'an AI assistant', 'themes', 'achievements'] },
+];
+export const SEGMENT_IDS = SEGMENTS.map((x) => x.id);
+
+export const ROADMAP = {
+  /** The roadmap opens once this many releases have shipped in all. */
+  unlockShips: 4,
+  /** A release with a headline feature brings this many times the new users. */
+  headlineUsers: 1.2,
+  /** What a segment pays when every user belongs to it; a share of the users pays that share of it. */
+  devAuto: 0.5,
+  bizStars: 0.3,
+  /** Companies also pay more per user once the company is public. */
+  bizRevenue: 1,
+  funTap: 0.5,
+  funUsers: 1,
+};
+
+/* ---------- RFCs: long research on a real clock ---------- */
+
+export type RfcId = 'monorepo' | 'canary' | 'runbooks' | 'flags' | 'remote' | 'standups' | 'backlog' | 'types' | 'fourday' | 'postmortems' | 'oss' | 'zerodowntime';
+
+export interface RfcDef {
+  id: RfcId;
+  title: string;
+  blurb: string;
+  rule: string;
+}
+
+/** Each RFC is adopted once and kept for good, across rounds, major versions and new companies. One is discussed at a time. */
+export const RFCS: readonly RfcDef[] = [
+  { id: 'canary', title: 'Canary deploys', blurb: 'Ship to 10% first.', rule: 'keep 10% of every package when you ship' },
+  { id: 'standups', title: 'Async standups', blurb: 'This meeting is now an email.', rule: 'sprint slots come back twice as fast' },
+  { id: 'monorepo', title: 'One big repo', blurb: 'Every package in one place.', rule: 'package prices grow 14.5% per copy, not 15%' },
+  { id: 'types', title: 'Strict types everywhere', blurb: 'any is banned. No exceptions.', rule: 'critical taps write x8, not x5' },
+  { id: 'backlog', title: 'A groomed backlog', blurb: 'Someone finally sorted TODO.md.', rule: 'a fourth task in TODO.md' },
+  { id: 'runbooks', title: 'Incident runbooks', blurb: 'Step 1: do not panic.', rule: 'outages and boss stages give 50% more time' },
+  { id: 'flags', title: 'Feature flags', blurb: 'Broken code, switched off.', rule: 'escaped bugs add no tech debt' },
+  { id: 'remote', title: 'Remote-first', blurb: 'The sun never sets on the repo.', rule: '+15% offline rate and +3h offline cap' },
+  { id: 'fourday', title: 'The four-day week', blurb: 'Rested people type faster.', rule: 'flow state drains half as fast' },
+  { id: 'postmortems', title: 'Blameless postmortems', blurb: 'What broke, not who.', rule: 'a lost boss fight adds no tech debt; a won one pays double' },
+  { id: 'oss', title: 'An open-source core', blurb: 'Strangers fix your bugs for free.', rule: 'one more pull request to pick from after time away' },
+  { id: 'zerodowntime', title: 'Zero-downtime deploys', blurb: 'Nobody notices a release. That is the point.', rule: 'users wait twice as long before drifting' },
+];
+
+export const RFC = {
+  /** RFCs open once this many releases have shipped in all. */
+  unlockShips: 5,
+  /** Hours of real time (playing or away) the nth RFC takes: the first is quick, the later ones are a day's wait. */
+  hours: [1, 2, 4, 6, 8] as readonly number[],
+  monorepoGrowth: 1.145,
+  canaryKeep: 0.1,
+  critMultiplier: 8,
+  timeBonus: 1.5,
+  offlineRate: 0.15,
+  offlineHours: 3,
+  flowDecay: 0.5,
+  bossWinMul: 2,
+  graceMul: 2,
+  cooldownMul: 0.5,
+};
+
+/* ---------- pull requests from contributors, after time away ---------- */
+
+export type PullId = 'perf' | 'deps' | 'refactor' | 'docs' | 'feat' | 'core';
+
+export interface PullDef {
+  id: PullId;
+  /** The PR title, as a conventional commit. */
+  title: string;
+  author: string;
+}
+
+export const PULLS_DEFS: readonly PullDef[] = [
+  { id: 'perf', title: 'perf: make the hot path fast', author: 'night-owl-42' },
+  { id: 'deps', title: 'chore: bump every dependency', author: 'renovate-bot' },
+  { id: 'refactor', title: 'refactor: untangle billing', author: 'tidy-first' },
+  { id: 'docs', title: 'docs: a README people can follow', author: 'first-timer' },
+  { id: 'feat', title: 'feat: the thing users kept asking for', author: 'power-user' },
+  { id: 'core', title: 'rewrite the core loop (sorry, got carried away)', author: 'a-stranger' },
+];
+
+export const PULLS = {
+  /** Contributors open pull requests after this long away, once the app has shipped. */
+  minAwayS: 30 * 60,
+  /** Longer absences bring better pull requests: tier 2 after this long, tier 3 after the next. */
+  tierSeconds: [2 * 3600, 6 * 3600] as readonly number[],
+  options: 3,
+  /** perf: minutes of automation per tier. */
+  perfMinutes: 10,
+  /** deps: one script, plus one per tier. refactor: tech debt paid off per tier. */
+  refactorDebt: 25,
+  /** docs: share of users gained per tier. */
+  docsUsers: 0.03,
+  /** feat: share of the stars held gained per tier (at least one star). */
+  featStars: 0.03,
+  /** core: a rare one (from tier 2) adds this to all output for good, up to coreCap in all. */
+  coreChance: 0.15,
+  coreBonus: 0.02,
+  coreCap: 0.5,
+};
+
+/* ---------- ~/bin/rules: when X, do Y ---------- */
+
+export type RuleTrigger = 'flow' | 'sprint' | 'coffee' | 'boss' | 'outage' | 'launch' | 'ready' | 'debt' | 'idle' | 'issues' | 'quarter';
+export type RuleAction = 'turbo' | 'nightly' | 'autotype' | 'sudo' | 'refactor' | 'ship' | 'triage' | 'standup';
+
+export const RULE_TRIGGERS: readonly { id: RuleTrigger; label: string }[] = [
+  { id: 'flow', label: 'flow is full' },
+  { id: 'sprint', label: 'a sprint starts' },
+  { id: 'coffee', label: 'coffee kicks in' },
+  { id: 'boss', label: 'a boss fight starts' },
+  { id: 'outage', label: 'prod goes down' },
+  { id: 'launch', label: 'a rival announces a launch' },
+  { id: 'ready', label: 'the release is ready to merge' },
+  { id: 'debt', label: 'tech debt passes 40%' },
+  { id: 'issues', label: 'six issues are open' },
+  { id: 'quarter', label: 'a quarter has 2 minutes left' },
+  { id: 'idle', label: 'no script is running' },
+];
+
+export const RULE_ACTIONS: readonly { id: RuleAction; label: string }[] = [
+  { id: 'turbo', label: './turbo.sh' },
+  { id: 'nightly', label: './nightly.sh' },
+  { id: 'autotype', label: './autotype.sh' },
+  { id: 'sudo', label: './sudo.sh' },
+  { id: 'refactor', label: 'git refactor' },
+  { id: 'ship', label: 'gh pr merge' },
+  { id: 'triage', label: 'gh issue close --all' },
+  { id: 'standup', label: 'start a sprint' },
+];
+
+export const RULES = {
+  /** Rules open at this funding round (Series C). */
+  unlockRound: 4,
+  baseSlots: 2,
+  debtAt: 40,
+  issuesAt: 6,
+  quarterLeftS: 120,
+};
+
+/* ---------- the true ending and founding again ---------- */
+
+export type FounderTraitId = 'hacker' | 'operator' | 'storyteller' | 'bootstrapper';
+
+export interface FounderTraitDef {
+  id: FounderTraitId;
+  name: string;
+  rule: string;
+  mods: Partial<Mods>;
+}
+
+/** What a founder brings to the next company: one trait per exit, and they stack. */
+export const FOUNDER_TRAITS: readonly FounderTraitDef[] = [
+  { id: 'hacker', name: 'the hacker', rule: 'x2 per tap', mods: { tapMul: 2 } },
+  { id: 'operator', name: 'the operator', rule: 'x2 automation', mods: { autoMul: 2 } },
+  { id: 'storyteller', name: 'the storyteller', rule: '+50% stars from shipping', mods: { starGain: 1.5 } },
+  { id: 'bootstrapper', name: 'the bootstrapper', rule: 'packages cost 30% less', mods: { costMul: 0.7 } },
+];
+
+export const FOUNDER = {
+  /** Each company sold multiplies all output at the next one. */
+  exitMul: 2,
+  /** After a lost hearing, the regulators take this long to hear the deal again. */
+  hearingRetryMs: 5 * 60_000,
 };

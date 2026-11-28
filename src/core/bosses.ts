@@ -1,8 +1,9 @@
-import { ASSUMED_TAPS_PER_SECOND, BOSS, BOSS_KINDS, BOSSES, DEBT, TEAM, type BossKind, type BossStage, type EffectId } from './content';
+import { ASSUMED_TAPS_PER_SECOND, BOSS, BOSS_KINDS, BOSSES, DEBT, RFC, TEAM, type BossKind, type BossStage, type EffectId } from './content';
 import { addDebt } from './debt';
 import { addLines, devrelMultiplier, roleStrength, typicalOutput } from './economy';
 import { grantScript, randomScript } from './effects';
 import { Decimal } from './num';
+import { rfcDone } from './rfcs';
 import type { Rng } from './rng';
 import type { Boss, GameState } from './state';
 
@@ -16,12 +17,15 @@ export type BossChange =
 
 export const currentStage = (b: Boss): BossStage | undefined => BOSSES[b.kind].stages[b.stage];
 
+/** Seconds a stage gives (half as much again with incident runbooks). */
+export const stageSeconds = (s: GameState, stage: BossStage): number => stage.seconds * (rfcDone(s, 'runbooks') ? RFC.timeBonus : 1);
+
 /** Sets up a stage: taps needed for a mash (fewer with people on call), or the right option for a pick. */
 function startStage(s: GameState, b: Boss, stage: number, now: number, rng: Rng): void {
   const def = BOSSES[b.kind].stages[stage];
   b.stage = stage;
   b.taps = 0;
-  b.endsAt = now + def.seconds * 1000;
+  b.endsAt = now + stageSeconds(s, def) * 1000;
   if (def.type === 'mash') {
     const cut = Math.min(TEAM.oncallCap, TEAM.oncallTaps * roleStrength(s, 'oncall'));
     b.needed = Math.max(1, Math.round(def.taps * (1 - cut)));
@@ -40,7 +44,8 @@ function bossReward(s: GameState, now: number, seconds: number): Decimal {
 function fail(s: GameState, b: Boss): BossChange {
   s.boss = null;
   s.stats.bossesFailed++;
-  addDebt(s, DEBT.bossFailed);
+  // Blameless postmortems: a lost fight costs nothing.
+  if (!rfcDone(s, 'postmortems')) addDebt(s, DEBT.bossFailed);
   return { type: 'failed', kind: b.kind, stage: b.stage };
 }
 
@@ -68,6 +73,14 @@ export function updateBoss(s: GameState, now: number, rng: Rng, canSpawn: boolea
   return { type: 'incoming', boss: s.boss };
 }
 
+/** Starts a fight at once, with no warning to answer (the antitrust hearing). Whatever else was going on is cleared. */
+export function summonBoss(s: GameState, kind: BossKind, now: number, rng: Rng): Boss {
+  s.incident = null;
+  s.boss = { kind, phase: 'fight', stage: 0, endsAt: now, taps: 0, needed: 0, correct: 0, variant: 0 };
+  startStage(s, s.boss, 0, now, rng);
+  return s.boss;
+}
+
 /** Takes on an announced boss: the first stage starts. */
 export function engageBoss(s: GameState, now: number, rng: Rng): Boss | null {
   const b = s.boss;
@@ -87,7 +100,7 @@ function clearStage(s: GameState, b: Boss, now: number, rng: Rng): BossChange {
     return { type: 'stage', kind: b.kind, stage, reward };
   }
   s.boss = null;
-  const reward = bossReward(s, now, BOSS.rewardSeconds);
+  const reward = bossReward(s, now, BOSS.rewardSeconds).mul(rfcDone(s, 'postmortems') ? RFC.bossWinMul : 1);
   addLines(s, reward);
   const scripts: EffectId[] = [];
   for (let i = 0; i < BOSS.scripts; i++) {
@@ -97,7 +110,7 @@ function clearStage(s: GameState, b: Boss, now: number, rng: Rng): BossChange {
   }
   addDebt(s, DEBT.bossBeaten);
   s.stats.bossesBeaten++;
-  if (!s.bossKinds.includes(b.kind)) s.bossKinds.push(b.kind);
+  if (b.kind !== 'antitrust' && !s.bossKinds.includes(b.kind)) s.bossKinds.push(b.kind);
   return { type: 'won', kind: b.kind, reward, scripts };
 }
 

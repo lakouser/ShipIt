@@ -57,6 +57,8 @@ export function renderSettings(game: Game, view: SettingsView): string {
     return choice('skin', k.id, st.skin === k.id, k.label, !open, open ? '' : k.hint);
   }).join('')}</div>`;
   html += `<div class="row2"><span class="lbl">numbers</span>${NOTATIONS.map((n) => choice('notation', n.id, st.notation === n.id, n.label)).join('')}</div>`;
+  html += toggle('stackTint', st.stackTint, 'stack colours', 'tint the workspace by the language of this run');
+  html += toggle('scanlines', st.scanlines, 'scanlines', 'an old monitor over everything');
   html += toggle('reduceMotion', st.reduceMotion, 'reduce motion', 'no floating numbers, shaking, particles or screensaver');
   html += toggle('welcome', st.welcome, 'welcome-back screen', 'otherwise just a log line');
   html += toggle('screensaver', st.screensaver, 'screensaver', 'takes over the editor after a minute idle; automation keeps running');
@@ -72,6 +74,7 @@ export function renderSettings(game: Game, view: SettingsView): string {
       ${dev('sprint', 'finish sprint')}${dev('scripts', '+1 every script')}${dev('quests', 'complete tasks')}
       ${dev('debt', '+30 debt')}${dev('applicant', 'new applicant')}${dev('boss', 'boss incident')}${dev('mail', 'send mail')}
       ${dev('issues', 'file issues')}${dev('quarter', 'end quarter')}${dev('cash', 'cash x10')}
+      ${dev('round', 'stars for the round')}${dev('rfc', 'finish rfc')}${dev('pulls', 'open pull requests')}${dev('rivals', 'buy all rivals but one')}
       ${dev('unlock', 'unlock tabs')}${dev('warp', '+1h away')}${dev('off', 'dev mode off')}
     </div></div>`;
   }

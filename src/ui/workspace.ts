@@ -42,6 +42,28 @@ const between = (a: number, b: number): number => a + Math.floor(Math.random() *
 
 type PaneView = 'top' | 'ci';
 
+/** Where the open strips are remembered between visits (per device: it is about this screen's size). */
+const PANES_KEY = 'shipit.panes';
+/** Below this width the editor has room for one strip under the code at a time. */
+const NARROW = '(max-width: 899px)';
+
+interface PaneChoice {
+  pane: boolean;
+  view: PaneView;
+  desks: boolean;
+  office: boolean;
+}
+
+function loadPanes(): PaneChoice | null {
+  try {
+    const raw = JSON.parse(localStorage.getItem(PANES_KEY) ?? 'null') as Partial<PaneChoice> | null;
+    if (!raw || typeof raw !== 'object') return null;
+    return { pane: raw.pane !== false, view: raw.view === 'ci' ? 'ci' : 'top', desks: raw.desks === true, office: raw.office === true };
+  } catch {
+    return null;
+  }
+}
+
 /**
  * What the packages and the team add around the editor: tabs for the `top` and `ci` panes and a count
  * of package files, a pane under the code (where output comes from, or CI builds once the pipeline is
@@ -66,20 +88,56 @@ export class Workspace {
   /** The pane under the code is open (tapping its tab again closes it, for more code). */
   private paneOpen = true;
   private desksOpen = true;
+  /** office.png: the pixel-art view of the company. */
+  private officeOpen = false;
+  private readonly narrow = typeof matchMedia === 'function' ? matchMedia(NARROW) : null;
+  private readonly office = document.getElementById('office')!;
 
   constructor(private readonly game: Game) {
+    const saved = loadPanes();
+    if (saved) {
+      this.paneOpen = saved.pane;
+      this.view = saved.view;
+      this.desksOpen = saved.desks;
+      this.officeOpen = saved.office;
+    } else if (this.narrow?.matches) {
+      // A phone has room for one strip: start with `top`, and the code keeps the rest.
+      this.desksOpen = false;
+    } else {
+      // A wide screen has room for the office from the start.
+      this.officeOpen = true;
+    }
     this.el.tabs.addEventListener('click', (e) => {
       const btn = (e.target as Element).closest<HTMLButtonElement>('[data-pane]');
       if (!btn) return;
-      const want = btn.dataset.pane as PaneView | 'team';
-      if (want === 'team') this.desksOpen = !this.desksOpen;
-      else if (want === this.view) this.paneOpen = !this.paneOpen;
-      else {
-        this.view = want;
-        this.paneOpen = true;
+      const want = btn.dataset.pane as PaneView | 'team' | 'office';
+      const one = !!this.narrow?.matches;
+      if (want === 'team') {
+        this.desksOpen = !this.desksOpen;
+        if (one && this.desksOpen) this.paneOpen = this.officeOpen = false;
+      } else if (want === 'office') {
+        this.officeOpen = !this.officeOpen;
+        if (one && this.officeOpen) this.paneOpen = this.desksOpen = false;
+      } else {
+        if (want === this.view) this.paneOpen = !this.paneOpen;
+        else {
+          this.view = want;
+          this.paneOpen = true;
+        }
+        if (one && this.paneOpen) this.desksOpen = this.officeOpen = false;
+      }
+      try {
+        localStorage.setItem(PANES_KEY, JSON.stringify({ pane: this.paneOpen, view: this.view, desks: this.desksOpen, office: this.officeOpen } satisfies PaneChoice));
+      } catch {
+        // Storage can be unavailable: the choice then lasts for the session.
       }
       this.update(performance.now(), true);
     });
+  }
+
+  /** True while office.png is showing. */
+  get officeShowing(): boolean {
+    return !this.office.hidden;
   }
 
   /** Names typing alongside: developers writing code (features, sprints, refactoring), then the packages that write it. */
@@ -102,7 +160,8 @@ export class Workspace {
     const tab = (pane: string, label: string, on: boolean) => `<button class="tab x${on ? ' on' : ''}" data-pane="${pane}" aria-pressed="${on}">${label}</button>`;
     setHtml(
       this.el.tabs,
-      (any ? tab('top', 'top', this.paneOpen && this.view === 'top') : '') +
+      (any ? tab('office', 'office.png', this.officeOpen) : '') +
+        (any ? tab('top', 'top', this.paneOpen && this.view === 'top') : '') +
         (s.team.length ? tab('team', 'team', this.desksOpen) : '') +
         (ci ? tab('ci', 'ci <span data-ci></span>', this.paneOpen && this.view === 'ci') : '') +
         (files > 1 ? tab('top', `+${files}`, false) : ''),
@@ -118,6 +177,9 @@ export class Workspace {
     this.el.pane.hidden = !any || !this.paneOpen || busy;
     this.el.pane.classList.toggle('v-top', this.view === 'top');
     this.el.desks.hidden = !s.team.length || !this.desksOpen || busy;
+    this.office.hidden = !any || !this.officeOpen || busy;
+    // On a phone the desks are one line each: a face, a name and what they are doing.
+    this.el.desks.classList.toggle('one', !!this.narrow?.matches);
     if (!this.el.desks.hidden) this.renderDesks();
     if (ci && now - this.lastBeat > this.beatMs()) {
       this.lastBeat = now;

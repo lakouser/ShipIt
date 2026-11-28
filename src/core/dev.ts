@@ -1,4 +1,4 @@
-import { CORP, ISSUES, SCRIPT_IDS, type IncidentKind } from './content';
+import { CORP, FUNDING, ISSUES, RIVALS, SCRIPT_IDS, type IncidentKind } from './content';
 import { addDebt } from './debt';
 import { addLines } from './economy';
 import { grantScript } from './effects';
@@ -7,7 +7,7 @@ import { Decimal } from './num';
 import type { Rng } from './rng';
 import type { GameState, Incident } from './state';
 
-export type DevAction = 'lines' | 'stars' | 'bug' | 'incident' | 'sprint' | 'scripts' | 'quests' | 'unlock' | 'debt' | 'applicant' | 'boss' | 'mail' | 'warp' | 'issues' | 'quarter' | 'cash';
+export type DevAction = 'lines' | 'stars' | 'bug' | 'incident' | 'sprint' | 'scripts' | 'quests' | 'unlock' | 'debt' | 'applicant' | 'boss' | 'mail' | 'warp' | 'issues' | 'quarter' | 'cash' | 'rfc' | 'pulls' | 'round' | 'rivals';
 
 /** Developer shortcuts for testing. Returns a spawned incident, if any, so the game can announce it. */
 export function applyDev(s: GameState, action: DevAction, now: number, rng: Rng, incident?: IncidentKind): Incident | null {
@@ -39,7 +39,7 @@ export function applyDev(s: GameState, action: DevAction, now: number, rng: Rng,
       s.nextQuestAt = 0;
       return null;
     case 'unlock':
-      s.unlocked = { sprints: true, todo: true, ship: true, team: true, mail: true, major: true, market: true, tests: true, issues: true };
+      s.unlocked = { sprints: true, todo: true, ship: true, team: true, mail: true, major: true, market: true, tests: true, issues: true, infra: s.round >= 1, roadmap: true, rfcs: true };
       return null;
     case 'issues':
       // Files the next few issues now.
@@ -61,7 +61,24 @@ export function applyDev(s: GameState, action: DevAction, now: number, rng: Rng,
       s.applicant = null;
       s.nextApplicantAt = now;
       return null;
+    case 'rfc':
+      // The RFC under discussion finishes on the next tick.
+      if (s.rfc.active) s.rfc.active.endsAt = now;
+      return null;
+    case 'round':
+      // Enough stars for the next round.
+      if (s.round < FUNDING.maxRounds) s.stars = Math.max(s.stars, FUNDING.starsPerRound[Math.min(s.round, FUNDING.starsPerRound.length - 1)]);
+      return null;
+    case 'rivals':
+      // After the IPO: every rival but the last is bought, and there is cash for the last.
+      if (s.corp.ipoAt) {
+        for (const r of RIVALS.slice(0, -1)) if (!s.market.acquired.includes(r.id)) s.market.acquired.push(r.id);
+        s.corp.cash = Math.max(s.corp.cash, 1e30);
+        s.corp.hearingRetryAt = 0;
+      }
+      return null;
     // Handled by the game, which announces them.
+    case 'pulls':
     case 'boss':
     case 'mail':
     case 'warp':

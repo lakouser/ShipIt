@@ -1,9 +1,11 @@
-import { BOSSES, MILESTONE, TRAITS } from '../core/content';
+import { BOSSES, FOUNDER_TRAITS, MILESTONE, RULES, TRAITS, type FounderTraitId } from '../core/content';
 import { language } from '../core/economy';
+import { effectActive } from '../core/effects';
 import { standing } from '../core/market';
 import type { Game, GameEvent } from '../core/game';
 import { mailDef } from '../core/mail';
 import { clock, D, fmt, fmtMoney, fmtRate, setNotation, type Decimal } from '../core/num';
+import { foundStartup } from '../core/founder';
 import { deserialize, exportSave, importSave, serialize } from '../core/save';
 import { currentVersion } from '../core/ship';
 import type { Platform } from '../platform';
@@ -17,10 +19,12 @@ import { Fx } from './fx';
 import { Header } from './header';
 import { IncidentView } from './incidents';
 import { Keycap } from './keycap';
-import { playEndingSplash, playMajorSplash, playMergeSplash, playRoundSplash } from './merge';
+import { playEndingSplash, playMajorSplash, playMergeSplash, playMonopolySplash, playRoundSplash } from './merge';
 import { describe, scriptFile, type LogKind } from './messages';
 import { groupOf, unlockPath } from './nav';
+import { Office } from './office';
 import { Panels } from './panels';
+import { pullsHtml } from './panels/pulls';
 import { Screensaver } from './screensaver';
 import { ScriptsRow } from './scripts';
 import { createKeySounds } from './sound';
@@ -75,6 +79,7 @@ export class App {
   private readonly events: EventLine;
   private readonly scripts: ScriptsRow;
   private readonly workspace: Workspace;
+  private readonly office: Office;
   private readonly saver: Screensaver;
   private readonly ide = $('.ide');
   private readonly code = $('#code');
@@ -114,6 +119,7 @@ export class App {
       hapticsSupported: platform.haptics.supported,
       version: `v${__APP_VERSION__}`,
       duck: () => this.workspace.pokeDuck(),
+      found: (trait) => this.found(trait),
     });
     this.keycap = new Keycap(
       $<HTMLButtonElement>('#key'),
@@ -132,6 +138,7 @@ export class App {
     this.incidents = new IncidentView(this.code, game, (text, kind) => this.editor.log(text, kind), () => s.editorLine);
     this.boss = new BossView(this.ide, game);
     this.workspace = new Workspace(game);
+    this.office = new Office($('#office'), game);
     this.saver = new Screensaver($('#saver'), $('#saverTag'));
     // Any input wakes the screen.
     const woke = () => {
@@ -150,7 +157,37 @@ export class App {
     html.classList.toggle('rm', st.reduceMotion);
     setNotation(st.notation);
     if (st.sound) this.keys.preload();
-    document.querySelector('meta[name="theme-color"]')?.setAttribute('content', SKIN_THEME_COLOR[st.skin] ?? '#070f0c');
+    this.applyStack();
+  }
+
+  /**
+   * The workspace takes the colour of the stack this run is written in (settings can turn it off). COBOL goes further:
+   * it runs on a green screen, scanlines and all, whatever theme is picked.
+   */
+  private applyStack(): void {
+    const s = this.game.state;
+    const st = s.settings;
+    const html = document.documentElement;
+    const stack = language(s).id;
+    const greenScreen = st.stackTint && stack === 'cob';
+    const skin = greenScreen ? 'phosphor' : st.skin;
+    html.dataset.skin = skin;
+    if (st.stackTint) html.dataset.stack = stack;
+    else delete html.dataset.stack;
+    html.classList.toggle('crt', st.scanlines || greenScreen);
+    document.querySelector('meta[name="theme-color"]')?.setAttribute('content', SKIN_THEME_COLOR[skin] ?? '#070f0c');
+  }
+
+  /** Sells the company and loads the next one (after the true ending). */
+  private found(trait: FounderTraitId): void {
+    const g = this.game;
+    const now = g.now();
+    // The new company is worked out on a copy: the game on screen only changes once its save is kept somewhere.
+    const next = deserialize(serialize(g.state, now), now);
+    if (!next || !foundStartup(next, trait, now)) return;
+    // Its progress starts from nothing, so it has to replace the old save on purpose (like an import), or the save
+    // with the most progress would win the next load. The company left behind stays restorable from cfg.
+    this.switchTo(serialize(next, now), 'found');
   }
 
   /** from: where the save came from (null for a new game); a returning player is credited the time away. */
@@ -169,6 +206,11 @@ export class App {
     this.editor.setLanguage(language(s).id);
     this.editor.prefill(16);
     if (returning) this.editor.log(from === 'cloud' ? `save loaded from your claude account, v${currentVersion(s)}` : `session restored on v${currentVersion(s)}`, 'ok');
+    // The first load of a company just founded: say what the founder brought.
+    if (returning && s.founder.exits > 0 && s.lifetime.lte(0)) {
+      const trait = FOUNDER_TRAITS.find((t) => t.id === s.founder.traits[s.founder.traits.length - 1]);
+      this.editor.log(`company ${s.founder.exits + 1}. you start as ${trait?.name ?? 'a founder'}${trait ? `: ${trait.rule}` : ''}. trophies, rfcs and workflows came with you`, 'ok');
+    }
     else for (const [kind, text] of BOOT_LOG) this.editor.log(text, kind);
     this.watchSaves(returning);
     if (returning) g.creditTimeAway((g.now() - s.savedAt) / 1000);
@@ -180,6 +222,7 @@ export class App {
 
     // Only worth a splash for a returning player with something to show.
     const worthShowing = returning && ((summary.away && summary.away.seconds >= WELCOME_MIN_S) || (summary.streak && summary.streak.count > 1));
+    if (s.pulls && worthShowing) summary.pulls = { html: pullsHtml(g), merge: (i) => void g.mergePull(i) };
     if (worthShowing && s.settings.welcome) {
       this.dialogOpen = true;
       void playWelcome(summary).then(() => {
@@ -197,11 +240,40 @@ export class App {
     requestAnimationFrame((t) => this.frame(t));
   }
 
+  /** The true ending, once: when the last rival is bought (after the boss card has cleared). */
+  private showMonopoly(): void {
+    const g = this.game;
+    const s = g.state;
+    if (!s.corp.monopolyAt || s.corp.monopolySeen || this.dialogOpen) return;
+    g.markMonopolySeen();
+    this.save();
+    this.dialogOpen = true;
+    this.feedback('reward');
+    void playMonopolySplash({
+      seconds: Math.max(0, (g.now() - s.createdAt) / 1000),
+      releases: s.stats.ships,
+      stars: s.stats.starsEarned,
+      lines: fmt(s.lifetime),
+      users: s.market.users,
+      rank: 1,
+      bosses: s.stats.bossesBeaten,
+      achievements: s.achievements.length,
+      majors: s.stats.majors,
+      app: s.market.appName,
+      exits: s.founder.exits,
+      quarters: s.corp.beats,
+    }).then(() => {
+      this.dialogOpen = false;
+      this.panels.show('round');
+    });
+  }
+
   /** The ending at the IPO, once: right after going public, or on the first load of a save that already had. */
   private showEnding(): void {
     const g = this.game;
     const s = g.state;
-    if (!s.corp.ipoAt || s.corp.endingSeen || this.dialogOpen) return;
+    if (s.corp.endingSeen) return this.showMonopoly();
+    if (!s.corp.ipoAt || this.dialogOpen) return;
     g.markEndingSeen();
     this.save();
     this.dialogOpen = true;
@@ -334,10 +406,40 @@ export class App {
         this.fx.shake();
         this.events.push('err', 'incident lost', `${BOSSES[e.kind].name.toLowerCase()} · tech debt went up`, 4200);
         break;
+      case 'deployed':
+        this.feedback('reward');
+        this.events.push(e.deploy.found.length ? 'star' : 'ok', e.deploy.found.length ? 'pattern' : 'deployed', e.deploy.found.length ? `${e.deploy.found.map((p) => p.name).join(', ')} · ${e.deploy.found[0].rule}` : `${e.deploy.links.length} links · ${e.deploy.patterns.length} patterns`, 4200);
+        break;
+      case 'rfcAdopted':
+        this.feedback('reward');
+        this.events.push('star', 'rfc adopted', `${e.rfc.title} · ${e.rfc.rule}`, 5200);
+        if (tab === 'rfcs') this.panels.render();
+        break;
+      case 'pulls':
+        this.events.push('ok', 'pull requests', `${e.pulls.options.length} waiting · merge one in co/mail`, 4200);
+        if (tab === 'mail') this.panels.render();
+        break;
+      case 'pullMerged':
+        this.feedback('reward');
+        break;
+      case 'hearing':
+        this.events.push('warn', 'hearing', `${e.rival.name} · win it to close the deal`, 4200);
+        break;
+      case 'hearingLost':
+        this.panels.render();
+        break;
+      case 'monopoly':
+        this.save();
+        void this.saves.flush();
+        this.panels.render();
+        // After the boss card has had its moment.
+        window.setTimeout(() => this.showMonopoly(), 1400);
+        break;
       case 'majorCut':
         this.save();
         void this.saves.flush();
         this.editor.setLanguage(language(this.game.state).id);
+        this.applyStack();
         this.panels.syncTabs();
         this.panels.render();
         this.dialogOpen = true;
@@ -357,6 +459,8 @@ export class App {
         this.save();
         void this.saves.flush();
         this.editor.setLanguage(language(this.game.state).id);
+        this.applyStack();
+        if (e.result.round === RULES.unlockRound) this.events.push('ok', 'unlocked', 'new: ~/bin/rules in ship/auto', 5200);
         this.panels.syncTabs();
         this.panels.render();
         this.dialogOpen = true;
@@ -408,6 +512,7 @@ export class App {
         void this.saves.flush();
         this.panels.render();
         // release.yml ships quietly: a log line and the star count bouncing, no splash.
+        this.office.celebrate();
         if (e.auto) {
           this.header.bounceStars();
           break;
@@ -436,6 +541,13 @@ export class App {
     // The editor stops taking code while a merge conflict or a boss fight has the player's attention.
     this.editor.frozen = this.incidents.showing === 'conflict' || this.boss.fighting;
     this.ide.classList.toggle('alert', s.incident?.kind === 'outage');
+    // The room's mood: what the light in the workspace is doing (see main.css).
+    const mood = this.boss.fighting ? 'boss' : s.incident?.kind === 'outage' ? 'outage' : effectActive(s, 'coffee', this.game.now()) ? 'coffee' : this.game.flow >= 1 ? 'flow' : '';
+    const html = document.documentElement;
+    if ((html.dataset.mood ?? '') !== mood) {
+      if (mood) html.dataset.mood = mood;
+      else delete html.dataset.mood;
+    }
     this.ide.classList.toggle('bossmode', this.boss.fighting);
     const sess = $('#sess');
     const name = this.boss.fighting ? 'INCIDENT' : s.incident?.kind === 'outage' ? 'prod-down' : 'ship-it';
@@ -480,6 +592,8 @@ export class App {
       this.editor.type(chars);
     }
     const s = this.game.state;
+    this.office.typing = t - this.lastTapAt < TYPING_MS;
+    this.office.update(t);
     this.header.update(+!!s.bug + (s.incident && s.incident.kind !== 'coffee' ? 1 : 0) + +!!s.boss, t - this.lastTapAt < TYPING_MS);
     requestAnimationFrame((next) => this.frame(next));
   }
@@ -508,14 +622,15 @@ export class App {
    * Makes text the save everywhere and reloads into it, once it is kept somewhere (this device or the
    * account). If it can't be kept yet, nothing is replaced and the player is told.
    */
-  private switchTo(text: string, what: 'import' | 'restore'): void {
+  private switchTo(text: string, what: 'import' | 'restore' | 'found'): void {
     if (this.frozen) return;
     this.frozen = true;
-    if (this.saves.status().cloud === 'connecting') this.editor.log(`waiting for your claude account to keep the ${what === 'import' ? 'imported save' : 'backup'}…`, 'info');
+    const thing = what === 'import' ? 'imported save' : what === 'restore' ? 'backup' : 'new company';
+    if (this.saves.status().cloud === 'connecting') this.editor.log(`waiting for your claude account to keep the ${thing}…`, 'info');
     void this.saves.replace(text).then((kept) => {
       if (kept) return location.reload();
       this.frozen = false;
-      this.editor.log(`couldn't keep the ${what === 'import' ? 'imported save' : 'backup'}: your claude account isn't answering and this view can't store saves. nothing was replaced; try again in a minute`, 'err');
+      this.editor.log(`couldn't keep the ${thing}: your claude account isn't answering and this view can't store saves. nothing was replaced; try again in a minute`, 'err');
     });
   }
 
@@ -549,7 +664,8 @@ export class App {
       else warn();
     }, 45_000);
     const b = this.saves.backup();
-    if (b && D(b.meta.lifetime).gt(this.game.state.lifetime)) this.editor.log(`a backup with more progress is kept (${fmt(D(b.meta.lifetime))} lines): cfg → restore backup`, 'info');
+    // (A founder's last company always has more lines than the new one: cfg still offers it, without the reminder.)
+    if (b && this.game.state.founder.exits === 0 && D(b.meta.lifetime).gt(this.game.state.lifetime)) this.editor.log(`a backup with more progress is kept (${fmt(D(b.meta.lifetime))} lines): cfg → restore backup`, 'info');
     this.saves.onLateSave((text, reason) => {
       this.editor.log(
         !text ? 'this save was reset on another device, starting over'

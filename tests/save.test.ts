@@ -71,7 +71,7 @@ describe('saves', () => {
     const back = deserialize(JSON.stringify(v2), 0)!;
     expect(back.forks).toEqual({ kb: ['major', 'major'], intern: ['major'] });
     expect(back.owned).toEqual({ kb: 60, duck: 24, intern: 25 });
-    expect(SAVE_VERSION).toBe(5);
+    expect(SAVE_VERSION).toBe(6);
   });
 
   it('exports and imports as a single line', () => {

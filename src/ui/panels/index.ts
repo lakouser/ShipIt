@@ -1,4 +1,4 @@
-import type { ChallengeId, EffectId, ForkId, ForkPolicy, IncidentKind, LanguageId, ProjectId, RoleId, WorkflowId } from '../../core/content';
+import type { ChallengeId, EffectId, ForkId, ForkPolicy, FounderTraitId, IncidentKind, LanguageId, ProjectId, RfcId, RoleId, RuleAction, RuleTrigger, SegmentId, ServiceId, WorkflowId } from '../../core/content';
 import type { DevAction } from '../../core/dev';
 import type { Game, UnlockTab } from '../../core/game';
 import { forksPending } from '../../core/economy';
@@ -9,11 +9,14 @@ import type { BuyAmount, Notation, Skin, Tab } from '../../core/state';
 import { esc, setText } from '../dom';
 import { GROUPS, groupBadge, groupOf, groupVisible, questKey, tabBadge, tabLabel, tabState, type Badge, type Group, type Seen } from '../nav';
 import { OWN_HELP_LINK, helpFor } from './help';
+import { infraKey, renderInfra, type InfraView } from './infra';
 import { issuesKey, refreshIssues, renderIssues } from './issues';
 import { mailKey, renderMail, type MailView } from './mail';
 import { refreshMajor, renderMajor } from './major';
 import { manKey, renderMan } from './man';
 import { marketKey, refreshMarket, renderMarket } from './market';
+import { refreshRfcs, renderRfcs, rfcsKey } from './rfcs';
+import { refreshRoadmap, renderRoadmap, roadmapKey } from './roadmap';
 import { renderSettings, type SettingsView } from './settings';
 import {
   autoKey,
@@ -27,6 +30,7 @@ import {
   renderShip,
   roundKey,
   shipKey,
+  type FoundView,
   type ShipView,
 } from './ship';
 import { refreshSprints, renderSprints, sprintsKey } from './sprints';
@@ -56,6 +60,8 @@ export interface PanelActions {
   copy(text: string): void;
   /** What the rubber duck says when tapped. */
   duck(): string;
+  /** Sells the company and founds the next one with this trait (after the true ending); the page reloads into it. */
+  found(trait: FounderTraitId): void;
   hapticsSupported: boolean;
   version: string;
 }
@@ -95,6 +101,11 @@ export class Panels {
   /** The package whose upgrade picker is open. */
   private openFork: string | null = null;
   private allProjects = false;
+  private readonly infraView: InfraView = { slot: null };
+  private readonly foundView: FoundView = { trait: null, armed: false };
+  private foundTimer = 0;
+  private rfcArmed = false;
+  private rfcTimer = 0;
   private fullChart = false;
   private hideEarned = true;
   /** The panel last shown in each window, so switching windows comes back to it. */
@@ -130,6 +141,9 @@ export class Panels {
       if (el.matches('[data-appname]')) el.value = this.game.renameApp(el.value);
       // A teammate's role (or letting them go) from their dropdown.
       if (el.matches('[data-role-of]')) this.roleChanged(Number(el.dataset.roleOf), el.value);
+      // A rule's condition or action.
+      if (el.dataset.ruleWhen !== undefined && this.game.setRule(Number(el.dataset.ruleWhen), { when: el.value as RuleTrigger })) this.done();
+      if (el.dataset.ruleThen !== undefined && this.game.setRule(Number(el.dataset.ruleThen), { then: el.value as RuleAction })) this.done();
     });
     root.addEventListener('keydown', (e) => {
       if (e.key === 'Enter' && (e.target as Element).matches('[data-appname]')) (e.target as HTMLInputElement).blur();
@@ -153,6 +167,9 @@ export class Panels {
     this.exportText = null;
     this.importOpen = false;
     this.openFork = null;
+    this.infraView.slot = null;
+    this.foundView.armed = false;
+    this.rfcArmed = false;
     this.render();
     this.root.scrollTop = 0;
   }
@@ -189,6 +206,9 @@ export class Panels {
     const g = this.game;
     const body =
       tab === 'upgrades' ? renderUpgrades(g, { openFork: this.openFork, help: this.help.has('upgrades') })
+      : tab === 'infra' ? renderInfra(g, this.infraView)
+      : tab === 'rfcs' ? renderRfcs(g, this.rfcArmed)
+      : tab === 'roadmap' ? renderRoadmap(g)
       : tab === 'sprints' ? renderSprints(g)
       : tab === 'todo' ? renderTodo(g)
       : tab === 'tests' ? renderTests(g)
@@ -196,7 +216,7 @@ export class Panels {
       : tab === 'dotfiles' ? renderDotfiles(g)
       : tab === 'auto' ? renderAuto(g)
       : tab === 'major' ? renderMajor(g, this.armedAction, this.stack)
-      : tab === 'round' ? renderRound(g, this.stack)
+      : tab === 'round' ? renderRound(g, this.stack, this.foundView)
       : tab === 'team' ? renderTeam(g, this.letGoArmed)
       : tab === 'mail' ? renderMail(g, this.mailView)
       : tab === 'issues' ? renderIssues(g)
@@ -289,6 +309,12 @@ export class Panels {
         return todoKey(g);
       case 'tests':
         return testsKey(g);
+      case 'infra':
+        return infraKey(g, this.infraView);
+      case 'rfcs':
+        return rfcsKey(g, this.rfcArmed);
+      case 'roadmap':
+        return roadmapKey(g);
       case 'issues':
         return issuesKey(g);
       case 'ship':
@@ -298,7 +324,7 @@ export class Panels {
       case 'auto':
         return autoKey(g);
       case 'round':
-        return roundKey(g);
+        return `${roundKey(g)}|${this.foundView.trait}|${this.foundView.armed}`;
       case 'team':
         return teamKey(g);
       case 'mail':
@@ -337,6 +363,8 @@ export class Panels {
     else if (tab === 'sprints') refreshSprints(g, this.root);
     else if (tab === 'todo') refreshTodo(g, this.root);
     else if (tab === 'tests') refreshTests(g, this.root);
+    else if (tab === 'rfcs') refreshRfcs(g, this.root);
+    else if (tab === 'roadmap') refreshRoadmap(g, this.root);
     else if (tab === 'issues') refreshIssues(g, this.root);
     else if (tab === 'ship') refreshShip(g, this.root, this.shipView());
     else if (tab === 'dotfiles') refreshDotfiles(g, this.root);
@@ -390,6 +418,65 @@ export class Panels {
         // Several forks can stack up (buying many copies at once): the picker stays open until the last is picked.
         if (forksPending(s, d.fork) < 1) this.openFork = null;
         this.done();
+      }
+    } else if (d.slot !== undefined) {
+      const slot = Number(d.slot);
+      this.infraView.slot = this.infraView.slot === slot ? null : slot;
+      this.render();
+    } else if (d.svc !== undefined) {
+      if (this.infraView.slot !== null) this.game.placeService(this.infraView.slot, (d.svc || null) as ServiceId | null);
+      this.infraView.slot = null;
+      this.done();
+    } else if ('deploy' in d) {
+      if (this.game.deployInfra()) this.done();
+    } else if ('discard' in d) {
+      this.game.discardInfraDraft();
+      this.infraView.slot = null;
+      this.render();
+    } else if (d.focus) {
+      const id = d.focus as SegmentId;
+      if (this.game.setFocus(s.roadmap.focus === id ? null : id)) this.done();
+    } else if (d.rfc) {
+      if (this.game.startRfc(d.rfc as RfcId)) this.done();
+    } else if ('rfcWithdraw' in d) {
+      window.clearTimeout(this.rfcTimer);
+      if (this.rfcArmed) {
+        this.rfcArmed = false;
+        this.game.withdrawRfc();
+        this.render();
+      } else {
+        this.rfcArmed = true;
+        this.rfcTimer = window.setTimeout(() => {
+          this.rfcArmed = false;
+          if (s.settings.tab === 'rfcs') this.render();
+        }, ARM_MS);
+        this.render();
+      }
+    } else if (d.pull !== undefined) {
+      if (this.game.mergePull(Number(d.pull))) this.done();
+    } else if ('ruleAdd' in d) {
+      if (this.game.addRule()) this.done();
+    } else if (d.ruleRm !== undefined) {
+      if (this.game.removeRule(Number(d.ruleRm))) this.done();
+    } else if (d.ruleToggle !== undefined) {
+      const i = Number(d.ruleToggle);
+      if (this.game.setRule(i, { on: !s.rules[i]?.on })) this.done();
+    } else if (d.trait) {
+      this.foundView.trait = d.trait as FounderTraitId;
+      this.foundView.armed = false;
+      this.render();
+    } else if ('found' in d) {
+      window.clearTimeout(this.foundTimer);
+      if (this.foundView.armed && this.foundView.trait) {
+        this.foundView.armed = false;
+        this.actions.found(this.foundView.trait);
+      } else {
+        this.foundView.armed = true;
+        this.foundTimer = window.setTimeout(() => {
+          this.foundView.armed = false;
+          if (s.settings.tab === 'round') this.render();
+        }, ARM_MS);
+        this.render();
       }
     } else if ('refactor' in d) {
       if (this.game.refactor()) this.done();
@@ -497,7 +584,7 @@ export class Panels {
         this.refresh();
       }
     } else if (d.toggle) {
-      const key = d.toggle as 'sound' | 'haptics' | 'reduceMotion' | 'welcome' | 'screensaver';
+      const key = d.toggle as 'sound' | 'haptics' | 'reduceMotion' | 'welcome' | 'screensaver' | 'scanlines' | 'stackTint';
       s.settings[key] = !s.settings[key];
       this.settingsChanged();
     } else if (d.choice) {

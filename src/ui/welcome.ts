@@ -8,6 +8,8 @@ export interface WelcomeSummary {
   away?: { lines: Decimal; seconds: number; rate: number };
   /** Daily streak bonus, if this was the first session today. */
   streak?: { count: number; lines: Decimal; script: string | null };
+  /** Pull requests waiting: their markup (buttons with data-pull) and what merging one does. */
+  pulls?: { html: string; merge: (index: number) => void };
 }
 
 const COUNT_MS = 900;
@@ -43,7 +45,7 @@ export function playWelcome(summary: WelcomeSummary): Promise<void> {
       : '';
     root.innerHTML = `<div class="mwin">
       <div class="mt"><span>welcome back</span><span>~/ship-it</span></div>
-      <div class="mbody">${awayHtml}${streakHtml}<div class="mhint">press any key or tap to continue</div></div>
+      <div class="mbody">${awayHtml}${streakHtml}${summary.pulls ? `<div class="mpulls">${summary.pulls.html}</div>` : ''}<div class="mhint">${summary.pulls ? 'tap a pull request to merge it, or anywhere else to decide later (they wait in co/mail)' : 'press any key or tap to continue'}</div></div>
     </div>`;
     document.body.appendChild(root);
     root.focus({ preventScroll: true });
@@ -84,6 +86,8 @@ export function playWelcome(summary: WelcomeSummary): Promise<void> {
     window.addEventListener('keydown', onKey, true);
     root.addEventListener('pointerdown', (e) => {
       e.preventDefault();
+      const pull = (e.target as Element).closest<HTMLElement>('[data-pull]');
+      if (pull) summary.pulls?.merge(Number(pull.dataset.pull));
       close();
     });
   });

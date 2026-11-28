@@ -1,5 +1,5 @@
-import { BOSS, BOSSES, DEBT } from '../core/content';
-import { currentStage } from '../core/bosses';
+import { BOSS, BOSSES, DEBT, type BossQuestion } from '../core/content';
+import { currentStage, stageSeconds } from '../core/bosses';
 import type { Game } from '../core/game';
 import { clock } from '../core/num';
 import type { Boss } from '../core/state';
@@ -28,6 +28,15 @@ export const CODE_PAIRS: readonly [string, string][] = [
 function stageLines(variant: number, count: number, broken: number): string[] {
   const n = CODE_PAIRS.length;
   return Array.from({ length: count }, (_, i) => CODE_PAIRS[(variant + i * 5) % n][+(i === broken)]);
+}
+
+/** A question at the hearing: the answer a lawyer would approve sits at `correct`, the other two around it. */
+function askHtml(ask: BossQuestion, correct: number): string {
+  const answers = [...ask.wrong] as string[];
+  answers.splice(Math.min(correct, answers.length), 0, ask.right);
+  return `<div class="bq2">${esc(ask.q)}</div><div class="bdo">pick the answer your lawyer would approve</div>${answers
+    .map((line, i) => `<button class="side bpick" data-pick="${i}">${esc(line)}</button>`)
+    .join('')}`;
 }
 
 /** The boss incident card over the editor: the warning, then each stage of the fight. */
@@ -63,7 +72,7 @@ export class BossView {
     setText(this.el?.querySelector('[data-left]') ?? null, clock(left));
     const stage = currentStage(b);
     if (b.phase === 'fight' && stage) {
-      setHtml(this.el?.querySelector('[data-time]') ?? null, barHtml(left / stage.seconds, 24, false));
+      setHtml(this.el?.querySelector('[data-time]') ?? null, barHtml(left / stageSeconds(this.game.state, stage), 24, false));
       if (stage.type === 'mash') setHtml(this.el?.querySelector('[data-mash]') ?? null, `${barHtml(b.taps / b.needed, 20, false)} ${b.taps}/${b.needed}`);
     }
   }
@@ -96,7 +105,9 @@ export class BossView {
       const action =
         stage.type === 'mash'
           ? `<div class="bdo">mash the key!</div><div class="tbar bmash" data-mash></div>`
-          : `<div class="bdo">tap the broken line</div>${stageLines(b.variant, stage.options, b.correct)
+          : stage.ask
+            ? askHtml(stage.ask[b.variant % stage.ask.length], b.correct)
+            : `<div class="bdo">tap the broken line</div>${stageLines(b.variant, stage.options, b.correct)
               .map((line, i) => `<button class="side bpick" data-pick="${i}">${esc(line)}</button>`)
               .join('')}`;
       el.innerHTML = `<div class="bh"><span><span class="tag tag-err">[FAIL]</span> ${esc(def.name)}</span><span class="ol">stage ${b.stage + 1}/${def.stages.length} · <b data-left></b></span></div>

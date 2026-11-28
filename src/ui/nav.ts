@@ -1,5 +1,7 @@
 import { FUNDING, ISSUES, PERKS, WORKFLOWS } from '../core/content';
-import { acquirePrice, isPublic, quarterLeft, rivalsLeft } from '../core/corp';
+import { canAcquire, isPublic, quarterLeft, rivalsLeft } from '../core/corp';
+import { draftDirty, infraSlots } from '../core/infra';
+import { rfcProgress, rfcsOpen } from '../core/rfcs';
 import { testShare } from '../core/coverage';
 import { upgradesWithForks } from '../core/economy';
 import { canRaise, starsForNextRound } from '../core/funding';
@@ -18,8 +20,8 @@ import { releasesShipped } from '../core/workflows';
 export type Group = 'pkgs' | 'work' | 'ship' | 'co' | 'more';
 
 export const GROUPS: readonly { id: Group; tabs: readonly Tab[] }[] = [
-  { id: 'pkgs', tabs: ['upgrades'] },
-  { id: 'work', tabs: ['sprints', 'todo', 'tests'] },
+  { id: 'pkgs', tabs: ['upgrades', 'infra', 'roadmap'] },
+  { id: 'work', tabs: ['sprints', 'todo', 'tests', 'rfcs'] },
   { id: 'ship', tabs: ['ship', 'dotfiles', 'auto', 'major', 'round'] },
   { id: 'co', tabs: ['team', 'mail', 'issues', 'market'] },
   { id: 'more', tabs: ['man', 'trophies', 'stats', 'settings'] },
@@ -27,9 +29,11 @@ export const GROUPS: readonly { id: Group; tabs: readonly Tab[] }[] = [
 
 export const TAB_LABEL: Record<Tab, string> = {
   upgrades: 'pkgs',
+  infra: 'infra',
   sprints: 'backlog',
   todo: 'todo',
   tests: 'tests',
+  rfcs: 'rfcs',
   ship: 'release',
   dotfiles: 'dotfiles',
   auto: 'auto',
@@ -38,6 +42,7 @@ export const TAB_LABEL: Record<Tab, string> = {
   team: 'team',
   mail: 'mail',
   issues: 'issues',
+  roadmap: 'features',
   market: 'market',
   man: 'man',
   trophies: 'trophies',
@@ -81,6 +86,9 @@ export function tabState(s: GameState, tab: Tab): TabState {
     case 'issues':
     case 'market':
     case 'ship':
+    case 'infra':
+    case 'roadmap':
+    case 'rfcs':
       return u[tab] ? 'open' : 'hidden';
     case 'dotfiles':
       return u.ship ? 'open' : 'hidden';
@@ -133,6 +141,19 @@ export function tabBadge(game: Game, tab: Tab, seen: Seen): Badge | null {
   switch (tab) {
     case 'upgrades':
       return count(upgradesWithForks(s).length);
+    case 'infra': {
+      // A slot with nothing in it, or a draft waiting for its deploy.
+      const empty = s.infra.live.slice(0, infraSlots(s)).filter((x) => !x).length;
+      if (draftDirty(s) && s.infra.canDeploy) return { text: 'up', kind: 'ok' };
+      return empty > 0 && s.infra.canDeploy ? { text: String(empty), kind: 'count' } : null;
+    }
+    case 'rfcs': {
+      const p = rfcProgress(s, now);
+      if (p) return { text: p.left >= 3600 ? `${Math.ceil(p.left / 3600)}h` : clock(p.left), kind: 'prog' };
+      return rfcsOpen(s).length ? { text: '1', kind: 'count' } : null;
+    }
+    case 'roadmap':
+      return s.roadmap.focus ? null : { text: '1', kind: 'count' };
     case 'sprints':
       if (s.sprint) return { text: clock((s.sprint.endsAt - now) / 1000), kind: 'prog' };
       return count(s.backlog.filter((t) => t.readyAt <= now).length);
@@ -158,12 +179,12 @@ export function tabBadge(game: Game, tab: Tab, seen: Seen): Badge | null {
     case 'team':
       return count(s.applicant ? 1 : 0);
     case 'mail':
-      return count(mailWaiting(s));
+      return count(mailWaiting(s) + (s.pulls ? 1 : 0));
     case 'market':
       if (s.market.launch) return { text: clock((s.market.launch.endsAt - now) / 1000), kind: 'prog' };
       if (churnShare(s) > 0) return { text: '▼', kind: 'count' };
       // After the IPO: a rival the cash can buy.
-      return s.corp.ipoAt && rivalsLeft(s).some((r) => acquirePrice(s, r, now) <= s.corp.cash) ? { text: '$', kind: 'star' } : null;
+      return s.corp.ipoAt && rivalsLeft(s).some((r) => canAcquire(s, r, now)) ? { text: '$', kind: 'star' } : null;
     case 'man':
       return manUnreadCount(s) > 0 ? { text: 'new', kind: 'new' } : null;
     case 'trophies': {

@@ -1,4 +1,4 @@
-import { BOSS_KINDS, CHALLENGE, CHALLENGES, DEBT, FUNDING, PROJECTS, RIVALS, UPGRADES } from './content';
+import { BOSS_KINDS, CHALLENGE, CHALLENGES, DEBT, FUNDING, PATTERNS, PROJECTS, RFCS, RIVALS, SEGMENT_IDS, UPGRADES } from './content';
 import { lastShippingWorkflow } from './workflows';
 import { isUpgradeAvailable, owned, teamSlots } from './economy';
 import { perSecond, perTap } from './economy';
@@ -132,6 +132,20 @@ export const ACHIEVEMENTS: readonly AchievementDef[] = [
   { id: 'acquihire', name: 'Acqui-hire', description: 'Acquire a rival company', unlocked: (s) => s.stats.acquisitions >= 1 },
   { id: 'monopoly', name: 'Monopoly', description: 'Acquire every rival company', unlocked: (s) => s.market.acquired.length >= RIVALS.length },
   { id: 'rtfm', name: 'RTFM', description: 'Read 5 man pages', unlocked: (s) => s.manRead.length >= 5 },
+  // the architecture board, the roadmap, RFCs, pull requests, rules and founding again
+  { id: 'compose', name: 'Works on my cluster', description: 'Deploy the architecture board', unlocked: (s) => s.stats.deploys >= 1 },
+  { id: 'pattern', name: 'Design patterns', description: 'Build a named pattern on the board', unlocked: (s) => s.infra.found.length >= 1 },
+  { id: 'gof', name: 'Gang of four', description: 'Build all four patterns', unlocked: (s) => s.infra.found.length >= PATTERNS.length },
+  { id: 'headline', name: 'Above the fold', description: 'Ship a headline feature', unlocked: (s) => s.stats.headlines >= 1 },
+  { id: 'changelog', name: 'Changelog', description: 'Ship 50 headline features', unlocked: (s) => s.stats.headlines >= 50 },
+  { id: 'everyone', name: 'Something for everyone', description: 'Ship a headline feature for every kind of user', unlocked: (s) => SEGMENT_IDS.every((id) => (s.roadmap.shipped[id] ?? 0) >= 1) },
+  { id: 'rfc1', name: 'Request for comments', description: 'Adopt an RFC', unlocked: (s) => s.rfc.done.length >= 1 },
+  { id: 'rfc6', name: 'Due process', description: 'Adopt 6 RFCs', unlocked: (s) => s.rfc.done.length >= 6 },
+  { id: 'rfcall', name: 'Bureaucracy, perfected', description: 'Adopt every RFC', unlocked: (s) => s.rfc.done.length >= RFCS.length },
+  { id: 'lgtm', name: 'LGTM', description: 'Merge a pull request from a contributor', unlocked: (s) => s.stats.pullsMerged >= 1 },
+  { id: 'maintainer', name: 'Maintainer', description: 'Merge 10 pull requests', unlocked: (s) => s.stats.pullsMerged >= 10 },
+  { id: 'ifttt', name: 'If this, then that', description: 'Have your rules fire 25 times', unlocked: (s) => s.stats.rulesFired >= 25 },
+  { id: 'founder', name: 'Serial founder', description: 'Found a second company', unlocked: (s) => s.founder.exits >= 1 },
   // secrets
   { id: 'sudo', name: 'sudo make me a sandwich', description: 'Type sudo on a keyboard', secret: true, unlocked: (s) => !!s.flags.sudo },
   { id: 'rmrf', name: 'Living dangerously', description: 'Type rm -rf on a keyboard', secret: true, unlocked: (s) => !!s.flags.rmrf },
@@ -174,6 +188,10 @@ export const ACHIEVEMENT_PROGRESS: Record<string, Progress> = {
   caught: stat('testsCaught', 25), triage: stat('issuesClosed', 100), polyglot: (s) => [s.stacksUsed.length, 4],
   mastered: (s) => [Math.max(0, ...Object.values(s.challengeLevels).map((l) => l ?? 0)), CHALLENGE.maxLevel],
   streak4: (s) => [s.corp.streak, 4], monopoly: (s) => [s.market.acquired.length, RIVALS.length],
+  gof: (s) => [s.infra.found.length, PATTERNS.length], changelog: stat('headlines', 50),
+  everyone: (s) => [SEGMENT_IDS.filter((id) => (s.roadmap.shipped[id] ?? 0) >= 1).length, SEGMENT_IDS.length],
+  rfc6: (s) => [s.rfc.done.length, 6], rfcall: (s) => [s.rfc.done.length, RFCS.length],
+  maintainer: stat('pullsMerged', 10), ifttt: stat('rulesFired', 25),
 };
 
 /** Marks newly earned achievements on the state and returns them. */

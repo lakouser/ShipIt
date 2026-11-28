@@ -2,6 +2,7 @@ import { MILESTONE, QUESTS, SHIP, UPGRADES, packageName } from './content';
 import { critChance, isUpgradeVisible, owned, totalOwned, typicalOutput } from './economy';
 import { grantScript, randomScript } from './effects';
 import { D, Decimal, fmt } from './num';
+import { rfcDone } from './rfcs';
 import type { Rng } from './rng';
 import type { GameState, Milestone, MilestoneTaskKind, Quest, QuestReward } from './state';
 
@@ -143,6 +144,9 @@ function applyReward(s: GameState, reward: QuestReward): void {
   else s.questBonus[reward.kind] += reward.amount;
 }
 
+/** Tasks TODO.md holds at once (one more with a groomed backlog). */
+export const questSlots = (s: GameState): number => QUESTS.active + (rfcDone(s, 'backlog') ? 1 : 0);
+
 /**
  * Completes finished tasks (applying their rewards) and refills the list one task at a time,
  * QUESTS.refillDelayS apart, up to QUESTS.active. Returns what was completed.
@@ -159,7 +163,7 @@ export function updateQuests(s: GameState, now: number, rng: Rng): Quest[] {
   }
   // A fresh list fills all at once; afterwards one task per delay.
   const fillAll = s.stats.quests === 0 && s.quests.length === 0;
-  while (s.quests.length < QUESTS.active && (fillAll || now >= s.nextQuestAt)) {
+  while (s.quests.length < questSlots(s) && (fillAll || now >= s.nextQuestAt)) {
     const q = makeQuest(s, now, rng);
     if (!q) break;
     s.quests.push(q);
